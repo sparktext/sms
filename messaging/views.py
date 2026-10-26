@@ -5,4 +5,4 @@ from django.shortcuts import render
 
 def inbox(request):
     # logic for inbox view
-    return render(request, 'message/inbox.html')
+    return render(request, 'messaging/inbox.html')
