@@ -1,0 +1,233 @@
+{% extends "website/base.html" %}
+
+{% block title %}SparkText — Two-Way SMS for Businesses{% endblock %}
+{% block meta_description %}SparkText makes business texting effortless. Send bulk campaigns, run two-way conversations, handle opt-outs automatically, and track delivery — all in one platform.{% endblock %}
+
+{% block nav_home %}nav-active{% endblock %}
+
+{% block content %}
+
+<!-- ═══════════════════════════ HERO ═══════════════════════════ -->
+<section class="relative min-h-[90vh] flex items-center mesh-bg noise overflow-hidden" aria-label="Hero">
+
+  <!-- Grid lines overlay -->
+  <div class="absolute inset-0 opacity-[0.04]"
+       style="background-image: linear-gradient(#818cf8 1px, transparent 1px), linear-gradient(90deg, #818cf8 1px, transparent 1px); background-size: 60px 60px;">
+  </div>
+
+  <!-- Floating orbs -->
+  <div class="absolute top-1/4 -left-32 w-96 h-96 rounded-full bg-brand-600/20 blur-3xl pointer-events-none"></div>
+  <div class="absolute bottom-1/4 -right-32 w-80 h-80 rounded-full bg-accent/15 blur-3xl pointer-events-none"></div>
+  <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-brand-500/5 blur-3xl pointer-events-none"></div>
+
+  <div class="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 text-center">
+
+    <!-- Badge -->
+    <div class="fade-in inline-flex items-center gap-2 bg-white/5 border border-white/10 rounded-full px-5 py-2 mb-8 backdrop-blur-sm">
+      <span class="pulse-dot text-accent text-xs font-bold uppercase tracking-widest">Live &amp; A2P 10DLC Compliant</span>
+    </div>
+
+    <!-- Headline -->
+    <h1 class="fade-in-2 text-5xl sm:text-6xl lg:text-7xl font-black tracking-tight text-white leading-[1.05] mb-6">
+      Text messaging<br>
+      <span class="text-gradient">built for business</span>
+    </h1>
+
+    <!-- Sub -->
+    <p class="fade-in-3 text-lg sm:text-xl text-white/60 max-w-2xl mx-auto leading-relaxed mb-10">
+      Send bulk campaigns, run real two-way conversations, and stay compliant —
+      all from one beautifully simple platform.
+    </p>
+
+    <!-- CTA row -->
+    <div class="fade-in-4 flex flex-col sm:flex-row items-center justify-center gap-4 mb-16">
+      <a href="/contact/" id="hero-get-started"
+         class="gradient-accent text-gray-900 font-bold px-8 py-4 rounded-2xl text-base shadow-xl hover:scale-105 transition-all glow-accent">
+        Get started free &rarr;
+      </a>
+      <a href="/contact/" id="hero-contact-link"
+         class="flex items-center gap-2 text-white/70 hover:text-white font-semibold transition-colors group">
+        <span>Talk to us</span>
+        <span class="group-hover:translate-x-1 transition-transform inline-block">&rarr;</span>
+      </a>
+    </div>
+
+    <!-- Stats row -->
+    <div class="fade-in-5 grid grid-cols-3 divide-x divide-white/10 max-w-lg mx-auto border border-white/10 rounded-2xl bg-white/5 backdrop-blur-sm overflow-hidden">
+      <div class="py-5 px-4">
+        <div class="text-2xl font-black text-accent">98%</div>
+        <div class="text-xs text-white/40 uppercase tracking-wider mt-1">Open rate</div>
+      </div>
+      <div class="py-5 px-4">
+        <div class="text-2xl font-black text-accent">3 min</div>
+        <div class="text-xs text-white/40 uppercase tracking-wider mt-1">Avg response</div>
+      </div>
+      <div class="py-5 px-4">
+        <div class="text-2xl font-black text-accent">A2P</div>
+        <div class="text-xs text-white/40 uppercase tracking-wider mt-1">10DLC ready</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Bottom fade -->
+  <div class="absolute bottom-0 inset-x-0 h-32 bg-gradient-to-t from-white to-transparent pointer-events-none"></div>
+</section>
+
+
+<!-- ═══════════════════════════ FEATURES ═══════════════════════════ -->
+<section class="py-28 bg-white" id="features" aria-label="Core features">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+
+    <!-- Header -->
+    <div class="text-center mb-16">
+      <span class="inline-block text-xs font-bold uppercase tracking-widest text-brand-500 bg-brand-50 px-4 py-1.5 rounded-full mb-4">Features</span>
+      <h2 class="text-4xl lg:text-5xl font-black tracking-tight text-gray-900 mb-4">Everything you need to<br>text at scale</h2>
+      <p class="text-lg text-gray-500 max-w-xl mx-auto">Built for teams who care about deliverability and compliance — not just raw volume.</p>
+    </div>
+
+    <!-- Cards grid -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+
+      <!-- Bulk Campaigns -->
+      <article id="feature-campaigns"
+               class="relative group bg-white border border-gray-100 rounded-3xl p-8 card-hover shadow-sm overflow-hidden">
+        <div class="absolute inset-0 bg-gradient-to-br from-brand-50/0 to-brand-100/0 group-hover:from-brand-50/50 group-hover:to-brand-50/30 transition-all duration-300 rounded-3xl pointer-events-none"></div>
+        <div class="relative">
+          <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-brand-100 to-brand-200 flex items-center justify-center text-2xl mb-5 group-hover:scale-110 transition-transform">📤</div>
+          <h3 class="text-lg font-bold text-gray-900 mb-2">Bulk Campaigns</h3>
+          <p class="text-sm text-gray-500 leading-relaxed">Schedule and send personalized SMS to thousands of contacts. Segment, preview, and launch in minutes.</p>
+        </div>
+      </article>
+
+      <!-- Two-Way Inbox -->
+      <article id="feature-inbox"
+               class="relative group bg-white border border-gray-100 rounded-3xl p-8 card-hover shadow-sm overflow-hidden">
+        <div class="absolute inset-0 bg-gradient-to-br from-emerald-50/0 to-teal-50/0 group-hover:from-emerald-50/50 group-hover:to-teal-50/30 transition-all duration-300 rounded-3xl pointer-events-none"></div>
+        <div class="relative">
+          <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-100 to-teal-100 flex items-center justify-center text-2xl mb-5 group-hover:scale-110 transition-transform">💬</div>
+          <h3 class="text-lg font-bold text-gray-900 mb-2">Two-Way Inbox</h3>
+          <p class="text-sm text-gray-500 leading-relaxed">Every reply lands in a shared team inbox. Assign, annotate, and close threads — like a helpdesk for SMS.</p>
+        </div>
+      </article>
+
+      <!-- Opt-Out Handling -->
+      <article id="feature-optout"
+               class="relative group bg-white border border-gray-100 rounded-3xl p-8 card-hover shadow-sm overflow-hidden">
+        <div class="absolute inset-0 bg-gradient-to-br from-amber-50/0 to-yellow-50/0 group-hover:from-amber-50/50 group-hover:to-yellow-50/30 transition-all duration-300 rounded-3xl pointer-events-none"></div>
+        <div class="relative">
+          <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-100 to-yellow-100 flex items-center justify-center text-2xl mb-5 group-hover:scale-110 transition-transform">🔒</div>
+          <h3 class="text-lg font-bold text-gray-900 mb-2">Auto Opt-Out</h3>
+          <p class="text-sm text-gray-500 leading-relaxed">STOP, UNSUBSCRIBE, QUIT — any keyword triggers an instant, logged opt-out. Zero manual work required.</p>
+        </div>
+      </article>
+
+      <!-- Delivery Reports -->
+      <article id="feature-delivery"
+               class="relative group bg-white border border-gray-100 rounded-3xl p-8 card-hover shadow-sm overflow-hidden">
+        <div class="absolute inset-0 bg-gradient-to-br from-pink-50/0 to-rose-50/0 group-hover:from-pink-50/50 group-hover:to-rose-50/30 transition-all duration-300 rounded-3xl pointer-events-none"></div>
+        <div class="relative">
+          <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-pink-100 to-rose-100 flex items-center justify-center text-2xl mb-5 group-hover:scale-110 transition-transform">📊</div>
+          <h3 class="text-lg font-bold text-gray-900 mb-2">Delivery Reports</h3>
+          <p class="text-sm text-gray-500 leading-relaxed">Real-time status on every message. See what delivered, what failed, and why — fix carrier issues fast.</p>
+        </div>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══════════════════════════ HOW IT WORKS ═══════════════════════════ -->
+<section class="py-28 bg-gray-950 relative overflow-hidden" id="how-it-works" aria-label="How it works">
+
+  <div class="absolute inset-0 opacity-30"
+       style="background-image: radial-gradient(circle at 30% 50%, rgba(99,102,241,0.25) 0%, transparent 50%), radial-gradient(circle at 70% 50%, rgba(6,214,160,0.1) 0%, transparent 50%);">
+  </div>
+
+  <div class="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="text-center mb-16">
+      <span class="inline-block text-xs font-bold uppercase tracking-widest text-accent bg-white/5 border border-white/10 px-4 py-1.5 rounded-full mb-4">Simple by design</span>
+      <h2 class="text-4xl lg:text-5xl font-black tracking-tight text-white mb-4">Up and running<br>in under an hour</h2>
+      <p class="text-lg text-white/50 max-w-xl mx-auto">From sign-up to first campaign sent — no engineers needed.</p>
+    </div>
+
+    <!-- Steps -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-8 relative">
+
+      <!-- Connector lines (desktop) -->
+      <div class="hidden md:block absolute top-10 left-1/3 right-1/3 h-px bg-gradient-to-r from-brand-500/50 via-accent/50 to-brand-500/50 pointer-events-none"></div>
+
+      <div id="step-1" class="relative text-center group">
+        <div class="w-20 h-20 mx-auto rounded-3xl gradient-accent flex items-center justify-center text-3xl font-black text-gray-900 mb-6 shadow-xl group-hover:scale-105 transition-transform glow-accent">1</div>
+        <h3 class="text-xl font-bold text-white mb-3">Connect your number</h3>
+        <p class="text-white/50 text-sm leading-relaxed max-w-xs mx-auto">Provision a 10DLC-registered long-code or toll-free number. We handle carrier registration for you.</p>
+      </div>
+
+      <div id="step-2" class="relative text-center group">
+        <div class="w-20 h-20 mx-auto rounded-3xl gradient-brand flex items-center justify-center text-3xl font-black text-white mb-6 shadow-xl group-hover:scale-105 transition-transform glow-brand">2</div>
+        <h3 class="text-xl font-bold text-white mb-3">Import your contacts</h3>
+        <p class="text-white/50 text-sm leading-relaxed max-w-xs mx-auto">Upload a CSV or sync from your CRM. Tag contacts, set custom fields, build segments in minutes.</p>
+      </div>
+
+      <div id="step-3" class="relative text-center group">
+        <div class="w-20 h-20 mx-auto rounded-3xl gradient-accent flex items-center justify-center text-3xl font-black text-gray-900 mb-6 shadow-xl group-hover:scale-105 transition-transform glow-accent">3</div>
+        <h3 class="text-xl font-bold text-white mb-3">Send &amp; reply</h3>
+        <p class="text-white/50 text-sm leading-relaxed max-w-xs mx-auto">Launch a campaign or start a 1-on-1 conversation. Replies land in your shared inbox automatically.</p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══════════════════════════ COMPLIANCE BANNER ═══════════════════════════ -->
+<section class="py-20 bg-white" aria-label="Compliance">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+
+    <div class="relative overflow-hidden rounded-3xl gradient-brand p-px">
+      <div class="shimmer absolute inset-0 rounded-3xl pointer-events-none"></div>
+      <div class="relative bg-gradient-to-br from-brand-600 to-brand-700 rounded-3xl p-10 sm:p-14">
+
+        <!-- Decorative orbs -->
+        <div class="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
+        <div class="absolute bottom-0 left-0 w-48 h-48 bg-accent/10 rounded-full translate-y-1/2 -translate-x-1/2 pointer-events-none"></div>
+
+        <div class="relative z-10 flex flex-col md:flex-row items-start md:items-center gap-8">
+          <div class="w-16 h-16 rounded-2xl bg-white/10 border border-white/20 flex items-center justify-center text-4xl flex-shrink-0 backdrop-blur-sm">🛡️</div>
+          <div class="flex-1">
+            <h2 class="text-2xl sm:text-3xl font-black text-white mb-3">Built-in opt-out &amp; consent tracking</h2>
+            <p class="text-white/70 max-w-2xl leading-relaxed">
+              SparkText records every opt-in source, consent timestamp, and STOP keyword automatically.
+              Your list stays clean, your brand stays safe, and carrier audits are nothing to fear.
+            </p>
+          </div>
+          <a href="/contact/" id="compliance-cta"
+             class="flex-shrink-0 bg-white text-brand-600 font-bold px-7 py-3.5 rounded-xl hover:bg-brand-50 transition-colors shadow-lg text-sm whitespace-nowrap">
+            Learn more &rarr;
+          </a>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+
+<!-- ═══════════════════════════ CTA SECTION ═══════════════════════════ -->
+<section class="py-24 bg-gray-50" aria-label="Call to action">
+  <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+    <h2 class="text-4xl lg:text-5xl font-black tracking-tight text-gray-900 mb-5">Ready to start texting?</h2>
+    <p class="text-lg text-gray-500 mb-10">Join businesses already using SparkText to connect with their customers.</p>
+    <div class="flex flex-col sm:flex-row gap-4 justify-center">
+      <a href="/contact/" id="cta-get-started" class="gradient-brand text-white font-bold px-8 py-4 rounded-2xl text-base shadow-xl hover:scale-105 transition-all glow-brand">
+        Get started free
+      </a>
+      <a href="/pricing/" id="cta-pricing" class="bg-white border border-gray-200 text-gray-700 font-bold px-8 py-4 rounded-2xl text-base hover:border-brand-300 hover:text-brand-600 transition-all">
+        View pricing
+      </a>
+    </div>
+  </div>
+</section>
+
+{% endblock %}

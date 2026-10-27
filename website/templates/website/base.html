@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="{% block meta_description %}SparkText — Two-way text messaging for businesses. Send bulk campaigns, manage replies, and stay compliant automatically.{% endblock %}">
+  <title>{% block title %}SparkText — Business SMS Platform{% endblock %}</title>
+
+  <!-- Tailwind CSS v4 -->
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+
+  <!-- Google Fonts: Inter + Geist-like -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+  <style type="text/tailwindcss">
+    @theme {
+      --font-sans: 'Inter', system-ui, sans-serif;
+      --color-brand-50:  #eef2ff;
+      --color-brand-100: #e0e7ff;
+      --color-brand-300: #a5b4fc;
+      --color-brand-400: #818cf8;
+      --color-brand-500: #6366f1;
+      --color-brand-600: #4f46e5;
+      --color-brand-700: #4338ca;
+      --color-brand-900: #1e1b4b;
+      --color-brand-950: #0f0c29;
+      --color-accent:    #06d6a0;
+      --color-accent-dk: #04b489;
+    }
+
+    @layer base {
+      html { font-family: var(--font-sans); }
+      * { border-color: rgb(229 231 235); }
+    }
+
+    @layer utilities {
+      .gradient-brand {
+        background: linear-gradient(135deg, #6366f1 0%, #4f46e5 50%, #4338ca 100%);
+      }
+      .gradient-dark {
+        background: linear-gradient(160deg, #0f0c29 0%, #1e1b4b 60%, #312e81 100%);
+      }
+      .gradient-accent {
+        background: linear-gradient(135deg, #06d6a0 0%, #04b489 100%);
+      }
+      .glass {
+        background: rgba(255,255,255,0.85);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+      }
+      .glass-dark {
+        background: rgba(15,12,41,0.7);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+      }
+      .text-gradient {
+        background: linear-gradient(135deg, #818cf8, #6366f1, #06d6a0);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+      .glow-brand {
+        box-shadow: 0 0 40px rgba(99,102,241,0.35), 0 4px 16px rgba(99,102,241,0.2);
+      }
+      .glow-accent {
+        box-shadow: 0 0 40px rgba(6,214,160,0.35), 0 4px 16px rgba(6,214,160,0.2);
+      }
+      .card-hover {
+        transition: transform 0.22s cubic-bezier(0.4,0,0.2,1),
+                    box-shadow 0.22s cubic-bezier(0.4,0,0.2,1),
+                    border-color 0.22s cubic-bezier(0.4,0,0.2,1);
+      }
+      .card-hover:hover {
+        transform: translateY(-6px);
+        box-shadow: 0 20px 60px rgba(99,102,241,0.15);
+        border-color: rgb(165,180,252);
+      }
+      .fade-in {
+        animation: fadeUp 0.6s ease both;
+      }
+      .fade-in-2 { animation: fadeUp 0.6s 0.1s ease both; }
+      .fade-in-3 { animation: fadeUp 0.6s 0.2s ease both; }
+      .fade-in-4 { animation: fadeUp 0.6s 0.3s ease both; }
+      .fade-in-5 { animation: fadeUp 0.6s 0.4s ease both; }
+
+      @keyframes fadeUp {
+        from { opacity: 0; transform: translateY(20px); }
+        to   { opacity: 1; transform: translateY(0);    }
+      }
+
+      .pulse-dot::before {
+        content: '';
+        display: inline-block;
+        width: 8px; height: 8px;
+        border-radius: 50%;
+        background: #06d6a0;
+        margin-right: 8px;
+        animation: pulseDot 1.5s ease-in-out infinite;
+      }
+      @keyframes pulseDot {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(6,214,160,0.6); }
+        50%       { box-shadow: 0 0 0 6px rgba(6,214,160,0); }
+      }
+
+      .shimmer {
+        background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.06) 50%, transparent 100%);
+        background-size: 200% 100%;
+        animation: shimmer 3s linear infinite;
+      }
+      @keyframes shimmer {
+        0%   { background-position: -200% 0; }
+        100% { background-position:  200% 0; }
+      }
+
+      .mesh-bg {
+        background-color: #0f0c29;
+        background-image:
+          radial-gradient(ellipse 80% 50% at 20% 10%, rgba(99,102,241,0.25) 0%, transparent 60%),
+          radial-gradient(ellipse 60% 40% at 80% 80%, rgba(6,214,160,0.12) 0%, transparent 50%),
+          radial-gradient(ellipse 40% 30% at 60% 20%, rgba(167,139,250,0.1) 0%, transparent 50%);
+      }
+
+      .noise {
+        position: relative;
+      }
+      .noise::after {
+        content: '';
+        position: absolute; inset: 0;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+        pointer-events: none;
+        opacity: 0.4;
+      }
+
+      /* nav active */
+      .nav-active {
+        color: #6366f1 !important;
+        background: rgba(99,102,241,0.1) !important;
+      }
+    }
+  </style>
+
+  {% block extra_head %}{% endblock %}
+</head>
+<body class="bg-white text-gray-900 antialiased">
+
+<!-- ═══════════════════════════ NAVBAR ═══════════════════════════ -->
+<header id="navbar" class="fixed top-0 inset-x-0 z-50 transition-all duration-300">
+  <div class="glass border-b border-white/50 shadow-sm shadow-black/5">
+    <nav class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-16">
+
+        <!-- Logo -->
+        <a href="/" id="nav-logo" class="flex items-center gap-2.5 group" aria-label="SparkText home">
+          <div class="gradient-brand w-9 h-9 rounded-xl flex items-center justify-center text-white text-sm font-bold shadow-md group-hover:scale-105 transition-transform">
+            &#9889;
+          </div>
+          <span class="text-xl font-extrabold tracking-tight text-gray-900">Spark<span class="text-gradient">Text</span></span>
+        </a>
+
+        <!-- Desktop links -->
+        <ul class="hidden md:flex items-center gap-1 list-none" role="list">
+          <li><a href="/"         id="nav-home"    class="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 hover:text-brand-600 hover:bg-brand-50 transition-all {% block nav_home %}{% endblock %}">Home</a></li>
+          <li><a href="/about/"   id="nav-about"   class="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 hover:text-brand-600 hover:bg-brand-50 transition-all {% block nav_about %}{% endblock %}">About</a></li>
+          <li><a href="/pricing/" id="nav-pricing" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 hover:text-brand-600 hover:bg-brand-50 transition-all {% block nav_pricing %}{% endblock %}">Pricing</a></li>
+          <li><a href="/contact/" id="nav-contact" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 hover:text-brand-600 hover:bg-brand-50 transition-all {% block nav_contact %}{% endblock %}">Contact</a></li>
+        </ul>
+
+        <!-- CTA -->
+        <div class="hidden md:flex items-center gap-3">
+          <a href="/contact/" class="text-sm font-semibold text-gray-600 hover:text-brand-600 transition-colors" id="nav-cta-contact">Contact us</a>
+          <a href="/dashboard/" class="gradient-brand text-white text-sm font-semibold px-5 py-2.5 rounded-xl shadow-md hover:shadow-lg hover:scale-105 transition-all glow-brand" id="nav-cta-login">
+            Sign in &rarr;
+          </a>
+        </div>
+
+        <!-- Mobile hamburger -->
+        <button id="mobile-menu-btn" class="md:hidden p-2 rounded-lg text-gray-600 hover:bg-gray-100 transition-colors" aria-label="Toggle menu" aria-expanded="false">
+          <svg id="ham-icon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+          <svg id="close-icon" class="w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <!-- Mobile menu -->
+      <div id="mobile-menu" class="hidden md:hidden pb-4 space-y-1">
+        <a href="/"         class="block px-4 py-2.5 rounded-lg text-sm font-medium text-gray-700 hover:bg-brand-50 hover:text-brand-600 transition-all">Home</a>
+        <a href="/about/"   class="block px-4 py-2.5 rounded-lg text-sm font-medium text-gray-700 hover:bg-brand-50 hover:text-brand-600 transition-all">About</a>
+        <a href="/pricing/" class="block px-4 py-2.5 rounded-lg text-sm font-medium text-gray-700 hover:bg-brand-50 hover:text-brand-600 transition-all">Pricing</a>
+        <a href="/contact/" class="block px-4 py-2.5 rounded-lg text-sm font-medium text-gray-700 hover:bg-brand-50 hover:text-brand-600 transition-all">Contact</a>
+        <div class="pt-3 flex gap-3 px-4">
+          <a href="/dashboard/" class="gradient-brand text-white text-sm font-semibold px-5 py-2.5 rounded-xl flex-1 text-center">Sign in &rarr;</a>
+        </div>
+      </div>
+    </nav>
+  </div>
+</header>
+
+<!-- Page content offset for fixed nav -->
+<div class="h-16"></div>
+
+<!-- ═══════════════════════════ PAGE CONTENT ═══════════════════════════ -->
+{% block content %}{% endblock %}
+
+<!-- ═══════════════════════════ FOOTER ═══════════════════════════ -->
+<footer class="gradient-dark noise text-white/80 pt-16 pb-8">
+  <!-- Decorative top border -->
+  <div class="w-full h-px bg-gradient-to-r from-transparent via-brand-500/50 to-transparent mb-16"></div>
+
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-12 mb-16">
+
+      <!-- Brand col -->
+      <div class="lg:col-span-2">
+        <a href="/" class="flex items-center gap-2.5 mb-4 group" aria-label="SparkText">
+          <div class="gradient-brand w-9 h-9 rounded-xl flex items-center justify-center text-white text-sm font-bold shadow-md">&#9889;</div>
+          <span class="text-xl font-extrabold tracking-tight text-white">SparkText</span>
+        </a>
+        <p class="text-sm text-white/55 leading-relaxed max-w-xs">Two-way business texting done right. Compliant by design, powerful by default.</p>
+        <div class="flex gap-3 mt-6">
+          <a href="mailto:info@sparktext.si" class="text-xs bg-white/5 hover:bg-white/10 border border-white/10 px-4 py-2 rounded-lg transition-colors text-white/70 hover:text-white">
+            ✉ info@sparktext.si
+          </a>
+        </div>
+      </div>
+
+      <!-- Links -->
+      <div>
+        <h4 class="text-xs font-bold uppercase tracking-widest text-white/40 mb-5">Product</h4>
+        <ul class="space-y-3 list-none">
+          <li><a href="/#features"      class="text-sm text-white/60 hover:text-accent transition-colors">Features</a></li>
+          <li><a href="/#how-it-works"  class="text-sm text-white/60 hover:text-accent transition-colors">How it works</a></li>
+          <li><a href="/pricing/"        class="text-sm text-white/60 hover:text-accent transition-colors">Pricing</a></li>
+        </ul>
+      </div>
+
+      <div>
+        <h4 class="text-xs font-bold uppercase tracking-widest text-white/40 mb-5">Company</h4>
+        <ul class="space-y-3 list-none">
+          <li><a href="/about/"   class="text-sm text-white/60 hover:text-accent transition-colors">About</a></li>
+          <li><a href="/contact/" class="text-sm text-white/60 hover:text-accent transition-colors">Contact</a></li>
+        </ul>
+      </div>
+
+      <div>
+        <h4 class="text-xs font-bold uppercase tracking-widest text-white/40 mb-5">Legal</h4>
+        <ul class="space-y-3 list-none">
+          <li><a href="/privacy/" class="text-sm text-white/60 hover:text-accent transition-colors">Privacy Policy</a></li>
+          <li><a href="/terms/"   class="text-sm text-white/60 hover:text-accent transition-colors">Terms of Service</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Bottom bar -->
+    <div class="border-t border-white/8 pt-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-xs text-white/35">
+      <span>&copy; 2026 SparkText Inc. All rights reserved.</span>
+      <address class="not-italic">9675 Moreno Ln, Gilroy, CA 95020 &middot; (661) 203-1738</address>
+    </div>
+  </div>
+</footer>
+
+<!-- ═══════════════════════════ JS ═══════════════════════════ -->
+<script>
+  // Mobile menu toggle
+  const btn       = document.getElementById('mobile-menu-btn');
+  const menu      = document.getElementById('mobile-menu');
+  const hamIcon   = document.getElementById('ham-icon');
+  const closeIcon = document.getElementById('close-icon');
+
+  btn.addEventListener('click', () => {
+    const open = menu.classList.toggle('hidden');
+    hamIcon.classList.toggle('hidden', !open);
+    closeIcon.classList.toggle('hidden', open);
+    btn.setAttribute('aria-expanded', String(!open));
+  });
+
+  // Navbar scroll shadow
+  const navbar = document.getElementById('navbar');
+  window.addEventListener('scroll', () => {
+    if (window.scrollY > 10) {
+      navbar.querySelector('.glass').classList.add('shadow-lg', 'shadow-black/10');
+    } else {
+      navbar.querySelector('.glass').classList.remove('shadow-lg', 'shadow-black/10');
+    }
+  });
+</script>
+{% block extra_js %}{% endblock %}
+</body>
+</html>

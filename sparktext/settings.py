@@ -38,9 +38,12 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     # Local apps
+    'rest_framework',
     'messaging',
     'contacts',
     'compliance',
+    'core',
+    'website',
 ]
 
 MIDDLEWARE = [
@@ -78,8 +81,12 @@ WSGI_APPLICATION = 'sparktext.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'sparktext',
+        'USER': 'postgres',
+        'PASSWORD': 'sparktext',
+        'HOST': 'localhost',
+        'PORT': '5432',
     }
 }
 
@@ -121,11 +128,22 @@ USE_TZ = True
 STATIC_URL = 'static/'
 
 
-# Email
+# Email (Hostinger SMTP)
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
+
+DEFAULT_FROM_EMAIL = 'info@sparktext.si'
+CONTACT_EMAIL = 'info@sparktext.si'
 
 MAILERS = {
     'default': {
-        'BACKEND': 'django.core.mail.backends.console.EmailBackend',
+        'BACKEND': 'django.core.mail.backends.smtp.EmailBackend',
+        'OPTIONS': {
+            'host': 'smtp.hostinger.com',
+            'port': 465,
+            'use_ssl': True,
+            'username': 'info@sparktext.si',
+            'password': '001002!@#Bb',
+        },
     },
 }
+

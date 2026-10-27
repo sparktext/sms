@@ -1,0 +1,148 @@
+{% extends "website/base.html" %}
+
+{% block title %}Terms of Service — SparkText{% endblock %}
+{% block meta_description %}SparkText Terms of Service including acceptable use, billing, SMS terms (STOP opt-out, message frequency, carrier rates), termination, and liability.{% endblock %}
+
+{% block content %}
+
+<!-- Hero -->
+<section class="relative py-20 mesh-bg noise overflow-hidden" aria-label="Terms header">
+  <div class="absolute bottom-0 inset-x-0 h-24 bg-gradient-to-t from-white to-transparent pointer-events-none"></div>
+  <div class="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+    <h1 class="text-5xl font-black tracking-tight text-white mb-3">Terms of Service</h1>
+    <p class="text-white/50 text-sm">Last updated: October 1, 2026</p>
+  </div>
+</section>
+
+<!-- Content -->
+<section class="py-20 bg-white" aria-label="Terms content">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="grid grid-cols-1 lg:grid-cols-4 gap-12">
+
+      <!-- Sticky TOC -->
+      <nav class="hidden lg:block lg:col-span-1" aria-label="Terms table of contents">
+        <div class="sticky top-24 bg-gray-50 border border-gray-100 rounded-2xl p-6">
+          <h4 class="text-xs font-bold uppercase tracking-widest text-gray-400 mb-5">Contents</h4>
+          <ul class="space-y-1 list-none text-sm">
+            <li><a href="#acceptance"     class="block px-3 py-2 rounded-xl text-gray-500 hover:text-brand-600 hover:bg-brand-50 transition-all border-l-2 border-transparent hover:border-brand-400">Acceptance</a></li>
+            <li><a href="#service"        class="block px-3 py-2 rounded-xl text-gray-500 hover:text-brand-600 hover:bg-brand-50 transition-all border-l-2 border-transparent hover:border-brand-400">Our Service</a></li>
+            <li><a href="#accounts"       class="block px-3 py-2 rounded-xl text-gray-500 hover:text-brand-600 hover:bg-brand-50 transition-all border-l-2 border-transparent hover:border-brand-400">Accounts</a></li>
+            <li><a href="#acceptable-use" class="block px-3 py-2 rounded-xl text-gray-500 hover:text-brand-600 hover:bg-brand-50 transition-all border-l-2 border-transparent hover:border-brand-400">Acceptable Use</a></li>
+            <li><a href="#billing"        class="block px-3 py-2 rounded-xl text-gray-500 hover:text-brand-600 hover:bg-brand-50 transition-all border-l-2 border-transparent hover:border-brand-400">Billing</a></li>
+            <li><a href="#sms-terms"      class="block px-3 py-2 rounded-xl text-gray-500 hover:text-brand-600 hover:bg-brand-50 transition-all border-l-2 border-transparent hover:border-brand-400">SMS Terms</a></li>
+            <li><a href="#termination"    class="block px-3 py-2 rounded-xl text-gray-500 hover:text-brand-600 hover:bg-brand-50 transition-all border-l-2 border-transparent hover:border-brand-400">Termination</a></li>
+            <li><a href="#liability"      class="block px-3 py-2 rounded-xl text-gray-500 hover:text-brand-600 hover:bg-brand-50 transition-all border-l-2 border-transparent hover:border-brand-400">Liability</a></li>
+            <li><a href="#governing-law"  class="block px-3 py-2 rounded-xl text-gray-500 hover:text-brand-600 hover:bg-brand-50 transition-all border-l-2 border-transparent hover:border-brand-400">Governing Law</a></li>
+            <li><a href="#contact-legal"  class="block px-3 py-2 rounded-xl text-gray-500 hover:text-brand-600 hover:bg-brand-50 transition-all border-l-2 border-transparent hover:border-brand-400">Contact</a></li>
+          </ul>
+        </div>
+      </nav>
+
+      <!-- Body -->
+      <div class="lg:col-span-3 prose-content">
+        <div class="inline-block text-xs text-gray-400 bg-gray-50 border border-gray-100 rounded-lg px-3 py-1.5 mb-8">Effective October 1, 2026</div>
+
+        <!-- Section template -->
+        {% include "website/_legal_section.html" ignore missing %}
+
+        <section id="acceptance" class="mb-12 scroll-mt-24">
+          <h2 class="text-2xl font-black text-gray-900 mb-4 pb-4 border-b border-gray-100">1. Acceptance of Terms</h2>
+          <p class="text-gray-600 leading-relaxed mb-4">By creating a SparkText account or using any part of the SparkText platform (the "Service"), operated by <strong class="text-gray-800">SparkText Inc</strong>, a California corporation ("we", "us", or "SparkText"), you agree to be bound by these Terms of Service ("Terms").</p>
+          <p class="text-gray-600 leading-relaxed">These Terms apply to all users, including administrators, agents, and anyone who accesses the Service through your account.</p>
+        </section>
+
+        <section id="service" class="mb-12 scroll-mt-24">
+          <h2 class="text-2xl font-black text-gray-900 mb-4 pb-4 border-b border-gray-100">2. Our Service</h2>
+          <p class="text-gray-600 leading-relaxed mb-4">SparkText provides a cloud-based SMS platform allowing businesses to send and receive text messages, manage contact lists, run campaigns, and track message delivery. The Service is built on top of third-party carrier networks (including Twilio and Telnyx) and is subject to those carriers' policies.</p>
+          <p class="text-gray-600 leading-relaxed">We reserve the right to modify, suspend, or discontinue any part of the Service at any time with reasonable notice.</p>
+        </section>
+
+        <section id="accounts" class="mb-12 scroll-mt-24">
+          <h2 class="text-2xl font-black text-gray-900 mb-4 pb-4 border-b border-gray-100">3. Accounts</h2>
+          <ul class="space-y-3 list-none">
+            <li class="flex gap-3 text-gray-600 text-sm leading-relaxed"><span class="mt-1 w-1.5 h-1.5 rounded-full bg-brand-400 flex-shrink-0"></span>You must provide accurate information when registering.</li>
+            <li class="flex gap-3 text-gray-600 text-sm leading-relaxed"><span class="mt-1 w-1.5 h-1.5 rounded-full bg-brand-400 flex-shrink-0"></span>You are responsible for keeping your password secure and for all activity under your account.</li>
+            <li class="flex gap-3 text-gray-600 text-sm leading-relaxed"><span class="mt-1 w-1.5 h-1.5 rounded-full bg-brand-400 flex-shrink-0"></span>Accounts are non-transferable without our written consent.</li>
+            <li class="flex gap-3 text-gray-600 text-sm leading-relaxed"><span class="mt-1 w-1.5 h-1.5 rounded-full bg-brand-400 flex-shrink-0"></span>You must be at least 18 years old and authorized to bind your business to these Terms.</li>
+          </ul>
+        </section>
+
+        <section id="acceptable-use" class="mb-12 scroll-mt-24">
+          <h2 class="text-2xl font-black text-gray-900 mb-4 pb-4 border-b border-gray-100">4. Acceptable Use</h2>
+          <p class="text-gray-600 leading-relaxed mb-5">You agree to use the Service only for lawful purposes. You must not:</p>
+          <ul class="space-y-3 list-none mb-5">
+            <li class="flex gap-3 text-gray-600 text-sm leading-relaxed"><span class="mt-1 w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0"></span>Send unsolicited messages (spam) to recipients without prior express written consent.</li>
+            <li class="flex gap-3 text-gray-600 text-sm leading-relaxed"><span class="mt-1 w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0"></span>Send messages containing illegal content, hate speech, threats, or fraudulent material.</li>
+            <li class="flex gap-3 text-gray-600 text-sm leading-relaxed"><span class="mt-1 w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0"></span>Violate the TCPA, CAN-SPAM, or any applicable communications law.</li>
+            <li class="flex gap-3 text-gray-600 text-sm leading-relaxed"><span class="mt-1 w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0"></span>Circumvent opt-out requests or re-message contacts who replied STOP.</li>
+            <li class="flex gap-3 text-gray-600 text-sm leading-relaxed"><span class="mt-1 w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0"></span>Use the Service in CTIA-prohibited industries (e.g., certain firearms, payday loans).</li>
+          </ul>
+          <p class="text-gray-600 leading-relaxed text-sm">We may suspend or terminate your account immediately upon discovery of a violation without refund.</p>
+        </section>
+
+        <section id="billing" class="mb-12 scroll-mt-24">
+          <h2 class="text-2xl font-black text-gray-900 mb-4 pb-4 border-b border-gray-100">5. Billing</h2>
+          <ul class="space-y-3 list-none">
+            <li class="flex gap-3 text-gray-600 text-sm leading-relaxed"><span class="mt-1 w-1.5 h-1.5 rounded-full bg-brand-400 flex-shrink-0"></span>Subscription fees are billed monthly in advance. Overages and carrier fees are billed in arrears.</li>
+            <li class="flex gap-3 text-gray-600 text-sm leading-relaxed"><span class="mt-1 w-1.5 h-1.5 rounded-full bg-brand-400 flex-shrink-0"></span>All fees are in USD and non-refundable except as required by law.</li>
+            <li class="flex gap-3 text-gray-600 text-sm leading-relaxed"><span class="mt-1 w-1.5 h-1.5 rounded-full bg-brand-400 flex-shrink-0"></span>Plan price changes are notified by email at least 30 days in advance.</li>
+            <li class="flex gap-3 text-gray-600 text-sm leading-relaxed"><span class="mt-1 w-1.5 h-1.5 rounded-full bg-brand-400 flex-shrink-0"></span>Carrier surcharges (10DLC registration fees and per-message network costs) are passed through at cost and itemized on your invoice.</li>
+            <li class="flex gap-3 text-gray-600 text-sm leading-relaxed"><span class="mt-1 w-1.5 h-1.5 rounded-full bg-brand-400 flex-shrink-0"></span>Message and data rates from your recipients' carriers may apply and are outside our control.</li>
+          </ul>
+        </section>
+
+        <!-- SMS Terms highlighted box -->
+        <section id="sms-terms" class="mb-12 scroll-mt-24">
+          <h2 class="text-2xl font-black text-gray-900 mb-4 pb-4 border-b border-gray-100">6. SMS-Specific Terms</h2>
+
+          <div class="bg-gradient-to-br from-brand-50 to-purple-50 border border-brand-100 rounded-2xl p-7 mb-6">
+            <div class="flex items-center gap-3 mb-5">
+              <span class="text-2xl">💬</span>
+              <h3 class="font-bold text-brand-900">Important SMS disclosures</h3>
+            </div>
+            <ul class="space-y-3 list-none">
+              <li class="flex gap-3 text-sm text-brand-900 leading-relaxed"><span class="mt-1 w-1.5 h-1.5 rounded-full bg-brand-500 flex-shrink-0"></span><span><strong>Message frequency:</strong> Varies based on your campaign settings and recipient interactions.</span></li>
+              <li class="flex gap-3 text-sm text-brand-900 leading-relaxed"><span class="mt-1 w-1.5 h-1.5 rounded-full bg-brand-500 flex-shrink-0"></span><span><strong>Carrier rates:</strong> Message and data rates may apply to your recipients.</span></li>
+              <li class="flex gap-3 text-sm text-brand-900 leading-relaxed"><span class="mt-1 w-1.5 h-1.5 rounded-full bg-brand-500 flex-shrink-0"></span><span><strong>Opt-out:</strong> Recipients reply <strong>STOP</strong> to stop all messages. Honored instantly and automatically.</span></li>
+              <li class="flex gap-3 text-sm text-brand-900 leading-relaxed"><span class="mt-1 w-1.5 h-1.5 rounded-full bg-brand-500 flex-shrink-0"></span><span><strong>Help:</strong> Recipients reply <strong>HELP</strong> for assistance — an auto-response with support info is sent.</span></li>
+              <li class="flex gap-3 text-sm text-brand-900 leading-relaxed"><span class="mt-1 w-1.5 h-1.5 rounded-full bg-brand-500 flex-shrink-0"></span><span><strong>Support contact:</strong> <a href="mailto:info@sparktext.si" class="text-brand-600 underline">info@sparktext.si</a></span></li>
+            </ul>
+          </div>
+
+          <p class="text-gray-600 text-sm leading-relaxed mb-4">You are responsible for ensuring your contacts have provided prior express written consent before receiving marketing messages. SparkText logs opt-in source and opt-out events automatically, but collecting valid consent records is your obligation.</p>
+          <p class="text-gray-600 text-sm leading-relaxed">We reserve the right to disable phone numbers or suspend accounts generating abnormal opt-out rates, spam complaints, or carrier blocks.</p>
+        </section>
+
+        <section id="termination" class="mb-12 scroll-mt-24">
+          <h2 class="text-2xl font-black text-gray-900 mb-4 pb-4 border-b border-gray-100">7. Termination</h2>
+          <p class="text-gray-600 leading-relaxed mb-4">Either party may terminate at any time. You may cancel from your billing settings page. We may terminate or suspend access immediately for violations, non-payment, or if required by a carrier or regulatory authority.</p>
+          <p class="text-gray-600 leading-relaxed text-sm">Upon termination your account access ceases. Data is retained for 30 days during which you may request an export, then deleted.</p>
+        </section>
+
+        <section id="liability" class="mb-12 scroll-mt-24">
+          <h2 class="text-2xl font-black text-gray-900 mb-4 pb-4 border-b border-gray-100">8. Limitation of Liability</h2>
+          <p class="text-gray-600 leading-relaxed mb-4 text-sm">To the maximum extent permitted by law, SparkText and its officers, directors, employees, and agents shall not be liable for any indirect, incidental, special, consequential, or punitive damages arising from your use of the Service.</p>
+          <p class="text-gray-600 leading-relaxed text-sm">Our total aggregate liability to you for any claim is limited to the greater of (a) $100 USD or (b) fees you paid to SparkText in the three months preceding the claim. The Service is provided "as is" and "as available".</p>
+        </section>
+
+        <section id="governing-law" class="mb-12 scroll-mt-24">
+          <h2 class="text-2xl font-black text-gray-900 mb-4 pb-4 border-b border-gray-100">9. Governing Law</h2>
+          <p class="text-gray-600 leading-relaxed text-sm">These Terms are governed by the laws of the State of California, without regard to conflict-of-law principles. Disputes shall be resolved exclusively in state or federal courts in Santa Clara County, California.</p>
+        </section>
+
+        <section id="contact-legal" class="mb-4 scroll-mt-24">
+          <h2 class="text-2xl font-black text-gray-900 mb-4 pb-4 border-b border-gray-100">10. Contact</h2>
+          <div class="bg-gray-50 border border-gray-100 rounded-2xl p-6 text-sm text-gray-700 leading-relaxed">
+            <strong class="text-gray-900">SparkText Inc</strong><br>
+            9675 Moreno Ln<br>
+            Gilroy, CA 95020<br>
+            <a href="mailto:info@sparktext.si" class="text-brand-600 hover:underline">info@sparktext.si</a>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </div>
+</section>
+
+{% endblock %}

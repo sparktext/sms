@@ -1,0 +1,151 @@
+{% extends "website/base.html" %}
+
+{% block title %}About SparkText — Who We Are{% endblock %}
+{% block meta_description %}Learn about SparkText, our mission to make business texting simple and compliant, and the team behind the platform. SparkText Inc, Gilroy, CA.{% endblock %}
+
+{% block nav_about %}nav-active{% endblock %}
+
+{% block content %}
+
+<!-- ═══════════════════════════ HERO ═══════════════════════════ -->
+<section class="relative py-24 mesh-bg noise overflow-hidden" aria-label="About hero">
+  <div class="absolute inset-0 opacity-[0.04]"
+       style="background-image: linear-gradient(#818cf8 1px, transparent 1px), linear-gradient(90deg, #818cf8 1px, transparent 1px); background-size: 60px 60px;"></div>
+  <div class="absolute bottom-0 inset-x-0 h-32 bg-gradient-to-t from-white to-transparent pointer-events-none"></div>
+  <div class="absolute top-1/2 left-1/4 w-96 h-96 rounded-full bg-brand-600/20 blur-3xl pointer-events-none -translate-y-1/2"></div>
+
+  <div class="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+    <span class="fade-in inline-block text-xs font-bold uppercase tracking-widest text-accent bg-white/5 border border-white/10 px-4 py-1.5 rounded-full mb-6">Our story</span>
+    <h1 class="fade-in-2 text-5xl sm:text-6xl font-black tracking-tight text-white leading-tight mb-6">
+      We built the texting platform<br><span class="text-gradient">we always wished existed</span>
+    </h1>
+    <p class="fade-in-3 text-lg text-white/60 max-w-2xl mx-auto">
+      Simple, compliant, and designed for real business conversations — not just blasting messages into the void.
+    </p>
+  </div>
+</section>
+
+
+<!-- ═══════════════════════════ MISSION ═══════════════════════════ -->
+<section class="py-24 bg-white" aria-label="Mission">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+
+      <!-- Text -->
+      <div>
+        <span class="inline-block text-xs font-bold uppercase tracking-widest text-brand-500 bg-brand-50 px-4 py-1.5 rounded-full mb-5">Why we built this</span>
+        <h2 class="text-4xl font-black tracking-tight text-gray-900 mb-6 leading-tight">
+          Texting should be simple.<br>Compliance shouldn't be an afterthought.
+        </h2>
+        <div class="space-y-4 text-gray-500 leading-relaxed">
+          <p>
+            We started SparkText after watching businesses struggle with two problems at once: clunky
+            bulk-SMS tools that treated every contact as a number, and compliance nightmares that got
+            accounts shut down overnight. Something had to give.
+          </p>
+          <p>
+            In 2024 we set out to build a platform where two-way conversations were first-class,
+            opt-out handling was fully automatic, and 10DLC registration was handled for you —
+            not bolted on as an afterthought.
+          </p>
+          <p>
+            Today we serve small businesses, marketing agencies, and operations teams across the
+            United States who need reliable, carrier-compliant SMS without a full-time compliance team.
+          </p>
+        </div>
+      </div>
+
+      <!-- Company card -->
+      <div class="relative">
+        <div class="absolute -inset-4 rounded-3xl bg-gradient-to-br from-brand-100/60 to-purple-100/40 blur-2xl pointer-events-none"></div>
+        <div class="relative bg-white border border-gray-100 rounded-3xl p-8 shadow-xl">
+          <h3 class="text-xs font-bold uppercase tracking-widest text-gray-400 mb-6">Company details</h3>
+          <div class="space-y-5">
+            <div class="flex gap-4">
+              <span class="text-sm font-semibold text-gray-400 w-28 flex-shrink-0 pt-px">Legal name</span>
+              <span class="text-sm text-gray-800 font-medium">SparkText Inc</span>
+            </div>
+            <div class="w-full h-px bg-gray-100"></div>
+            <div class="flex gap-4">
+              <span class="text-sm font-semibold text-gray-400 w-28 flex-shrink-0 pt-px">State</span>
+              <span class="text-sm text-gray-800 font-medium">California (USA)</span>
+            </div>
+            <div class="w-full h-px bg-gray-100"></div>
+            <div class="flex gap-4">
+              <span class="text-sm font-semibold text-gray-400 w-28 flex-shrink-0 pt-px">Address</span>
+              <span class="text-sm text-gray-800 font-medium">9675 Moreno Ln<br>Gilroy, CA 95020</span>
+            </div>
+            <div class="w-full h-px bg-gray-100"></div>
+            <div class="flex gap-4">
+              <span class="text-sm font-semibold text-gray-400 w-28 flex-shrink-0 pt-px">Phone</span>
+              <a href="tel:6612031738" class="text-sm text-brand-600 font-medium hover:underline">(661) 203-1738</a>
+            </div>
+            <div class="w-full h-px bg-gray-100"></div>
+            <div class="flex gap-4">
+              <span class="text-sm font-semibold text-gray-400 w-28 flex-shrink-0 pt-px">Email</span>
+              <a href="mailto:info@sparktext.si" class="text-sm text-brand-600 font-medium hover:underline">info@sparktext.si</a>
+            </div>
+            <div class="w-full h-px bg-gray-100"></div>
+            <div class="flex gap-4">
+              <span class="text-sm font-semibold text-gray-400 w-28 flex-shrink-0 pt-px">Founded</span>
+              <span class="text-sm text-gray-800 font-medium">2024</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══════════════════════════ VALUES ═══════════════════════════ -->
+<section class="py-24 bg-gray-950 relative overflow-hidden" aria-label="Values">
+  <div class="absolute inset-0 opacity-30"
+       style="background-image: radial-gradient(circle at 20% 50%, rgba(99,102,241,0.2) 0%, transparent 50%), radial-gradient(circle at 80% 50%, rgba(6,214,160,0.1) 0%, transparent 50%);">
+  </div>
+  <div class="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="text-center mb-14">
+      <span class="inline-block text-xs font-bold uppercase tracking-widest text-accent bg-white/5 border border-white/10 px-4 py-1.5 rounded-full mb-4">What we stand for</span>
+      <h2 class="text-4xl lg:text-5xl font-black tracking-tight text-white">Our values</h2>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div id="value-simplicity" class="bg-white/5 border border-white/8 rounded-3xl p-7 hover:bg-white/8 hover:border-brand-400/30 transition-all group">
+        <div class="text-3xl mb-5 group-hover:scale-110 transition-transform inline-block">⚡</div>
+        <h3 class="text-lg font-bold text-white mb-2">Simplicity first</h3>
+        <p class="text-sm text-white/50 leading-relaxed">Every feature starts with: "Can a non-technical user do this in under two minutes?"</p>
+      </div>
+      <div id="value-compliance" class="bg-white/5 border border-white/8 rounded-3xl p-7 hover:bg-white/8 hover:border-accent/30 transition-all group">
+        <div class="text-3xl mb-5 group-hover:scale-110 transition-transform inline-block">🛡️</div>
+        <h3 class="text-lg font-bold text-white mb-2">Compliance by default</h3>
+        <p class="text-sm text-white/50 leading-relaxed">Opt-out handling, consent logging, and carrier rules are built in — not optional add-ons.</p>
+      </div>
+      <div id="value-transparency" class="bg-white/5 border border-white/8 rounded-3xl p-7 hover:bg-white/8 hover:border-brand-400/30 transition-all group">
+        <div class="text-3xl mb-5 group-hover:scale-110 transition-transform inline-block">🔍</div>
+        <h3 class="text-lg font-bold text-white mb-2">Full transparency</h3>
+        <p class="text-sm text-white/50 leading-relaxed">We show you exactly what your messages cost, how they performed, and why a carrier rejected them.</p>
+      </div>
+      <div id="value-privacy" class="bg-white/5 border border-white/8 rounded-3xl p-7 hover:bg-white/8 hover:border-accent/30 transition-all group">
+        <div class="text-3xl mb-5 group-hover:scale-110 transition-transform inline-block">🔒</div>
+        <h3 class="text-lg font-bold text-white mb-2">Privacy respected</h3>
+        <p class="text-sm text-white/50 leading-relaxed">We never sell your contacts' data. Your list is yours — we're just the delivery layer.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══════════════════════════ CONTACT CTA ═══════════════════════════ -->
+<section class="py-20 bg-white" aria-label="Contact CTA">
+  <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+    <h2 class="text-4xl font-black tracking-tight text-gray-900 mb-4">Questions? We're reachable.</h2>
+    <p class="text-lg text-gray-500 mb-8">A small team means you talk to someone who actually knows the product.</p>
+    <a href="/contact/" id="about-contact-btn"
+       class="gradient-brand text-white font-bold px-8 py-4 rounded-2xl text-base shadow-xl hover:scale-105 transition-all glow-brand inline-block">
+      Get in touch &rarr;
+    </a>
+  </div>
+</section>
+
+{% endblock %}
