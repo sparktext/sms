@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}SparkText{% endblock %}</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<style>
+  :root { --ink:#101828; --muted:#5B6478; --line:#D9DCE5; --brand:#4F46E5; --brand-dark:#4338CA; --deep:#16123A; --err:#B42318; }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px;
+         font-family:Inter,system-ui,sans-serif; color:var(--ink); background:var(--deep); }
+  .wrap { width:100%; max-width:440px; }
+  .logo { display:flex; align-items:center; gap:10px; color:#fff; font-weight:700; font-size:20px; text-decoration:none; margin-bottom:24px; }
+  .mark { width:34px; height:34px; border-radius:10px; background:var(--brand); }
+  .card { background:#fff; border-radius:16px; padding:32px; }
+  h1 { margin:0 0 4px; font-size:24px; }
+  .sub { margin:0 0 24px; color:var(--muted); font-size:14px; }
+  .field { margin-bottom:16px; }
+  .row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  label { display:block; font-size:13px; font-weight:500; margin-bottom:6px; }
+  input[type=text], input[type=email], input[type=password] {
+    width:100%; padding:12px 14px; font:inherit; font-size:15px; border:1px solid var(--line); border-radius:10px; background:#fff; }
+  input:focus-visible, button:focus-visible, a:focus-visible { outline:3px solid #A5B4FC; outline-offset:2px; }
+  .check { display:flex; gap:10px; align-items:flex-start; font-size:14px; color:var(--muted); }
+  .check input { margin-top:3px; width:18px; height:18px; }
+  .check label { margin:0; font-weight:400; }
+  .btn { width:100%; padding:14px; border:0; border-radius:10px; background:var(--brand); color:#fff; font:inherit; font-size:15px; font-weight:600; cursor:pointer; }
+  .btn:hover { background:var(--brand-dark); }
+  .error { color:var(--err); font-size:13px; margin:6px 0 0; }
+  .alert { background:#FEF3F2; color:var(--err); border-radius:10px; padding:12px 14px; font-size:14px; margin-bottom:16px; }
+  .alt { text-align:center; margin:20px 0 0; font-size:14px; color:var(--muted); }
+  .alt a { color:var(--brand-dark); font-weight:500; }
+  @media (max-width:480px) { .row { grid-template-columns:1fr; } .card { padding:24px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="logo" href="/"><span class="mark"></span>SparkText</a>
+  <div class="card">{% block content %}{% endblock %}</div>
+</div>
+</body>
+</html>

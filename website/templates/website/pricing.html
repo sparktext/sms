@@ -8,116 +8,242 @@
 {% block content %}
 
 <!-- ═══════════════════════════ HERO ═══════════════════════════ -->
-<section class="relative py-24 mesh-bg noise overflow-hidden" aria-label="Pricing hero">
-  <div class="absolute inset-0 opacity-[0.04]"
-       style="background-image: linear-gradient(#818cf8 1px, transparent 1px), linear-gradient(90deg, #818cf8 1px, transparent 1px); background-size: 60px 60px;"></div>
-  <div class="absolute bottom-0 inset-x-0 h-32 bg-gradient-to-t from-white to-transparent pointer-events-none"></div>
-  <div class="absolute top-1/2 right-1/4 w-96 h-96 rounded-full bg-accent/15 blur-3xl pointer-events-none -translate-y-1/2"></div>
-
-  <div class="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-    <span class="fade-in inline-block text-xs font-bold uppercase tracking-widest text-accent bg-white/5 border border-white/10 px-4 py-1.5 rounded-full mb-6">Transparent pricing</span>
-    <h1 class="fade-in-2 text-5xl sm:text-6xl font-black tracking-tight text-white leading-tight mb-5">
-      Simple plans.<br><span class="text-gradient">No hidden fees.</span>
+<section class="relative bg-white pt-24 pb-28 sm:pt-32 sm:pb-36 subtle-dots overflow-hidden" aria-label="Pricing hero">
+  <div class="relative max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+    <span class="fade-in inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-gray-200 bg-gray-50/80 text-xs font-medium tracking-wide text-gray-600 mb-8">
+      Transparent pricing
+    </span>
+    <h1 class="fade-in-2 text-5xl sm:text-6xl font-light tracking-tight text-gray-950 leading-tight mb-6">
+      Simple plans.<br><span class="font-medium text-gray-950">No hidden fees.</span>
     </h1>
-    <p class="fade-in-3 text-lg text-white/60 max-w-xl mx-auto">
-      Pick the plan that fits your message volume. Upgrade or downgrade any time.
+    <p class="fade-in-3 text-lg font-light text-gray-600 max-w-xl mx-auto leading-relaxed">
+      Pick the plan that fits your message volume. Scale up or adjust terms anytime.
     </p>
   </div>
 </section>
 
 
 <!-- ═══════════════════════════ PLANS ═══════════════════════════ -->
-<section class="py-24 bg-white" aria-label="Pricing plans">
+<section class="py-24 sm:py-32 bg-white border-t border-gray-100" aria-label="Pricing plans">
   <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
 
     <!-- Plans grid -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-8 mb-14">
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-8 mb-16">
 
       <!-- Starter -->
       <div id="plan-starter"
-           class="relative bg-white border-2 border-gray-100 rounded-3xl p-8 flex flex-col card-hover shadow-sm">
+        class="bg-white border border-gray-200 rounded-2xl p-8 sm:p-9 flex flex-col justify-between shadow-xs card-hover">
         <div>
-          <div class="text-xs font-bold uppercase tracking-widest text-gray-400 mb-4">Starter</div>
-          <div class="flex items-end gap-1 mb-1">
-            <span class="text-5xl font-black text-gray-900">$49</span>
-            <span class="text-gray-400 font-medium mb-2">/ mo</span>
+          <div class="text-xs font-medium uppercase tracking-[0.2em] text-gray-500 mb-4">Starter</div>
+          <div class="flex items-baseline gap-1.5 mb-2">
+            <span class="text-4xl sm:text-5xl font-light tracking-tight text-gray-950">$49</span>
+            <span class="text-sm font-light text-gray-500">/ mo</span>
           </div>
-          <p class="text-sm text-gray-500 mb-8 leading-relaxed">Perfect for small teams getting started with business texting.</p>
+          <p class="text-sm font-light text-gray-600 mb-8 leading-relaxed">
+            Perfect for small teams getting started with business texting.
+          </p>
 
-          <ul class="space-y-3 mb-8 list-none">
+          <div class="w-full h-px bg-gray-100 mb-8"></div>
 
-            <li class="flex items-center gap-3 text-sm text-gray-700"><span class="w-4 h-4 rounded-full gradient-accent flex-shrink-0 flex items-center justify-center text-xs text-gray-900 font-bold">✓</span>1,000 outbound messages / mo</li>
-            <li class="flex items-center gap-3 text-sm text-gray-700"><span class="w-4 h-4 rounded-full gradient-accent flex-shrink-0 flex items-center justify-center text-xs text-gray-900 font-bold">✓</span>1 phone number</li>
-            <li class="flex items-center gap-3 text-sm text-gray-700"><span class="w-4 h-4 rounded-full gradient-accent flex-shrink-0 flex items-center justify-center text-xs text-gray-900 font-bold">✓</span>2 team members</li>
-            <li class="flex items-center gap-3 text-sm text-gray-700"><span class="w-4 h-4 rounded-full gradient-accent flex-shrink-0 flex items-center justify-center text-xs text-gray-900 font-bold">✓</span>Two-way inbox</li>
-            <li class="flex items-center gap-3 text-sm text-gray-700"><span class="w-4 h-4 rounded-full gradient-accent flex-shrink-0 flex items-center justify-center text-xs text-gray-900 font-bold">✓</span>Auto opt-out handling</li>
-            <li class="flex items-center gap-3 text-sm text-gray-700"><span class="w-4 h-4 rounded-full gradient-accent flex-shrink-0 flex items-center justify-center text-xs text-gray-900 font-bold">✓</span>Delivery reports</li>
-            <li class="flex items-center gap-3 text-sm text-gray-700"><span class="w-4 h-4 rounded-full gradient-accent flex-shrink-0 flex items-center justify-center text-xs text-gray-900 font-bold">✓</span>Email support</li>
+          <ul class="space-y-3.5 mb-10 list-none" role="list">
+            <li class="flex items-center gap-3 text-sm font-light text-gray-700">
+              <svg class="w-4 h-4 text-blue-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span>1,000 outbound messages / mo</span>
+            </li>
+            <li class="flex items-center gap-3 text-sm font-light text-gray-700">
+              <svg class="w-4 h-4 text-blue-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span>1 phone number</span>
+            </li>
+            <li class="flex items-center gap-3 text-sm font-light text-gray-700">
+              <svg class="w-4 h-4 text-blue-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span>2 team members</span>
+            </li>
+            <li class="flex items-center gap-3 text-sm font-light text-gray-700">
+              <svg class="w-4 h-4 text-blue-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span>Two-way inbox</span>
+            </li>
+            <li class="flex items-center gap-3 text-sm font-light text-gray-700">
+              <svg class="w-4 h-4 text-blue-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span>Auto opt-out handling</span>
+            </li>
+            <li class="flex items-center gap-3 text-sm font-light text-gray-700">
+              <svg class="w-4 h-4 text-blue-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span>Delivery reports</span>
+            </li>
+            <li class="flex items-center gap-3 text-sm font-light text-gray-700">
+              <svg class="w-4 h-4 text-blue-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span>Email support</span>
+            </li>
           </ul>
         </div>
+
         <a href="/contact/" id="plan-starter-cta"
-           class="mt-auto block text-center border-2 border-brand-500 text-brand-600 font-bold py-3.5 rounded-2xl hover:bg-brand-50 transition-all text-sm">
+          class="block text-center border border-gray-200 hover:border-gray-900 text-gray-900 font-medium py-3 rounded-lg text-sm transition-colors">
           Get started
         </a>
       </div>
 
-      <!-- Pro (popular) -->
+      <!-- Pro (Popular) -->
       <div id="plan-pro"
-           class="relative gradient-brand rounded-3xl p-8 flex flex-col shadow-2xl glow-brand transform scale-[1.02]">
+        class="relative bg-white border-2 border-blue-600 rounded-2xl p-8 sm:p-9 flex flex-col justify-between shadow-xs card-hover">
         <!-- Popular badge -->
-        <div class="absolute -top-4 left-1/2 -translate-x-1/2 bg-white text-brand-600 text-xs font-bold uppercase tracking-widest px-5 py-1.5 rounded-full shadow-lg whitespace-nowrap">
-          ⭐ Most popular
+        <div class="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-blue-600 text-white text-[11px] font-medium uppercase tracking-[0.15em] px-3.5 py-1 rounded-full shadow-xs whitespace-nowrap">
+          Popular
         </div>
 
         <div>
-          <div class="text-xs font-bold uppercase tracking-widest text-white/50 mb-4">Pro</div>
-          <div class="flex items-end gap-1 mb-1">
-            <span class="text-5xl font-black text-white">$149</span>
-            <span class="text-white/50 font-medium mb-2">/ mo</span>
+          <div class="text-xs font-medium uppercase tracking-[0.2em] text-blue-600 mb-4">Pro</div>
+          <div class="flex items-baseline gap-1.5 mb-2">
+            <span class="text-4xl sm:text-5xl font-light tracking-tight text-gray-950">$149</span>
+            <span class="text-sm font-light text-gray-500">/ mo</span>
           </div>
-          <p class="text-sm text-white/65 mb-8 leading-relaxed">For growing businesses running regular campaigns and needing more power.</p>
+          <p class="text-sm font-light text-gray-600 mb-8 leading-relaxed">
+            For growing businesses running regular campaigns and needing more power.
+          </p>
 
-          <ul class="space-y-3 mb-8 list-none">
-            <li class="flex items-center gap-3 text-sm text-white"><span class="w-4 h-4 rounded-full bg-white/20 flex-shrink-0 flex items-center justify-center text-xs text-white font-bold">✓</span>5,000 outbound messages / mo</li>
-            <li class="flex items-center gap-3 text-sm text-white"><span class="w-4 h-4 rounded-full bg-white/20 flex-shrink-0 flex items-center justify-center text-xs text-white font-bold">✓</span>3 phone numbers</li>
-            <li class="flex items-center gap-3 text-sm text-white"><span class="w-4 h-4 rounded-full bg-white/20 flex-shrink-0 flex items-center justify-center text-xs text-white font-bold">✓</span>10 team members</li>
-            <li class="flex items-center gap-3 text-sm text-white"><span class="w-4 h-4 rounded-full bg-white/20 flex-shrink-0 flex items-center justify-center text-xs text-white font-bold">✓</span>Inbox + assignment workflows</li>
-            <li class="flex items-center gap-3 text-sm text-white"><span class="w-4 h-4 rounded-full bg-white/20 flex-shrink-0 flex items-center justify-center text-xs text-white font-bold">✓</span>Bulk campaigns with scheduling</li>
-            <li class="flex items-center gap-3 text-sm text-white"><span class="w-4 h-4 rounded-full bg-white/20 flex-shrink-0 flex items-center justify-center text-xs text-white font-bold">✓</span>Contact segmentation</li>
-            <li class="flex items-center gap-3 text-sm text-white"><span class="w-4 h-4 rounded-full bg-white/20 flex-shrink-0 flex items-center justify-center text-xs text-white font-bold">✓</span>Delivery reports &amp; analytics</li>
-            <li class="flex items-center gap-3 text-sm text-white"><span class="w-4 h-4 rounded-full bg-white/20 flex-shrink-0 flex items-center justify-center text-xs text-white font-bold">✓</span>Priority email support</li>
+          <div class="w-full h-px bg-gray-100 mb-8"></div>
+
+          <ul class="space-y-3.5 mb-10 list-none" role="list">
+            <li class="flex items-center gap-3 text-sm font-light text-gray-700">
+              <svg class="w-4 h-4 text-blue-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span>5,000 outbound messages / mo</span>
+            </li>
+            <li class="flex items-center gap-3 text-sm font-light text-gray-700">
+              <svg class="w-4 h-4 text-blue-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span>3 phone numbers</span>
+            </li>
+            <li class="flex items-center gap-3 text-sm font-light text-gray-700">
+              <svg class="w-4 h-4 text-blue-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span>10 team members</span>
+            </li>
+            <li class="flex items-center gap-3 text-sm font-light text-gray-700">
+              <svg class="w-4 h-4 text-blue-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span>Inbox + assignment workflows</span>
+            </li>
+            <li class="flex items-center gap-3 text-sm font-light text-gray-700">
+              <svg class="w-4 h-4 text-blue-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span>Bulk campaigns with scheduling</span>
+            </li>
+            <li class="flex items-center gap-3 text-sm font-light text-gray-700">
+              <svg class="w-4 h-4 text-blue-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span>Contact segmentation</span>
+            </li>
+            <li class="flex items-center gap-3 text-sm font-light text-gray-700">
+              <svg class="w-4 h-4 text-blue-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span>Delivery reports &amp; analytics</span>
+            </li>
+            <li class="flex items-center gap-3 text-sm font-light text-gray-700">
+              <svg class="w-4 h-4 text-blue-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span>Priority email support</span>
+            </li>
           </ul>
         </div>
+
         <a href="/contact/" id="plan-pro-cta"
-           class="mt-auto block text-center bg-white text-brand-600 font-bold py-3.5 rounded-2xl hover:bg-brand-50 transition-all text-sm shadow-md">
+          class="block text-center bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-lg text-sm shadow-xs transition-colors">
           Get started
         </a>
       </div>
 
       <!-- Business -->
       <div id="plan-business"
-           class="relative bg-white border-2 border-gray-100 rounded-3xl p-8 flex flex-col card-hover shadow-sm">
+        class="bg-white border border-gray-200 rounded-2xl p-8 sm:p-9 flex flex-col justify-between shadow-xs card-hover">
         <div>
-          <div class="text-xs font-bold uppercase tracking-widest text-gray-400 mb-4">Business</div>
-          <div class="flex items-end gap-1 mb-1">
-            <span class="text-5xl font-black text-gray-900">$399</span>
-            <span class="text-gray-400 font-medium mb-2">/ mo</span>
+          <div class="text-xs font-medium uppercase tracking-[0.2em] text-gray-500 mb-4">Business</div>
+          <div class="flex items-baseline gap-1.5 mb-2">
+            <span class="text-4xl sm:text-5xl font-light tracking-tight text-gray-950">$399</span>
+            <span class="text-sm font-light text-gray-500">/ mo</span>
           </div>
-          <p class="text-sm text-gray-500 mb-8 leading-relaxed">High-volume teams who need unlimited seats and full API access.</p>
+          <p class="text-sm font-light text-gray-600 mb-8 leading-relaxed">
+            High-volume teams who need unlimited seats and full API access.
+          </p>
 
-          <ul class="space-y-3 mb-8 list-none">
-            <li class="flex items-center gap-3 text-sm text-gray-700"><span class="w-4 h-4 rounded-full gradient-accent flex-shrink-0 flex items-center justify-center text-xs text-gray-900 font-bold">✓</span>20,000 outbound messages / mo</li>
-            <li class="flex items-center gap-3 text-sm text-gray-700"><span class="w-4 h-4 rounded-full gradient-accent flex-shrink-0 flex items-center justify-center text-xs text-gray-900 font-bold">✓</span>10 phone numbers</li>
-            <li class="flex items-center gap-3 text-sm text-gray-700"><span class="w-4 h-4 rounded-full gradient-accent flex-shrink-0 flex items-center justify-center text-xs text-gray-900 font-bold">✓</span>Unlimited team members</li>
-            <li class="flex items-center gap-3 text-sm text-gray-700"><span class="w-4 h-4 rounded-full gradient-accent flex-shrink-0 flex items-center justify-center text-xs text-gray-900 font-bold">✓</span>Everything in Pro</li>
-            <li class="flex items-center gap-3 text-sm text-gray-700"><span class="w-4 h-4 rounded-full gradient-accent flex-shrink-0 flex items-center justify-center text-xs text-gray-900 font-bold">✓</span>REST API access</li>
-            <li class="flex items-center gap-3 text-sm text-gray-700"><span class="w-4 h-4 rounded-full gradient-accent flex-shrink-0 flex items-center justify-center text-xs text-gray-900 font-bold">✓</span>Webhooks</li>
-            <li class="flex items-center gap-3 text-sm text-gray-700"><span class="w-4 h-4 rounded-full gradient-accent flex-shrink-0 flex items-center justify-center text-xs text-gray-900 font-bold">✓</span>Dedicated onboarding</li>
-            <li class="flex items-center gap-3 text-sm text-gray-700"><span class="w-4 h-4 rounded-full gradient-accent flex-shrink-0 flex items-center justify-center text-xs text-gray-900 font-bold">✓</span>Priority phone + email support</li>
+          <div class="w-full h-px bg-gray-100 mb-8"></div>
+
+          <ul class="space-y-3.5 mb-10 list-none" role="list">
+            <li class="flex items-center gap-3 text-sm font-light text-gray-700">
+              <svg class="w-4 h-4 text-blue-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span>20,000 outbound messages / mo</span>
+            </li>
+            <li class="flex items-center gap-3 text-sm font-light text-gray-700">
+              <svg class="w-4 h-4 text-blue-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span>10 phone numbers</span>
+            </li>
+            <li class="flex items-center gap-3 text-sm font-light text-gray-700">
+              <svg class="w-4 h-4 text-blue-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span>Unlimited team members</span>
+            </li>
+            <li class="flex items-center gap-3 text-sm font-light text-gray-700">
+              <svg class="w-4 h-4 text-blue-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span>Everything in Pro</span>
+            </li>
+            <li class="flex items-center gap-3 text-sm font-light text-gray-700">
+              <svg class="w-4 h-4 text-blue-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span>REST API access</span>
+            </li>
+            <li class="flex items-center gap-3 text-sm font-light text-gray-700">
+              <svg class="w-4 h-4 text-blue-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span>Webhooks</span>
+            </li>
+            <li class="flex items-center gap-3 text-sm font-light text-gray-700">
+              <svg class="w-4 h-4 text-blue-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span>Dedicated onboarding</span>
+            </li>
+            <li class="flex items-center gap-3 text-sm font-light text-gray-700">
+              <svg class="w-4 h-4 text-blue-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span>Priority phone + email support</span>
+            </li>
           </ul>
         </div>
+
         <a href="/contact/" id="plan-business-cta"
-           class="mt-auto block text-center border-2 border-brand-500 text-brand-600 font-bold py-3.5 rounded-2xl hover:bg-brand-50 transition-all text-sm">
+          class="block text-center border border-gray-200 hover:border-gray-900 text-gray-900 font-medium py-3 rounded-lg text-sm transition-colors">
           Get started
         </a>
       </div>
@@ -125,31 +251,35 @@
     </div>
 
     <!-- Carrier fee note -->
-    <div id="carrier-fee-note" class="flex gap-4 bg-amber-50 border border-amber-200 rounded-2xl p-6 mb-16 items-start">
-      <span class="text-2xl flex-shrink-0">⚠️</span>
-      <p class="text-sm text-amber-900 leading-relaxed">
-        <strong>Carrier fees &amp; message and data rates may apply.</strong>
-        All plans include outbound message credits, but carrier surcharges (10DLC registration fees
-        and per-message network costs from Twilio or Telnyx) are billed at cost and itemized on your invoice.
-        <a href="/contact/" class="font-bold underline hover:text-amber-700">Contact us</a> with questions.
+    <div id="carrier-fee-note"
+      class="flex gap-4 border border-gray-200 bg-gray-50/70 rounded-xl p-5 mb-20 items-start">
+      <div class="w-5 h-5 text-gray-500 flex-shrink-0 mt-0.5">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10" />
+          <line x1="12" y1="16" x2="12" y2="12" />
+          <line x1="12" y1="8" x2="12.01" y2="8" />
+        </svg>
+      </div>
+      <p class="text-xs font-light text-gray-600 leading-relaxed">
+        <strong class="font-medium text-gray-900">Carrier fees &amp; message and data rates may apply.</strong>
+        All plans include outbound message credits, but carrier surcharges (10DLC registration fees and per-message network costs from Twilio or Telnyx) are billed at cost and itemized on your invoice.
+        <a href="/contact/" class="text-blue-600 hover:underline font-normal ml-1">Contact us</a> with questions.
       </p>
     </div>
 
     <!-- Enterprise CTA -->
-    <div id="plan-enterprise" class="relative overflow-hidden rounded-3xl gradient-dark noise text-center py-16 px-8">
-      <div class="absolute inset-0 opacity-20"
-           style="background-image: radial-gradient(circle at 30% 50%, rgba(99,102,241,0.4) 0%, transparent 50%), radial-gradient(circle at 70% 50%, rgba(6,214,160,0.2) 0%, transparent 50%);">
-      </div>
-      <div class="relative z-10">
-        <h2 class="text-3xl sm:text-4xl font-black text-white mb-4">Need more volume?</h2>
-        <p class="text-white/60 max-w-lg mx-auto mb-8 leading-relaxed">
-          Sending more than 20,000 messages per month? Need a custom contract, dedicated infrastructure, or SLA? Let's talk.
-        </p>
-        <a href="/contact/" id="plan-enterprise-cta"
-           class="inline-block gradient-accent text-gray-900 font-bold px-9 py-4 rounded-2xl hover:scale-105 transition-all glow-accent shadow-xl">
-          Contact sales &rarr;
-        </a>
-      </div>
+    <div id="plan-enterprise"
+      class="bg-[#111827] rounded-3xl p-10 sm:p-14 text-white text-center max-w-4xl mx-auto">
+      <h2 class="text-2xl sm:text-3xl font-light tracking-tight text-white mb-3">
+        Need custom volume?
+      </h2>
+      <p class="text-sm sm:text-base font-light text-gray-300 max-w-lg mx-auto mb-8 leading-relaxed">
+        Sending more than 20,000 messages per month? Need custom contracts, dedicated infrastructure, or guaranteed SLAs? Let's connect.
+      </p>
+      <a href="/contact/" id="plan-enterprise-cta"
+        class="inline-flex items-center px-6 py-3 rounded-lg bg-white hover:bg-gray-100 text-gray-950 font-medium text-sm transition-colors">
+        Contact sales &rarr;
+      </a>
     </div>
 
   </div>

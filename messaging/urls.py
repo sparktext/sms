@@ -4,6 +4,6 @@ from . import views
 app_name = 'messaging'
 
 urlpatterns = [
-    path('', views.inbox, name='inbox'),           # /messages/       → list all messages
+    path('dashboard/', views.dashboard, name='dashboard'),
     
 ]

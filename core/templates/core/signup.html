@@ -1,0 +1,51 @@
+{% extends "core/base_auth.html" %}
+{% block title %}Create your account | SparkText{% endblock %}
+{% block content %}
+<h1>Create your account</h1>
+<p class="sub">Set up your company and start texting customers.</p>
+
+<form method="post" novalidate>
+  {% csrf_token %}
+  <div class="field">
+    <label for="{{ form.company_name.id_for_label }}">{{ form.company_name.label }}</label>
+    {{ form.company_name }}
+    {% for e in form.company_name.errors %}<p class="error">{{ e }}</p>{% endfor %}
+  </div>
+  <div class="row">
+    <div class="field">
+      <label for="{{ form.first_name.id_for_label }}">{{ form.first_name.label }}</label>
+      {{ form.first_name }}
+      {% for e in form.first_name.errors %}<p class="error">{{ e }}</p>{% endfor %}
+    </div>
+    <div class="field">
+      <label for="{{ form.last_name.id_for_label }}">{{ form.last_name.label }}</label>
+      {{ form.last_name }}
+      {% for e in form.last_name.errors %}<p class="error">{{ e }}</p>{% endfor %}
+    </div>
+  </div>
+  <div class="field">
+    <label for="{{ form.email.id_for_label }}">{{ form.email.label }}</label>
+    {{ form.email }}
+    {% for e in form.email.errors %}<p class="error">{{ e }}</p>{% endfor %}
+  </div>
+  <div class="field">
+    <label for="{{ form.password1.id_for_label }}">{{ form.password1.label }}</label>
+    {{ form.password1 }}
+    {% for e in form.password1.errors %}<p class="error">{{ e }}</p>{% endfor %}
+  </div>
+  <div class="field">
+    <label for="{{ form.password2.id_for_label }}">{{ form.password2.label }}</label>
+    {{ form.password2 }}
+    {% for e in form.password2.errors %}<p class="error">{{ e }}</p>{% endfor %}
+  </div>
+  <div class="field">
+    <div class="check">
+      {{ form.accept_terms }}
+      <label for="{{ form.accept_terms.id_for_label }}">I agree to the <a href="/terms/">Terms of Service</a> and <a href="/privacy/">Privacy Policy</a>.</label>
+    </div>
+    {% for e in form.accept_terms.errors %}<p class="error">{{ e }}</p>{% endfor %}
+  </div>
+  <button class="btn" type="submit">Create account</button>
+</form>
+<p class="alt">Already have an account? <a href="{% url 'login' %}">Sign in</a></p>
+{% endblock %}

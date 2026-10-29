@@ -46,6 +46,12 @@ INSTALLED_APPS = [
     'website',
 ]
 
+AUTH_USER_MODEL = "core.User"      # must be set BEFORE the first migrate
+LOGIN_URL = "login"
+LOGIN_REDIRECT_URL = "messaging:dashboard"
+LOGOUT_REDIRECT_URL = "website:home"
+
+
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',

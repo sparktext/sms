@@ -1,0 +1,87 @@
+{% extends "messaging/base_app.html" %}
+
+{% block title %}Dashboard | SparkText{% endblock %}
+{% block header_title %}Dashboard{% endblock %}
+{% block header_subtitle %}What is happening in your account{% endblock %}
+
+{% block content %}
+
+<section>
+  <h2 class="text-2xl font-bold text-gray-900">Welcome, {{ request.user.first_name|default:request.user.email }}</h2>
+  <p class="text-sm text-gray-600 mt-1">Here is a summary of your messaging activity.</p>
+</section>
+
+<!-- Summary numbers -->
+<section class="grid grid-cols-2 lg:grid-cols-4 gap-4" aria-label="Summary">
+  <div class="bg-white border border-gray-200 rounded-2xl p-5">
+    <p class="text-sm text-gray-600">Texts sent today</p>
+    <p class="text-3xl font-bold text-gray-900 mt-2">{{ stats.sent_today }}</p>
+  </div>
+  <div class="bg-white border border-gray-200 rounded-2xl p-5">
+    <p class="text-sm text-gray-600">Customer replies</p>
+    <p class="text-3xl font-bold text-gray-900 mt-2">{{ stats.replies }}</p>
+  </div>
+  <div class="bg-white border border-gray-200 rounded-2xl p-5">
+    <p class="text-sm text-gray-600">Needs a human</p>
+    <p class="text-3xl font-bold text-gray-900 mt-2">{{ stats.needs_human }}</p>
+  </div>
+  <div class="bg-white border border-gray-200 rounded-2xl p-5">
+    <p class="text-sm text-gray-600">Opt-outs</p>
+    <p class="text-3xl font-bold text-gray-900 mt-2">{{ stats.opt_outs }}</p>
+  </div>
+</section>
+
+<div class="grid lg:grid-cols-3 gap-6">
+
+  <!-- Setup checklist -->
+  {% if not setup_complete %}
+  <section class="lg:col-span-2 bg-white border border-gray-200 rounded-2xl p-6">
+    <div class="flex items-center justify-between gap-4">
+      <h2 class="text-lg font-semibold text-gray-900">Finish setting up</h2>
+      <p class="text-sm text-gray-600">{{ steps_done }} of {{ steps_total }} done</p>
+    </div>
+    <div class="mt-3 h-2 rounded-full bg-gray-100" role="progressbar" aria-valuenow="{{ percent }}" aria-valuemin="0"
+      aria-valuemax="100">
+      <div class="h-2 rounded-full bg-brand-600" style="width: {{ percent }}%"></div>
+    </div>
+
+    <ul class="mt-5 divide-y divide-gray-100">
+      {% for step in steps %}
+      <li class="flex items-start gap-4 py-4">
+        {% if step.done %}
+        <span
+          class="mt-0.5 w-6 h-6 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0"
+          aria-label="Done">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
+          </svg>
+        </span>
+        {% else %}
+        <span class="mt-0.5 w-6 h-6 rounded-full border-2 border-gray-300 shrink-0" aria-label="Not done"></span>
+        {% endif %}
+        <div class="flex-1 min-w-0">
+          <p class="text-sm font-semibold text-gray-900">{{ step.title }}</p>
+          <p class="text-sm text-gray-600">{{ step.desc }}</p>
+        </div>
+        {% if not step.done and step.url %}
+        <a href="{{ step.url }}" class="text-sm font-medium text-brand-700 hover:text-brand-900 shrink-0">Start</a>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  <!-- Recent conversations -->
+  <section
+    class="{% if setup_complete %}lg:col-span-3{% else %}lg:col-span-1{% endif %} bg-white border border-gray-200 rounded-2xl p-6">
+    <h2 class="text-lg font-semibold text-gray-900">Recent conversations</h2>
+    <div class="mt-6 text-center py-8">
+      <p class="text-sm font-medium text-gray-900">No conversations yet</p>
+      <p class="text-sm text-gray-600 mt-1">Replies from your customers will show up here, with the AI's answers.</p>
+    </div>
+  </section>
+
+</div>
+
+{% endblock %}

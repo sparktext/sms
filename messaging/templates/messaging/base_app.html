@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="en" class="h-full bg-gray-50">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{% block title %}SparkText{% endblock %}</title>
+
+    <!-- Tailwind via browser build: fine for development. Replace with a compiled build before launch. -->
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+
+    <style type="text/tailwindcss">
+      @theme {
+        --font-sans: "Inter", system-ui, sans-serif;
+        --color-brand-50: #eef2ff;
+        --color-brand-100: #e0e7ff;
+        --color-brand-300: #a5b4fc;
+        --color-brand-500: #6366f1;
+        --color-brand-600: #4f46e5;
+        --color-brand-700: #4338ca;
+        --color-brand-900: #1e1b4b;
+        --color-accent: #06d6a0;
+        --color-accent-dk: #04b489;
+      }
+      @layer base {
+        html {
+          font-family: var(--font-sans);
+        }
+      }
+      .gradient-brand {
+        background: linear-gradient(
+          135deg,
+          #6366f1 0%,
+          #4f46e5 50%,
+          #4338ca 100%
+        );
+      }
+    </style>
+
+    {% block extra_head %}{% endblock %}
+  </head>
+
+  <body class="h-full flex text-gray-900 antialiased bg-slate-50">
+    <!-- Mobile overlay -->
+    <div
+      id="mobile-overlay"
+      class="fixed inset-0 bg-gray-900/50 z-40 hidden md:hidden"
+      onclick="toggleSidebar()"
+    ></div>
+
+    <!-- Sidebar -->
+    <aside
+      id="sidebar"
+      class="fixed inset-y-0 left-0 z-50 w-64 bg-slate-900 text-white flex flex-col justify-between transition-transform duration-300 -translate-x-full md:translate-x-0 md:static md:inset-auto"
+    >
+      <div class="p-5 flex flex-col gap-6 overflow-y-auto">
+        <!-- Brand -->
+        <div class="flex items-center justify-between">
+          <a
+            href="{% url 'messaging:dashboard' %}"
+            class="flex items-center gap-3"
+          >
+            <div
+              class="w-9 h-9 rounded-xl gradient-brand flex items-center justify-center shadow-lg shadow-brand-500/30 text-white font-extrabold text-lg"
+            >
+              ⚡
+            </div>
+            <div>
+              <span
+                class="text-lg font-bold tracking-tight text-white block leading-tight"
+                >SparkText</span
+              >
+              <span class="text-[11px] font-medium text-slate-400"
+                >SMS Platform</span
+              >
+            </div>
+          </a>
+          <button
+            class="md:hidden text-slate-400 hover:text-white"
+            onclick="toggleSidebar()"
+            aria-label="Close menu"
+          >
+            <svg
+              class="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M6 18L18 6M6 6l12 12"
+              />
+            </svg>
+          </button>
+        </div>
+
+        <!-- Current organization (read straight from the logged-in user, no view code needed) -->
+        {% with org=request.user.organization %}
+        <div
+          class="bg-slate-800/80 border border-slate-700/60 rounded-xl px-3.5 py-2.5 flex items-center"
+        >
+          <div class="flex items-center gap-2.5 min-w-0">
+            {% if request.user.organization.registration_status == "approved" %}
+            <div
+              class="w-2.5 h-2.5 rounded-full bg-emerald-400 ring-4 ring-emerald-400/20 shrink-0"
+            ></div>
+            {% else %}
+            <div
+              class="w-2.5 h-2.5 rounded-full bg-amber-400 ring-4 ring-amber-400/20 shrink-0"
+            ></div>
+            {% endif %}
+            <div class="truncate">
+              <p class="text-xs font-semibold text-slate-200 truncate">
+                {{ request.user.organization.name|default:"SparkText workspace" }}
+              </p>
+              <p class="text-[11px] text-slate-400">
+                {% if request.user.organization.registration_status == "approved" %} 
+                Carrier registration approved 
+                {% else %} 
+                Setup in progress 
+                {% endif %}
+              </p>
+            </div>
+          </div>
+        </div>
+        {% endwith %}
+
+        <!-- Navigation. The active tab is detected from the URL name, so pages don't need to override anything. -->
+        {% with current=request.resolver_match.view_name active="bg-slate-800 text-white" idle="text-slate-300 hover:text-white hover:bg-slate-800/60" %}
+        <nav class="flex flex-col gap-1 text-sm font-medium" aria-label="Main">
+          <a
+            href="{% url 'messaging:dashboard' %}"
+            {% if current == "messaging:dashboard" %} aria-current="page" 
+            {% endif %}
+            class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition 
+            {% if current == 'messaging:dashboard' %} 
+            {{ active }} 
+            {% else %}
+            {{ idle }}
+            {% endif %}"
+          >
+            <svg
+              class="w-5 h-5 opacity-90"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
+              />
+            </svg>
+            Dashboard
+          </a>
+
+          <a
+            href="#"
+            class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition {{ idle }}"
+          >
+            <svg
+              class="w-5 h-5 opacity-70"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+              />
+            </svg>
+            Inbox
+          </a>
+
+          <a
+            href="#"
+            class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition {{ idle }}"
+          >
+            <svg
+              class="w-5 h-5 opacity-70"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M5 3v4M3 5h4M6 17v4M4 19h4M13 3l2.5 5.5L21 11l-5.5 2.5L13 19l-2.5-5.5L5 11l5.5-2.5z"
+              />
+            </svg>
+            AI Assistant
+          </a>
+
+          <a
+            href="#"
+            class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition {{ idle }}"
+          >
+            <svg
+              class="w-5 h-5 opacity-70"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"
+              />
+            </svg>
+            Contacts
+          </a>
+
+          <a
+            href="#"
+            class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition {{ idle }}"
+          >
+            <svg
+              class="w-5 h-5 opacity-70"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"
+              />
+            </svg>
+            Campaigns
+          </a>
+
+          <a
+            href="#"
+            class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition {{ idle }}"
+          >
+            <svg
+              class="w-5 h-5 opacity-70"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+              />
+            </svg>
+            Templates
+          </a>
+
+          <a
+            href="#"
+            class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition {{ idle }}"
+          >
+            <svg
+              class="w-5 h-5 opacity-70"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+              />
+            </svg>
+            Compliance
+          </a>
+
+          <a
+            href="#"
+            class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition {{ idle }}"
+          >
+            <svg
+              class="w-5 h-5 opacity-70"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"
+              />
+            </svg>
+            Settings
+          </a>
+        </nav>
+        {% endwith %}
+      </div>
+
+      <!-- User and sign out -->
+      <div class="p-4 border-t border-slate-800 bg-slate-950/40">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3 min-w-0">
+            <div
+              class="w-9 h-9 rounded-full bg-gradient-to-tr from-brand-600 to-indigo-400 flex items-center justify-center text-white font-semibold text-sm shrink-0"
+            >
+              {{ request.user.first_name|first|default:request.user.email|first|upper }}
+            </div>
+            <div class="truncate">
+              <p class="text-xs font-semibold text-white truncate">
+                {{ request.user.get_full_name|default:request.user.email }}
+              </p>
+              <p class="text-[11px] text-slate-400 capitalize">
+                {{ request.user.role|default:"User" }}
+              </p>
+            </div>
+          </div>
+          <form method="post" action="{% url 'logout' %}" class="shrink-0">
+            {% csrf_token %}
+            <button
+              type="submit"
+              title="Sign out"
+              aria-label="Sign out"
+              class="p-2 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800/80 transition cursor-pointer"
+            >
+              <svg
+                class="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                />
+              </svg>
+            </button>
+          </form>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main area -->
+    <div class="flex-1 flex flex-col min-w-0 overflow-y-auto">
+      <header
+        class="bg-white border-b border-gray-200 sticky top-0 z-30 px-6 py-4 flex items-center justify-between gap-4"
+      >
+        <div class="flex items-center gap-3">
+          <button
+            class="md:hidden p-2 rounded-lg text-gray-500 hover:bg-gray-100 cursor-pointer"
+            onclick="toggleSidebar()"
+            aria-label="Open menu"
+          >
+            <svg
+              class="w-6 h-6"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M4 6h16M4 12h16M4 18h16"
+              />
+            </svg>
+          </button>
+          <div>
+            <h1 class="text-xl font-bold text-gray-900 leading-tight">
+              {% block header_title %}Dashboard{% endblock %}
+            </h1>
+            <p class="text-xs text-gray-500">
+              {% block header_subtitle %}Overview and activity{% endblock %}
+            </p>
+          </div>
+        </div>
+        <div class="flex items-center gap-3">
+          {% block header_actions %}{% endblock %}
+        </div>
+      </header>
+
+      <main class="p-6 sm:p-8 space-y-6 max-w-7xl w-full mx-auto">
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+
+    <script>
+      function toggleSidebar() {
+        document
+          .getElementById("sidebar")
+          .classList.toggle("-translate-x-full");
+        document.getElementById("mobile-overlay").classList.toggle("hidden");
+      }
+    </script>
+    {% block extra_js %}{% endblock %}
+  </body>
+</html>
