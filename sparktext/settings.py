@@ -11,9 +11,24 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
 from pathlib import Path
+import environ
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Read environment variables
+env = environ.Env(
+    DEBUG=(bool, True),
+    TWILIO_ACCOUNT_SID=(str, ""),
+    TWILIO_AUTH_TOKEN=(str, ""),
+    TWILIO_PHONE_NUMBER=(str, ""),
+    PUBLIC_BASE_URL=(str, ""),
+    TWILIO_VALIDATE_WEBHOOKS=(bool, True),
+    MESSAGING_PROVIDER=(str, "twilio"),
+    MESSAGING_REPLY_WINDOW_HOURS=(int, 24),
+)
+environ.Env.read_env(BASE_DIR / ".env", overwrite=True)
 
 
 # Quick-start development settings - unsuitable for production
@@ -25,9 +40,9 @@ SECRET_KEY = 'django-insecure-@^3s@sl(m65*7z*#-d@obnklrqilm_zci@9s)f9p_o)!q@7k=6
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ["localhost", "127.0.0.1", "testserver", "*", "https://denim-creamed-starlit.ngrok-free.dev"]
 
-
+CSRF_TRUSTED_ORIGINS = ["https://denim-creamed-starlit.ngrok-free.dev"]
 # Application definition
 
 INSTALLED_APPS = [
@@ -153,3 +168,11 @@ MAILERS = {
     },
 }
 
+# Messaging & Twilio Settings
+TWILIO_ACCOUNT_SID = env("TWILIO_ACCOUNT_SID", default="")
+TWILIO_AUTH_TOKEN = env("TWILIO_AUTH_TOKEN", default="")
+TWILIO_PHONE_NUMBER = env("TWILIO_PHONE_NUMBER", default="")
+PUBLIC_BASE_URL = env("PUBLIC_BASE_URL", default="")
+TWILIO_VALIDATE_WEBHOOKS = env("TWILIO_VALIDATE_WEBHOOKS", default=True)
+MESSAGING_PROVIDER = env("MESSAGING_PROVIDER", default="twilio")
+MESSAGING_REPLY_WINDOW_HOURS = env("MESSAGING_REPLY_WINDOW_HOURS", default=24)

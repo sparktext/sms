@@ -1,0 +1,187 @@
+{% extends "messaging/base_app.html" %}
+
+{% block title %}Contact Lists · SparkText{% endblock %}
+
+{% block header_title %}Contact Lists & Segments{% endblock %}
+{% block header_subtitle %}Organize your subscribers into targeted lists for broadcast campaigns and outreach{% endblock %}
+
+{% block header_actions %}
+<button type="button" onclick="openCreateListModal()" class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-sm shadow-brand-600/30 cursor-pointer">
+  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+  </svg>
+  New Contact List
+</button>
+{% endblock %}
+
+{% block content %}
+{% csrf_token %}
+
+<!-- Sub-navigation Tabs -->
+<div class="flex items-center gap-2 border-b border-gray-200 pb-3">
+  <a href="{% url 'contacts:list' %}" class="px-3.5 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-900 rounded-lg hover:bg-gray-100 transition">
+    All Contacts
+  </a>
+  <a href="{% url 'contacts:lists' %}" class="px-3.5 py-1.5 text-xs font-semibold text-brand-700 bg-brand-50 rounded-lg border border-brand-200">
+    Contact Lists ({{ total_lists }})
+  </a>
+  <a href="{% url 'contacts:fields' %}" class="px-3.5 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-900 rounded-lg hover:bg-gray-100 transition">
+    Custom Fields
+  </a>
+</div>
+
+<!-- Lists Grid -->
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+  {% for cl in lists %}
+  <div class="bg-white border border-gray-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between hover:border-gray-300 transition">
+    <div>
+      <div class="flex items-start justify-between gap-3 mb-2">
+        <div class="w-10 h-10 rounded-xl bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-sm border border-slate-200">
+          📋
+        </div>
+        <div class="flex items-center gap-1">
+          <button type="button" onclick="openRenameModal('{{ cl.id }}', '{{ cl.name|escapejs }}')" class="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition cursor-pointer" title="Rename list">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+            </svg>
+          </button>
+          <button type="button" onclick="confirmDeleteList('{{ cl.id }}', '{{ cl.name|escapejs }}')" class="p-1.5 text-gray-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition cursor-pointer" title="Delete list">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <h3 class="text-base font-bold text-gray-900 mb-1 truncate">{{ cl.name }}</h3>
+      <p class="text-xs text-gray-500">Created {{ cl.created_at|date:"M d, Y" }}</p>
+    </div>
+
+    <div class="pt-4 mt-4 border-t border-gray-100 flex items-center justify-between">
+      <div class="flex items-baseline gap-1.5">
+        <span class="text-xl font-black text-gray-900">{{ cl.contact_count }}</span>
+        <span class="text-xs text-gray-500">subscriber{{ cl.contact_count|pluralize }}</span>
+      </div>
+      <a href="{% url 'contacts:list' %}?list={{ cl.id }}" class="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700">
+        View Contacts →
+      </a>
+    </div>
+  </div>
+  {% empty %}
+  <div class="md:col-span-3 text-center py-16 bg-white border border-gray-200 rounded-2xl p-8">
+    <div class="w-14 h-14 bg-gray-50 text-gray-400 rounded-2xl flex items-center justify-center mx-auto mb-3 text-xl border border-gray-200">
+      📋
+    </div>
+    <h3 class="text-base font-bold text-gray-900 mb-1">No contact lists created yet</h3>
+    <p class="text-xs text-gray-500 max-w-sm mx-auto mb-6">Create lists to group your contacts by tags, campaigns, or lead source.</p>
+    <button type="button" onclick="openCreateListModal()" class="px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs cursor-pointer">
+      + Create First List
+    </button>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- ================= MODAL: CREATE LIST ================= -->
+<div id="createListModal" class="fixed inset-0 z-50 hidden overflow-y-auto" role="dialog" aria-modal="true">
+  <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity" onclick="closeCreateListModal()"></div>
+  <div class="flex min-h-full items-center justify-center p-4">
+    <div class="relative bg-white rounded-2xl max-w-md w-full p-6 text-left shadow-2xl border border-gray-100">
+      <h3 class="text-base font-bold text-gray-900 mb-1">New Contact List</h3>
+      <p class="text-xs text-gray-500 mb-4">Enter a descriptive name for your subscriber segment.</p>
+
+      <form method="post" action="{% url 'contacts:create_list' %}" class="space-y-4">
+        {% csrf_token %}
+        <div>
+          <label class="block text-xs font-semibold text-gray-700 mb-1">List Name <span class="text-rose-500">*</span></label>
+          <input
+            type="text"
+            name="name"
+            required
+            placeholder="e.g. Fall Promo, VIP Buyers, Website Inquiries"
+            class="w-full px-3.5 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
+        </div>
+
+        <div class="pt-3 border-t border-gray-100 flex items-center justify-end gap-3">
+          <button type="button" onclick="closeCreateListModal()" class="px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-xl cursor-pointer">
+            Cancel
+          </button>
+          <button type="submit" class="px-5 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs cursor-pointer">
+            Create List
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ================= MODAL: RENAME LIST ================= -->
+<div id="renameListModal" class="fixed inset-0 z-50 hidden overflow-y-auto" role="dialog" aria-modal="true">
+  <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity" onclick="closeRenameModal()"></div>
+  <div class="flex min-h-full items-center justify-center p-4">
+    <div class="relative bg-white rounded-2xl max-w-md w-full p-6 text-left shadow-2xl border border-gray-100">
+      <h3 class="text-base font-bold text-gray-900 mb-1">Rename Contact List</h3>
+      <p class="text-xs text-gray-500 mb-4">Update the display name of this list.</p>
+
+      <form id="renameListForm" method="post" action="" class="space-y-4">
+        {% csrf_token %}
+        <div>
+          <label class="block text-xs font-semibold text-gray-700 mb-1">List Name <span class="text-rose-500">*</span></label>
+          <input
+            type="text"
+            name="name"
+            id="renameListNameInput"
+            required
+            class="w-full px-3.5 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
+        </div>
+
+        <div class="pt-3 border-t border-gray-100 flex items-center justify-end gap-3">
+          <button type="button" onclick="closeRenameModal()" class="px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-xl cursor-pointer">
+            Cancel
+          </button>
+          <button type="submit" class="px-5 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs cursor-pointer">
+            Save
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Hidden delete list form -->
+<form id="deleteListForm" method="post" action="" class="hidden">
+  {% csrf_token %}
+</form>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  function openCreateListModal() {
+    document.getElementById('createListModal').classList.remove('hidden');
+  }
+  function closeCreateListModal() {
+    document.getElementById('createListModal').classList.add('hidden');
+  }
+
+  function openRenameModal(listId, currentName) {
+    const form = document.getElementById('renameListForm');
+    form.action = `/contacts/lists/${listId}/edit/`;
+    document.getElementById('renameListNameInput').value = currentName;
+    document.getElementById('renameListModal').classList.remove('hidden');
+  }
+  function closeRenameModal() {
+    document.getElementById('renameListModal').classList.add('hidden');
+  }
+
+  function confirmDeleteList(listId, listName) {
+    if (confirm(`Are you sure you want to delete the list "${listName}"? Contacts within this list will NOT be deleted.`)) {
+      const form = document.getElementById('deleteListForm');
+      form.action = `/contacts/lists/${listId}/delete/`;
+      form.submit();
+    }
+  }
+</script>
+{% endblock %}
+

@@ -1,0 +1,376 @@
+{% extends "messaging/base_app.html" %}
+
+{% block title %}{% if contact.first_name or contact.last_name %}{{ contact.first_name }} {{ contact.last_name }}{% else %}{{ contact.phone }}{% endif %} · Contacts · SparkText{% endblock %}
+
+{% block header_title %}
+<div class="flex items-center gap-2 text-sm text-gray-500 font-normal mb-1">
+  <a href="{% url 'contacts:list' %}" class="hover:text-brand-600 transition">Contacts</a>
+  <span>/</span>
+  <span class="text-gray-900 font-semibold truncate">{% if contact.first_name or contact.last_name %}{{ contact.first_name }} {{ contact.last_name }}{% else %}{{ contact.phone }}{% endif %}</span>
+</div>
+<div class="flex items-center gap-3">
+  <span>{% if contact.first_name or contact.last_name %}{{ contact.first_name }} {{ contact.last_name }}{% else %}Contact Profile{% endif %}</span>
+  {% if contact.sms_status == "opted_in" %}
+  <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+    Opted In
+  </span>
+  {% elif contact.sms_status == "opted_out" %}
+  <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+    <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+    Opted Out
+  </span>
+  {% else %}
+  <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-600 border border-gray-200">
+    <span class="w-1.5 h-1.5 rounded-full bg-gray-400"></span>
+    No consent
+  </span>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block header_subtitle %}
+E.164 phone: <strong class="font-mono text-gray-800">{{ contact.phone }}</strong> · Added on {{ contact.created_at|date:"M d, Y H:i" }} via {{ contact.get_source_display }}
+{% endblock %}
+
+{% block header_actions %}
+<a href="{% url 'messaging:contact_message' contact.id %}" class="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs">
+  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+  </svg>
+  Message Contact
+</a>
+<a href="{% url 'contacts:list' %}" class="px-3.5 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 transition shadow-xs">
+  ← Back to Contacts
+</a>
+<button type="button" onclick="openConsentModal()" class="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition shadow-xs cursor-pointer">
+  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+  </svg>
+  Update Consent
+</button>
+<button type="button" onclick="confirmDeleteContact()" class="px-3.5 py-2 text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition cursor-pointer">
+  Delete Contact
+</button>
+{% endblock %}
+
+{% block content %}
+{% csrf_token %}
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+  <!-- ================= LEFT 2 COLUMNS: EDIT FORM & DETAILS ================= -->
+  <div class="lg:col-span-2 space-y-6">
+
+    <!-- Contact Info Card -->
+    <div class="bg-white border border-gray-200 rounded-2xl p-6 shadow-xs">
+      <div class="flex items-center justify-between pb-4 mb-4 border-b border-gray-100">
+        <div>
+          <h3 class="text-base font-bold text-gray-900">Contact Details</h3>
+          <p class="text-xs text-gray-500">Edit subscriber attributes and merge variables.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="inline-flex items-center gap-1 text-[11px] font-mono bg-brand-50 text-brand-700 px-2 py-1 rounded-lg border border-brand-100">
+            {first_name}: <strong>{{ contact.first_name|default:"(empty)" }}</strong>
+          </span>
+          {% if contact.last_name %}
+          <span class="inline-flex items-center gap-1 text-[11px] font-mono bg-slate-50 text-slate-700 px-2 py-1 rounded-lg border border-slate-200">
+            {last_name}: <strong>{{ contact.last_name }}</strong>
+          </span>
+          {% endif %}
+        </div>
+      </div>
+
+      <form id="editContactForm" method="post" action="{% url 'contacts:edit' contact.id %}" class="space-y-4">
+        {% csrf_token %}
+        <div id="editContactError" class="hidden p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 font-medium"></div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-semibold text-gray-700 mb-1">
+              Phone Number <span class="text-rose-500">*</span>
+            </label>
+            <input
+              type="tel"
+              name="phone"
+              value="{{ contact.phone }}"
+              required
+              class="w-full px-3.5 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono"
+            />
+            <p class="text-[10px] text-gray-400 mt-1">Normalized to E.164 on save.</p>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-gray-700 mb-1">Email Address</label>
+            <input
+              type="email"
+              name="email"
+              value="{{ contact.email }}"
+              placeholder="name@example.com"
+              class="w-full px-3.5 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-semibold text-gray-700 mb-1">First Name</label>
+            <input
+              type="text"
+              name="first_name"
+              value="{{ contact.first_name }}"
+              placeholder="e.g. Antonio"
+              class="w-full px-3.5 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-gray-700 mb-1">Last Name</label>
+            <input
+              type="text"
+              name="last_name"
+              value="{{ contact.last_name }}"
+              placeholder="e.g. Schjang"
+              class="w-full px-3.5 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-semibold text-gray-700 mb-1">Timezone</label>
+            <input
+              type="text"
+              name="timezone"
+              value="{{ contact.timezone }}"
+              placeholder="e.g. America/New_York"
+              class="w-full px-3.5 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 text-xs"
+            />
+          </div>
+        </div>
+
+        <!-- Contact Lists Assignment -->
+        <div class="pt-3 border-t border-gray-100">
+          <input type="hidden" name="lists_submitted" value="1">
+          <label class="block text-xs font-semibold text-gray-700 mb-2">Contact Lists / Segments</label>
+          <div class="flex flex-wrap gap-2">
+            {% for cl in all_lists %}
+            <label class="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-medium cursor-pointer transition {% if cl.id in contact_list_ids %}bg-brand-50 border-brand-200 text-brand-900{% else %}bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100{% endif %}">
+              <input
+                type="checkbox"
+                name="lists"
+                value="{{ cl.id }}"
+                {% if cl.id in contact_list_ids %}checked{% endif %}
+                class="rounded text-brand-600 focus:ring-brand-500"
+              />
+              <span>{{ cl.name }}</span>
+            </label>
+            {% empty %}
+            <span class="text-xs text-gray-400 italic">No contact lists created yet. <a href="{% url 'contacts:lists' %}" class="text-brand-600 underline">Create your first list</a>.</span>
+            {% endfor %}
+          </div>
+        </div>
+
+        <!-- Custom Fields Section -->
+        {% if all_fields %}
+        <div class="pt-4 border-t border-gray-100">
+          <div class="flex items-center justify-between mb-2">
+            <label class="block text-xs font-semibold text-gray-700">Approved Custom Fields</label>
+            <a href="{% url 'contacts:fields' %}" class="text-xs text-brand-600 hover:underline">Manage Fields →</a>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-gray-50/70 p-4 rounded-xl border border-gray-200">
+            {% for cf in all_fields %}
+            <div>
+              <label class="block text-[11px] font-medium text-gray-700 mb-1">
+                {{ cf.label }} <span class="text-gray-400 font-mono">({{ cf.key }})</span>
+              </label>
+              <input
+                type="text"
+                name="custom_field_{{ cf.key }}"
+                value="{% for k, v in contact.custom_fields.items %}{% if k == cf.key %}{{ v }}{% endif %}{% endfor %}"
+                placeholder="Value for {{ cf.label }}"
+                class="w-full px-3 py-1.5 text-xs bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+              />
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
+        <div class="pt-4 border-t border-gray-100 flex items-center justify-end">
+          <button type="submit" class="px-5 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs cursor-pointer">
+            Save Changes
+          </button>
+        </div>
+      </form>
+    </div>
+
+  </div>
+
+  <!-- ================= RIGHT 1 COLUMN: CONSENT AUDIT LEDGER ================= -->
+  <div class="space-y-6">
+
+    <!-- TCPA Consent Card -->
+    <div class="bg-white border border-gray-200 rounded-2xl p-6 shadow-xs">
+      <div class="flex items-center justify-between pb-3 mb-4 border-b border-gray-100">
+        <div>
+          <h3 class="text-sm font-bold text-gray-900">Consent & Audit Ledger</h3>
+          <p class="text-[11px] text-gray-500">Immutable TCPA/CTIA ledger entries</p>
+        </div>
+        <span class="inline-flex items-center text-[10px] font-semibold text-slate-500 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded">
+          🔒 Append-Only
+        </span>
+      </div>
+
+      <!-- Current status badge info -->
+      <div class="mb-4 p-3 rounded-xl border {% if contact.sms_status == 'opted_in' %}bg-emerald-50/60 border-emerald-200 text-emerald-900{% elif contact.sms_status == 'opted_out' %}bg-rose-50/60 border-rose-200 text-rose-900{% else %}bg-gray-50 border-gray-200 text-gray-700{% endif %}">
+        <div class="text-[11px] font-semibold uppercase tracking-wider mb-0.5">Current Status</div>
+        <div class="text-sm font-bold flex items-center gap-1.5">
+          {% if contact.sms_status == "opted_in" %}
+          <span class="w-2 h-2 rounded-full bg-emerald-500"></span> Opted In (Active Consent)
+          {% elif contact.sms_status == "opted_out" %}
+          <span class="w-2 h-2 rounded-full bg-rose-500"></span> Opted Out (STOP / Blocked)
+          {% else %}
+          <span class="w-2 h-2 rounded-full bg-gray-400"></span> No consent (Awaiting Opt-In)
+          {% endif %}
+        </div>
+        <p class="text-[11px] mt-1 opacity-80">
+          {% if contact.sms_status == "opted_in" %}
+          Marketing and campaign messages are permitted to this contact.
+          {% elif contact.sms_status == "opted_out" %}
+          Outbound messaging is blocked by system-wide compliance safeguards.
+          {% else %}
+          Contact was imported or created without prior express consent proof.
+          {% endif %}
+        </p>
+      </div>
+
+      <!-- Consent Events Timeline -->
+      <div class="space-y-3">
+        <h4 class="text-xs font-bold text-gray-700">Audit History ({{ consent_events.count }})</h4>
+        
+        {% if consent_events %}
+        <div class="space-y-3 border-l-2 border-slate-100 pl-3 ml-1.5">
+          {% for ev in consent_events %}
+          <div class="relative group">
+            <span class="absolute -left-[19px] top-1.5 w-2.5 h-2.5 rounded-full {% if ev.event_type == 'opt_in' %}bg-emerald-500 ring-4 ring-emerald-100{% else %}bg-rose-500 ring-4 ring-rose-100{% endif %}"></span>
+            
+            <div class="bg-slate-50/70 border border-slate-200 rounded-xl p-3 text-xs space-y-1.5">
+              <div class="flex items-center justify-between">
+                <span class="font-bold {% if ev.event_type == 'opt_in' %}text-emerald-700{% else %}text-rose-700{% endif %} uppercase text-[10px] tracking-wider">
+                  {{ ev.get_event_type_display }}
+                </span>
+                <span class="text-[10px] font-mono text-gray-400">{{ ev.created_at|date:"M d, Y H:i" }}</span>
+              </div>
+              
+              <div class="text-[11px] text-gray-600">
+                <span class="font-semibold text-gray-800">Source:</span> {{ ev.get_source_display }}
+              </div>
+              
+              <div class="bg-white p-2 rounded-lg border border-slate-200/80 font-mono text-[11px] text-gray-800 break-words">
+                {{ ev.proof_text }}
+              </div>
+
+              <div class="text-[10px] text-gray-400 text-right">
+                Ledger ID #{{ ev.id }}
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="p-4 bg-gray-50 border border-gray-200 rounded-xl text-center">
+          <p class="text-xs text-gray-500 mb-2">No consent ledger entries recorded yet.</p>
+          <button type="button" onclick="openConsentModal()" class="text-xs font-semibold text-brand-600 hover:underline cursor-pointer">
+            + Record Consent Event
+          </button>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+
+<!-- ========================================================================= -->
+<!-- MODAL: UPDATE CONSENT MODAL                                               -->
+<!-- ========================================================================= -->
+<div id="consentModal" class="fixed inset-0 z-50 hidden overflow-y-auto" role="dialog" aria-modal="true">
+  <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity" onclick="closeConsentModal()"></div>
+  <div class="flex min-h-full items-center justify-center p-4">
+    <div class="relative bg-white rounded-2xl max-w-md w-full p-6 text-left shadow-2xl border border-gray-100">
+      <h3 class="text-base font-bold text-gray-900 mb-1">Record Consent Event</h3>
+      <p class="text-xs text-gray-500 mb-4">Appends an immutable entry for <strong class="font-mono text-gray-800">{{ contact.phone }}</strong> to the TCPA ledger.</p>
+
+      <form method="post" action="{% url 'compliance:record_consent' %}" class="space-y-4">
+        {% csrf_token %}
+        <input type="hidden" name="contact_id" value="{{ contact.id }}">
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-gray-700 mb-1">Event Type</label>
+            <select name="event_type" required class="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-200 rounded-xl focus:bg-white text-gray-800 font-semibold">
+              <option value="opt_in" {% if contact.sms_status != "opted_in" %}selected{% endif %}>Opt In (Grant Consent)</option>
+              <option value="opt_out" {% if contact.sms_status == "opted_in" %}selected{% endif %}>Opt Out (Revoke / STOP)</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-gray-700 mb-1">Source</label>
+            <select name="source" required class="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-200 rounded-xl focus:bg-white text-gray-800">
+              <option value="manual">Manual / Verbal</option>
+              <option value="web_form">Web Form</option>
+              <option value="keyword">Keyword</option>
+              <option value="api">API</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-gray-700 mb-1">Proof Evidence / Note <span class="text-rose-500">*</span></label>
+          <textarea
+            name="proof_text"
+            rows="3"
+            required
+            placeholder="e.g. Verbal confirmation given over phone call on Oct 30, 2026."
+            class="w-full px-3.5 py-2 text-xs bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+          ></textarea>
+        </div>
+
+        <div class="pt-3 border-t border-gray-100 flex items-center justify-end gap-3">
+          <button type="button" onclick="closeConsentModal()" class="px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-xl cursor-pointer">
+            Cancel
+          </button>
+          <button type="submit" class="px-5 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs cursor-pointer">
+            Commit to Ledger
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<form id="deleteContactForm" method="post" action="{% url 'contacts:delete' contact.id %}" class="hidden">
+  {% csrf_token %}
+</form>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  function openConsentModal() {
+    document.getElementById('consentModal').classList.remove('hidden');
+  }
+  function closeConsentModal() {
+    document.getElementById('consentModal').classList.add('hidden');
+  }
+  function confirmDeleteContact() {
+    if (confirm("Are you sure you want to permanently delete this contact? This action cannot be undone.")) {
+      document.getElementById('deleteContactForm').submit();
+    }
+  }
+</script>
+{% endblock %}
+

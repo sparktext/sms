@@ -1,0 +1,1160 @@
+{% extends "messaging/base_app.html" %}
+
+{% block title %}Contacts · SparkText{% endblock %}
+
+{% block header_title %}Contacts{% endblock %}
+{% block header_subtitle %}Manage subscriber phone numbers, opt-in consent status, and customer properties{% endblock %}
+
+{% block header_actions %}
+<button type="button" onclick="openCsvModal()" class="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 hover:text-gray-900 transition shadow-xs cursor-pointer">
+  <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+  </svg>
+  Import CSV
+</button>
+<button type="button" onclick="openAddContactModal()" class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-sm shadow-brand-600/30 cursor-pointer">
+  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+  </svg>
+  Add Contact
+</button>
+{% endblock %}
+
+{% block content %}
+{% csrf_token %}
+
+<!-- Sub-navigation Tabs -->
+<div class="flex items-center gap-2 border-b border-gray-200 pb-3 mb-6">
+  <a href="{% url 'contacts:list' %}" class="px-3.5 py-1.5 text-xs font-semibold text-brand-700 bg-brand-50 rounded-lg border border-brand-200">
+    All Contacts ({{ status_counts.all }})
+  </a>
+  <a href="{% url 'contacts:lists' %}" class="px-3.5 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-900 rounded-lg hover:bg-gray-100 transition">
+    Contact Lists ({{ contact_lists.count }})
+  </a>
+  <a href="{% url 'contacts:fields' %}" class="px-3.5 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-900 rounded-lg hover:bg-gray-100 transition">
+    Custom Fields ({{ contact_fields.count }})
+  </a>
+</div>
+
+<!-- KPI / Status Pills -->
+<div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+  <a href="?{% if q %}q={{ q }}&{% endif %}{% if selected_list %}list={{ selected_list.id }}&{% endif %}"
+     class="p-4 rounded-2xl border transition {% if not status %}bg-white border-brand-500 ring-2 ring-brand-500/20 shadow-sm{% else %}bg-white border-gray-200 hover:border-gray-300 shadow-xs{% endif %}">
+    <div class="text-xs font-medium text-gray-500 mb-1">Total Audience</div>
+    <div class="flex items-baseline gap-2">
+      <span class="text-2xl font-black text-gray-900">{{ status_counts.all }}</span>
+      <span class="text-xs font-medium text-gray-400">contacts</span>
+    </div>
+  </a>
+
+  <a href="?status=opted_in{% if q %}&q={{ q }}{% endif %}{% if selected_list %}&list={{ selected_list.id }}{% endif %}"
+     class="p-4 rounded-2xl border transition {% if status == 'opted_in' %}bg-white border-emerald-500 ring-2 ring-emerald-500/20 shadow-sm{% else %}bg-white border-gray-200 hover:border-gray-300 shadow-xs{% endif %}">
+    <div class="flex items-center gap-1.5 text-xs font-medium text-emerald-700 mb-1">
+      <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+      Opted In
+    </div>
+    <div class="flex items-baseline gap-2">
+      <span class="text-2xl font-black text-gray-900">{{ status_counts.opted_in }}</span>
+      <span class="text-xs font-medium text-emerald-600">active consent</span>
+    </div>
+  </a>
+
+  <a href="?status=unknown{% if q %}&q={{ q }}{% endif %}{% if selected_list %}&list={{ selected_list.id }}{% endif %}"
+     class="p-4 rounded-2xl border transition {% if status == 'unknown' %}bg-white border-amber-500 ring-2 ring-amber-500/20 shadow-sm{% else %}bg-white border-gray-200 hover:border-gray-300 shadow-xs{% endif %}">
+    <div class="flex items-center gap-1.5 text-xs font-medium text-amber-700 mb-1">
+      <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+      No consent
+    </div>
+    <div class="flex items-baseline gap-2">
+      <span class="text-2xl font-black text-gray-900">{{ status_counts.unknown }}</span>
+      <span class="text-xs font-medium text-amber-600">no active consent</span>
+    </div>
+  </a>
+
+  <a href="?status=opted_out{% if q %}&q={{ q }}{% endif %}{% if selected_list %}&list={{ selected_list.id }}{% endif %}"
+     class="p-4 rounded-2xl border transition {% if status == 'opted_out' %}bg-white border-rose-500 ring-2 ring-rose-500/20 shadow-sm{% else %}bg-white border-gray-200 hover:border-gray-300 shadow-xs{% endif %}">
+    <div class="flex items-center gap-1.5 text-xs font-medium text-rose-700 mb-1">
+      <span class="w-2 h-2 rounded-full bg-rose-500"></span>
+      Opted Out (STOP)
+    </div>
+    <div class="flex items-baseline gap-2">
+      <span class="text-2xl font-black text-gray-900">{{ status_counts.opted_out }}</span>
+      <span class="text-xs font-medium text-rose-600">do not contact</span>
+    </div>
+  </a>
+</div>
+
+<!-- Filters & Search Toolbar -->
+<div class="bg-white border border-gray-200 rounded-2xl p-4 shadow-xs">
+  <form method="get" class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+    {% if status %}
+    <input type="hidden" name="status" value="{{ status }}">
+    {% endif %}
+
+    <div class="flex-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+      <!-- Search input -->
+      <div class="relative flex-1">
+        <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+        </div>
+        <input
+          type="text"
+          name="q"
+          value="{{ q }}"
+          placeholder="Search by phone (+1650...), name, or email..."
+          class="w-full pl-10 pr-4 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition"
+        />
+        {% if q %}
+        <a href="?{% if status %}status={{ status }}&{% endif %}{% if selected_list %}list={{ selected_list.id }}{% endif %}" class="absolute inset-y-0 right-0 pr-3 flex items-center text-xs text-gray-400 hover:text-gray-600">
+          ✕ Clear
+        </a>
+        {% endif %}
+      </div>
+
+      <!-- List filter -->
+      <div class="sm:w-56">
+        <select
+          name="list"
+          onchange="this.form.submit()"
+          class="w-full px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-700"
+        >
+          <option value="">All Contact Lists</option>
+          {% for cl in contact_lists %}
+          <option value="{{ cl.id }}" {% if selected_list and selected_list.id == cl.id %}selected{% endif %}>
+            {{ cl.name }} ({{ cl.contacts.count }})
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <button type="submit" class="px-4 py-2 text-sm font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition cursor-pointer">
+        Filter
+      </button>
+    </div>
+
+    {% if q or status or selected_list %}
+    <div class="flex items-center justify-end">
+      <a href="{% url 'contacts:list' %}" class="text-xs font-medium text-gray-500 hover:text-brand-600 transition underline underline-offset-2">
+        Reset all filters
+      </a>
+    </div>
+    {% endif %}
+  </form>
+</div>
+
+<!-- Contacts Table -->
+<div class="bg-white border border-gray-200 rounded-2xl shadow-xs overflow-hidden">
+  {% if page_obj.object_list %}
+  <div class="overflow-x-auto">
+    <table class="w-full text-left text-sm border-collapse">
+      <thead>
+        <tr class="bg-gray-50/80 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+          <th class="py-3.5 px-3 sm:px-4 w-10 text-center">
+            <input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll(this)" class="rounded border-gray-300 text-brand-600 focus:ring-brand-500 cursor-pointer">
+          </th>
+          <th class="py-3.5 px-4 sm:px-6">Contact</th>
+          <th class="py-3.5 px-4">Email</th>
+          <th class="py-3.5 px-4">SMS Consent</th>
+          <th class="py-3.5 px-4">Lists</th>
+          {% for field in contact_fields %}
+          <th class="py-3.5 px-4 whitespace-nowrap">{{ field.label }}</th>
+          {% empty %}
+          <th class="py-3.5 px-4">Custom Fields</th>
+          {% endfor %}
+          <th class="py-3.5 px-4">Source</th>
+          <th class="py-3.5 px-4 sm:px-6 text-right">Actions</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for contact in page_obj %}
+        <tr class="hover:bg-slate-50/60 transition group">
+          <!-- Selection Checkbox -->
+          <td class="py-4 px-3 sm:px-4 text-center">
+            <input type="checkbox" name="selected_contact" value="{{ contact.id }}" onchange="updateBulkBar()" class="contact-checkbox rounded border-gray-300 text-brand-600 focus:ring-brand-500 cursor-pointer">
+          </td>
+
+          <!-- Contact name & normalized phone -->
+          <td class="py-4 px-4 sm:px-6">
+            <div class="flex items-center gap-3">
+              <div class="w-9 h-9 rounded-xl bg-brand-50 text-brand-700 font-bold text-xs flex items-center justify-center flex-shrink-0 border border-brand-100">
+                {% if contact.first_name %}{{ contact.first_name|slice:":1"|upper }}{% elif contact.last_name %}{{ contact.last_name|slice:":1"|upper }}{% else %}#FF{% endif %}
+              </div>
+              <div class="min-w-0">
+                <a href="{% url 'contacts:detail' contact.id %}" class="font-semibold text-gray-900 hover:text-brand-600 transition truncate block" title="View details and consent audit history">
+                  {% if contact.first_name or contact.last_name %}{{ contact.first_name }} {{ contact.last_name }}{% else %}<span class="text-gray-400 font-normal italic">Unnamed</span>{% endif %}
+                </a>
+                <div class="font-mono text-xs text-gray-600 flex items-center gap-1.5">
+                  <span>{{ contact.phone }}</span>
+                  {% if contact.timezone %}
+                  <span class="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded font-sans">{{ contact.timezone }}</span>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+          </td>
+
+          <!-- Email -->
+          <td class="py-4 px-4 text-gray-600">
+            {% if contact.email %}
+            <span class="text-xs">{{ contact.email }}</span>
+            {% else %}
+            <span class="text-gray-300 text-xs">—</span>
+            {% endif %}
+          </td>
+
+          <!-- SMS Consent Status Badge -->
+          <td class="py-4 px-4 whitespace-nowrap">
+            {% if contact.sms_status == "opted_in" %}
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+              <svg class="w-3 h-3 text-emerald-600" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+              </svg>
+              Opted In
+            </span>
+            {% elif contact.sms_status == "opted_out" %}
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+              <svg class="w-3 h-3 text-rose-600" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M13.477 14.89A6 6 0 015.11 6.524l8.367 8.368zm1.414-1.414L6.524 5.11a6 6 0 018.367 8.367zM18 10a8 8 0 11-16 0 8 8 0 0116 0z" clip-rule="evenodd" />
+              </svg>
+              Opted Out
+            </span>
+            {% else %}
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-600 border border-gray-200">
+              <span class="w-1.5 h-1.5 rounded-full bg-gray-400"></span>
+              No consent
+            </span>
+            {% endif %}
+          </td>
+
+          <!-- Contact Lists -->
+          <td class="py-4 px-4">
+            <div class="flex flex-wrap gap-1 max-w-xs">
+              {% for l in contact.lists.all %}
+              <a href="?list={{ l.id }}" class="inline-block text-[11px] font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded px-2 py-0.5 transition">
+                {{ l.name }}
+              </a>
+              {% empty %}
+              <span class="text-gray-300 text-xs">—</span>
+              {% endfor %}
+            </div>
+          </td>
+
+          <!-- Dedicated Custom Field Columns -->
+          {% for item in contact.custom_values_list %}
+          <td class="py-4 px-4 whitespace-nowrap text-xs text-gray-700">
+            {% if item.value %}
+            <span class="inline-block text-xs font-medium text-gray-800 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded">
+              {{ item.value }}
+            </span>
+            {% else %}
+            <span class="text-gray-300 text-xs">—</span>
+            {% endif %}
+          </td>
+          {% empty %}
+          <td class="py-4 px-4 whitespace-nowrap text-xs text-gray-300">—</td>
+          {% endfor %}
+
+          <!-- Source -->
+          <td class="py-4 px-4 whitespace-nowrap">
+            <span class="inline-block text-xs uppercase tracking-wider font-semibold text-gray-500 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded">
+              {{ contact.get_source_display }}
+            </span>
+          </td>
+
+          <!-- Row Actions -->
+          <td class="py-4 px-4 sm:px-6 text-right whitespace-nowrap">
+            <div class="inline-flex items-center gap-2">
+              <a href="{% url 'messaging:contact_message' contact.id %}" class="p-1 text-gray-400 hover:text-brand-600 transition" title="Message contact">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                </svg>
+              </a>
+              <a href="{% url 'contacts:detail' contact.id %}" class="px-2.5 py-1 text-xs font-semibold text-gray-700 hover:text-brand-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition">
+                View / Edit
+              </a>
+              <button type="button" onclick="deleteContactRow('{{ contact.id }}', '{{ contact.phone|escapejs }}')" class="p-1 text-gray-400 hover:text-rose-600 transition cursor-pointer" title="Delete contact">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination Bar -->
+  <div class="px-6 py-4 bg-gray-50/60 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-4">
+    <div class="text-xs text-gray-500">
+      Showing <strong class="font-semibold text-gray-800">{{ page_obj.start_index }}</strong> to <strong class="font-semibold text-gray-800">{{ page_obj.end_index }}</strong> of <strong class="font-semibold text-gray-800">{{ page_obj.paginator.count }}</strong> contacts
+    </div>
+
+    <div class="flex items-center gap-1.5">
+      {% if page_obj.has_previous %}
+      <a href="?page={{ page_obj.previous_page_number }}{% if q %}&q={{ q }}{% endif %}{% if status %}&status={{ status }}{% endif %}{% if selected_list %}&list={{ selected_list.id }}{% endif %}"
+         class="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition">
+        ← Previous
+      </a>
+      {% else %}
+      <span class="px-3 py-1.5 text-xs font-medium text-gray-300 bg-gray-50 border border-gray-200 rounded-lg cursor-not-allowed">
+        ← Previous
+      </span>
+      {% endif %}
+
+      <span class="px-3 py-1.5 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-lg">
+        Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+      </span>
+
+      {% if page_obj.has_next %}
+      <a href="?page={{ page_obj.next_page_number }}{% if q %}&q={{ q }}{% endif %}{% if status %}&status={{ status }}{% endif %}{% if selected_list %}&list={{ selected_list.id }}{% endif %}"
+         class="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition">
+        Next →
+      </a>
+      {% else %}
+      <span class="px-3 py-1.5 text-xs font-medium text-gray-300 bg-gray-50 border border-gray-200 rounded-lg cursor-not-allowed">
+        Next →
+      </span>
+      {% endif %}
+    </div>
+  </div>
+
+  {% else %}
+  <!-- Empty State -->
+  <div class="text-center py-16 px-6">
+    <div class="w-16 h-16 rounded-2xl bg-brand-50 text-brand-600 flex items-center justify-center mx-auto mb-4 border border-brand-100">
+      <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+      </svg>
+    </div>
+    {% if q or status or selected_list %}
+    <h3 class="text-base font-bold text-gray-900 mb-1">No contacts found</h3>
+    <p class="text-xs text-gray-500 max-w-sm mx-auto mb-6">No audience members match your active filter and search criteria.</p>
+    <a href="{% url 'contacts:list' %}" class="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 transition">
+      Clear all filters
+    </a>
+    {% else %}
+    <h3 class="text-base font-bold text-gray-900 mb-1">Build your audience</h3>
+    <p class="text-xs text-gray-500 max-w-md mx-auto mb-6">Add contacts manually or import a customer spreadsheet (.csv). Phone numbers will be automatically validated and normalized to E.164.</p>
+    <div class="flex items-center justify-center gap-3">
+      <button type="button" onclick="openCsvModal()" class="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 transition cursor-pointer">
+        <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+        </svg>
+        Import CSV File
+      </button>
+      <button type="button" onclick="openAddContactModal()" class="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs cursor-pointer">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+        </svg>
+        Add First Contact
+      </button>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+
+<!-- ========================================================================= -->
+<!-- STICKY BULK ACTION BAR                                                    -->
+<!-- ========================================================================= -->
+<div id="bulkActionBar" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 hidden bg-slate-900 text-white rounded-2xl px-5 py-3 shadow-2xl border border-slate-700 flex items-center gap-4 transition-all">
+  <span class="text-xs font-medium"><span id="selectedCount" class="font-bold text-brand-400">0</span> contacts selected</span>
+  <div class="h-4 w-px bg-slate-700"></div>
+  <div class="flex items-center gap-2">
+    <select id="bulkListSelect" class="bg-slate-800 text-white text-xs px-2.5 py-1.5 rounded-lg border border-slate-600 focus:outline-none">
+      <option value="">— Add to List —</option>
+      {% for cl in contact_lists %}
+      <option value="{{ cl.id }}">{{ cl.name }}</option>
+      {% endfor %}
+    </select>
+    <button type="button" onclick="executeBulkAction('add_to_list')" class="px-3 py-1.5 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-500 rounded-lg cursor-pointer transition">
+      Assign List
+    </button>
+  </div>
+  <div class="h-4 w-px bg-slate-700"></div>
+  <button type="button" onclick="executeBulkAction('delete')" class="px-3 py-1.5 text-xs font-semibold text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 rounded-lg cursor-pointer transition">
+    Delete Selected
+  </button>
+  <button type="button" onclick="deselectAll()" class="text-xs text-slate-400 hover:text-white cursor-pointer ml-1" title="Deselect all">
+    ✕
+  </button>
+</div>
+
+<!-- Hidden delete form for single row delete -->
+<form id="singleDeleteForm" method="post" action="" class="hidden">
+  {% csrf_token %}
+</form>
+
+
+<!-- ========================================================================= -->
+<!-- MODAL 1: ADD CONTACT MODAL                                                -->
+<!-- ========================================================================= -->
+<div id="addContactModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+  <!-- Backdrop -->
+  <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity" onclick="closeAddContactModal()"></div>
+
+  <div class="flex min-h-full items-center justify-center p-4 text-center sm:p-0">
+    <div class="relative transform overflow-hidden rounded-2xl bg-white text-left shadow-2xl transition-all sm:my-8 sm:w-full sm:max-w-lg border border-gray-100">
+      
+      <!-- Modal Header -->
+      <div class="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+        <div>
+          <h3 class="text-lg font-bold text-gray-900" id="modal-title">Add Contact</h3>
+          <p class="text-xs text-gray-500 mt-0.5">Phone numbers are automatically normalized to standard E.164</p>
+        </div>
+        <button type="button" onclick="closeAddContactModal()" class="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition cursor-pointer">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <!-- Modal Body Form -->
+      <form id="addContactForm" onsubmit="submitAddContact(event)" class="p-6 space-y-4">
+        <!-- Error notification box -->
+        <div id="addContactError" class="hidden p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 font-medium"></div>
+
+        <div>
+          <label class="block text-xs font-semibold text-gray-700 mb-1">
+            Phone Number <span class="text-rose-500">*</span>
+          </label>
+          <input
+            type="tel"
+            name="phone"
+            id="ac_phone"
+            required
+            placeholder="(650) 253-0000 or +16502530000"
+            class="w-full px-3.5 py-2.5 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition font-mono"
+          />
+          <p class="text-[11px] text-gray-400 mt-1">Accepts national formats, dashes, dots, or international E.164.</p>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-semibold text-gray-700 mb-1">First Name</label>
+            <input
+              type="text"
+              name="first_name"
+              id="ac_first_name"
+              placeholder="e.g. Antonio"
+              class="w-full px-3.5 py-2.5 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition"
+            />
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-gray-700 mb-1">Last Name</label>
+            <input
+              type="text"
+              name="last_name"
+              id="ac_last_name"
+              placeholder="e.g. Schjang"
+              class="w-full px-3.5 py-2.5 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition"
+            />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-semibold text-gray-700 mb-1">Email Address</label>
+            <input
+              type="email"
+              name="email"
+              id="ac_email"
+              placeholder="alex@example.com"
+              class="w-full px-3.5 py-2.5 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition"
+            />
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-gray-700 mb-1">Timezone</label>
+            <input
+              type="text"
+              name="timezone"
+              id="ac_timezone"
+              placeholder="e.g. America/New_York"
+              class="w-full px-3.5 py-2.5 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition text-xs"
+            />
+          </div>
+        </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-gray-700 mb-1">Add to Contact List</label>
+            <select
+              name="contact_list_id"
+              id="ac_list_id"
+              class="w-full px-3.5 py-2.5 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition text-gray-700 text-xs"
+            >
+              <option value="">None (General)</option>
+              {% for cl in contact_lists %}
+              <option value="{{ cl.id }}">{{ cl.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+
+        {% if contact_fields %}
+        <div class="pt-3 border-t border-gray-100">
+          <label class="block text-xs font-semibold text-gray-700 mb-2">Approved Custom Fields</label>
+          <div class="space-y-2.5 bg-gray-50/70 p-3 rounded-xl border border-gray-200">
+            {% for cf in contact_fields %}
+            <div>
+              <label class="block text-[11px] font-medium text-gray-600 mb-1">
+                {{ cf.label }} <span class="text-gray-400 font-mono font-normal">({{ cf.key }})</span>
+              </label>
+              <input
+                type="text"
+                name="custom_field_{{ cf.key }}"
+                placeholder="Value for {{ cf.label }}"
+                class="w-full px-3 py-1.5 text-xs bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition"
+              />
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
+        <!-- Modal Footer -->
+        <div class="pt-4 border-t border-gray-100 flex items-center justify-end gap-3">
+          <button type="button" onclick="closeAddContactModal()" class="px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-xl transition cursor-pointer">
+            Cancel
+          </button>
+          <button type="submit" id="ac_submit_btn" class="inline-flex items-center gap-2 px-5 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs cursor-pointer">
+            <span>Save Contact</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+
+<!-- ========================================================================= -->
+<!-- MODAL 2: 3-STEP CSV IMPORT WIZARD                                         -->
+<!-- ========================================================================= -->
+<div id="csvImportModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="csv-modal-title" role="dialog" aria-modal="true">
+  <!-- Backdrop -->
+  <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity" onclick="closeCsvModal()"></div>
+
+  <div class="flex min-h-full items-center justify-center p-4 text-center sm:p-0">
+    <div class="relative transform overflow-hidden rounded-2xl bg-white text-left shadow-2xl transition-all sm:my-8 sm:w-full sm:max-w-2xl border border-gray-100">
+      
+      <!-- Modal Header -->
+      <div class="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+        <div>
+          <h3 class="text-lg font-bold text-gray-900" id="csv-modal-title">Import Contacts from CSV</h3>
+          <p class="text-xs text-gray-500 mt-0.5">Upload a customer list, map column data, and import into your audience.</p>
+        </div>
+        <button type="button" onclick="closeCsvModal()" class="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition cursor-pointer">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <!-- Stepper Indicator -->
+      <div class="px-6 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between text-xs font-medium">
+        <div id="step-ind-1" class="flex items-center gap-2 text-brand-600 font-bold">
+          <span class="w-5 h-5 rounded-full bg-brand-600 text-white flex items-center justify-center text-[10px]">1</span>
+          Upload File
+        </div>
+        <div class="w-8 h-px bg-gray-200"></div>
+        <div id="step-ind-2" class="flex items-center gap-2 text-gray-400">
+          <span class="w-5 h-5 rounded-full bg-gray-200 text-gray-600 flex items-center justify-center text-[10px]">2</span>
+          Map Columns
+        </div>
+        <div class="w-8 h-px bg-gray-200"></div>
+        <div id="step-ind-3" class="flex items-center gap-2 text-gray-400">
+          <span class="w-5 h-5 rounded-full bg-gray-200 text-gray-600 flex items-center justify-center text-[10px]">3</span>
+          Review & Complete
+        </div>
+      </div>
+
+      <div class="p-6">
+        <!-- Error box -->
+        <div id="csvErrorBox" class="hidden mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 font-medium"></div>
+
+        <!-- ================= STEP 1: UPLOAD ================= -->
+        <div id="csvStep1" class="space-y-4">
+          <div
+            id="csvDropZone"
+            onclick="document.getElementById('csvFileInput').click()"
+            class="border-2 border-dashed border-gray-200 hover:border-brand-400 rounded-2xl p-8 text-center cursor-pointer transition bg-gray-50/50 hover:bg-brand-50/20"
+          >
+            <input type="file" id="csvFileInput" accept=".csv,text/csv" class="hidden" onchange="handleFileSelected(event)" />
+            <div class="w-12 h-12 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center mx-auto mb-3">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+              </svg>
+            </div>
+            <div class="text-sm font-semibold text-gray-800" id="csvFileLabel">Click or drag a CSV file here</div>
+            <div class="text-xs text-gray-400 mt-1">UTF-8 or Windows-1252 supported. Maximum 50,000 rows.</div>
+          </div>
+
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-600 flex items-start gap-2.5">
+            <svg class="w-4 h-4 text-slate-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div>
+              <strong>Compliance Notice:</strong> Importing a CSV will not grant SMS consent. Uploaded contacts will be marked with status <em>No consent</em> until explicit consent is registered.
+            </div>
+          </div>
+
+          <div class="flex items-center justify-end gap-3 pt-4 border-t border-gray-100">
+            <button type="button" onclick="closeCsvModal()" class="px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-xl transition cursor-pointer">
+              Cancel
+            </button>
+            <button
+              type="button"
+              id="csvUploadNextBtn"
+              disabled
+              onclick="uploadAndPreviewCsv()"
+              class="inline-flex items-center gap-2 px-5 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            >
+              <span>Continue to Mapping →</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- ================= STEP 2: MAPPING ================= -->
+        <div id="csvStep2" class="hidden space-y-5">
+          <div id="csvWarningBanner" class="hidden p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 font-medium"></div>
+
+          <div>
+            <h4 class="text-xs font-bold uppercase tracking-wider text-gray-600 mb-2">Column Mapping</h4>
+            <p class="text-xs text-gray-500 mb-3">Map each column from your CSV file to a contact field. Exactly one <strong>Phone</strong> column is required.</p>
+            
+            <div class="max-h-64 overflow-y-auto border border-gray-200 rounded-xl">
+              <table class="w-full text-left text-xs border-collapse">
+                <thead class="bg-gray-50 sticky top-0 border-b border-gray-200">
+                  <tr>
+                    <th class="py-2.5 px-3 font-semibold text-gray-600">CSV Header</th>
+                    <th class="py-2.5 px-3 font-semibold text-gray-600">Sample Row 1</th>
+                    <th class="py-2.5 px-3 font-semibold text-gray-600">Destination Field</th>
+                  </tr>
+                </thead>
+                <tbody id="csvMappingRows" class="divide-y divide-gray-100">
+                  <!-- Dynamically populated -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Target list and attestation -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+            <div>
+              <label class="block text-xs font-semibold text-gray-700 mb-1">Add to Contact List (Optional)</label>
+              <select id="csvTargetList" class="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-200 rounded-xl focus:bg-white text-gray-700">
+                <option value="">Do not assign to a list</option>
+                {% for cl in contact_lists %}
+                <option value="{{ cl.id }}">{{ cl.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="flex items-start gap-2.5 pt-4">
+              <input type="checkbox" id="csvConsentAttestation" class="mt-1 h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+              <label for="csvConsentAttestation" class="text-xs text-gray-600 leading-snug">
+                I attest that these subscribers have given express written consent to receive SMS communications from this business.
+              </label>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between gap-3 pt-4 border-t border-gray-100">
+            <button type="button" onclick="goToCsvStep(1)" class="px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-xl transition cursor-pointer">
+              ← Back to Upload
+            </button>
+            <button
+              type="button"
+              id="csvProcessBtn"
+              onclick="processCsvImport()"
+              class="inline-flex items-center gap-2 px-5 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs cursor-pointer"
+            >
+              <span>Start Import</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- ================= STEP 3: REPORT ================= -->
+        <div id="csvStep3" class="hidden space-y-5">
+          <div class="text-center py-4">
+            <div id="csvSuccessIcon" class="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-2 border border-emerald-100">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <h4 class="text-base font-bold text-gray-900" id="csvReportHeading">Import Complete</h4>
+            <p class="text-xs text-gray-500" id="csvReportSubheading">The contacts have been processed.</p>
+          </div>
+
+          <!-- Report Metric Badges -->
+          <div class="grid grid-cols-4 gap-2 text-center">
+            <div class="p-3 bg-gray-50 rounded-xl border border-gray-200">
+              <div class="text-[10px] uppercase font-semibold text-gray-400">Total</div>
+              <div class="text-lg font-black text-gray-900" id="repTotal">0</div>
+            </div>
+            <div class="p-3 bg-emerald-50 rounded-xl border border-emerald-100">
+              <div class="text-[10px] uppercase font-semibold text-emerald-700">Created</div>
+              <div class="text-lg font-black text-emerald-700" id="repCreated">0</div>
+            </div>
+            <div class="p-3 bg-brand-50 rounded-xl border border-brand-100">
+              <div class="text-[10px] uppercase font-semibold text-brand-700">Updated</div>
+              <div class="text-lg font-black text-brand-700" id="repUpdated">0</div>
+            </div>
+            <div class="p-3 bg-rose-50 rounded-xl border border-rose-100">
+              <div class="text-[10px] uppercase font-semibold text-rose-700">Errors</div>
+              <div class="text-lg font-black text-rose-700" id="repErrors">0</div>
+            </div>
+          </div>
+
+          <!-- Errors List (if any) -->
+          <div id="csvErrorsSection" class="hidden">
+            <h5 class="text-xs font-bold text-gray-700 mb-2">Errors Encountered</h5>
+            <div class="max-h-40 overflow-y-auto border border-rose-200 rounded-xl bg-rose-50/50 p-2 text-xs">
+              <table class="w-full text-left">
+                <thead>
+                  <tr class="text-rose-800 font-semibold border-b border-rose-200/60 pb-1">
+                    <th class="p-1">Row</th>
+                    <th class="p-1">Phone / Input</th>
+                    <th class="p-1">Reason</th>
+                  </tr>
+                </thead>
+                <tbody id="csvErrorsTableBody" class="divide-y divide-rose-200/40 text-rose-900">
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="pt-4 border-t border-gray-100 flex items-center justify-end">
+            <button
+              type="button"
+              onclick="window.location.reload()"
+              class="px-5 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition cursor-pointer"
+            >
+              Done & View Contacts
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  // CSRF helper
+  function getCsrfToken() {
+    const el = document.querySelector('[name=csrfmiddlewaretoken]');
+    return el ? el.value : '';
+  }
+
+  // --- SELECTION & BULK ACTIONS ---
+  function getSelectedContactIds() {
+    return Array.from(document.querySelectorAll('.contact-checkbox:checked')).map(cb => cb.value);
+  }
+
+  function toggleSelectAll(masterCb) {
+    const checkboxes = document.querySelectorAll('.contact-checkbox');
+    checkboxes.forEach(cb => { cb.checked = masterCb.checked; });
+    updateBulkBar();
+  }
+
+  function deselectAll() {
+    const master = document.getElementById('selectAllCheckbox');
+    if (master) master.checked = false;
+    document.querySelectorAll('.contact-checkbox').forEach(cb => { cb.checked = false; });
+    updateBulkBar();
+  }
+
+  function updateBulkBar() {
+    const selected = getSelectedContactIds();
+    const bar = document.getElementById('bulkActionBar');
+    const counter = document.getElementById('selectedCount');
+    if (counter) counter.innerText = selected.length;
+
+    if (selected.length > 0) {
+      bar.classList.remove('hidden');
+    } else {
+      bar.classList.add('hidden');
+    }
+  }
+
+  async function executeBulkAction(action) {
+    const selected = getSelectedContactIds();
+    if (selected.length === 0) return;
+
+    const listSelect = document.getElementById('bulkListSelect');
+    const listId = listSelect ? listSelect.value : '';
+
+    if (action === 'add_to_list' && !listId) {
+      alert("Please select a target list from the dropdown.");
+      return;
+    }
+
+    if (action === 'delete') {
+      if (!confirm(`Are you sure you want to permanently delete these ${selected.length} contact(s)? This cannot be undone.`)) {
+        return;
+      }
+    }
+
+    const formData = new FormData();
+    formData.append('action', action);
+    formData.append('list_id', listId);
+    selected.forEach(id => formData.append('contact_ids', id));
+
+    try {
+      const resp = await fetch("{% url 'contacts:bulk_action' %}", {
+        method: "POST",
+        body: formData,
+        headers: {
+          "X-CSRFToken": getCsrfToken(),
+          "X-Requested-With": "XMLHttpRequest",
+        }
+      });
+      const data = await resp.json();
+      if (resp.ok && data.status === 'success') {
+        window.location.reload();
+      } else {
+        alert(data.message || "Bulk action failed.");
+      }
+    } catch (err) {
+      alert("Network error: " + err.message);
+    }
+  }
+
+  function deleteContactRow(contactId, phone) {
+    if (confirm(`Are you sure you want to delete contact ${phone}?`)) {
+      const form = document.getElementById('singleDeleteForm');
+      form.action = `/contacts/${contactId}/delete/`;
+      form.submit();
+    }
+  }
+
+  // --- ADD CONTACT MODAL LOGIC ---
+  function openAddContactModal() {
+    document.getElementById('addContactError').classList.add('hidden');
+    document.getElementById('addContactModal').classList.remove('hidden');
+    setTimeout(() => document.getElementById('ac_phone').focus(), 50);
+  }
+
+  function closeAddContactModal() {
+    document.getElementById('addContactModal').classList.add('hidden');
+    document.getElementById('addContactForm').reset();
+  }
+
+  async function submitAddContact(e) {
+    e.preventDefault();
+    const form = document.getElementById('addContactForm');
+    const errBox = document.getElementById('addContactError');
+    const submitBtn = document.getElementById('ac_submit_btn');
+
+    errBox.classList.add('hidden');
+    errBox.innerText = '';
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span>Saving...</span>';
+
+    const formData = new FormData(form);
+
+    try {
+      const resp = await fetch("{% url 'contacts:add' %}", {
+        method: "POST",
+        body: formData,
+        headers: {
+          "X-CSRFToken": getCsrfToken(),
+          "X-Requested-With": "XMLHttpRequest",
+        }
+      });
+
+      const data = await resp.json();
+      if (!resp.ok || data.status === 'error') {
+        errBox.innerText = data.message || "Failed to save contact.";
+        errBox.classList.remove('hidden');
+      } else {
+        // Success: reload to display in contacts table
+        window.location.reload();
+      }
+    } catch (err) {
+      errBox.innerText = "Network error while saving contact: " + err.message;
+      errBox.classList.remove('hidden');
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = '<span>Save Contact</span>';
+    }
+  }
+
+  // --- CSV IMPORT WIZARD LOGIC ---
+  let selectedCsvFile = null;
+  let csvPreviewData = null;
+
+  function openCsvModal() {
+    goToCsvStep(1);
+    document.getElementById('csvErrorBox').classList.add('hidden');
+    document.getElementById('csvImportModal').classList.remove('hidden');
+  }
+
+  function closeCsvModal() {
+    document.getElementById('csvImportModal').classList.add('hidden');
+    selectedCsvFile = null;
+    csvPreviewData = null;
+    document.getElementById('csvFileInput').value = '';
+    document.getElementById('csvFileLabel').innerText = 'Click or drag a CSV file here';
+    document.getElementById('csvUploadNextBtn').disabled = true;
+  }
+
+  function handleFileSelected(e) {
+    const file = e.target.files[0];
+    if (file) {
+      selectedCsvFile = file;
+      document.getElementById('csvFileLabel').innerText = `${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+      document.getElementById('csvUploadNextBtn').disabled = false;
+    }
+  }
+
+  function goToCsvStep(step) {
+    document.getElementById('csvStep1').classList.toggle('hidden', step !== 1);
+    document.getElementById('csvStep2').classList.toggle('hidden', step !== 2);
+    document.getElementById('csvStep3').classList.toggle('hidden', step !== 3);
+
+    // Indicator highlights
+    const ind1 = document.getElementById('step-ind-1');
+    const ind2 = document.getElementById('step-ind-2');
+    const ind3 = document.getElementById('step-ind-3');
+
+    ind1.className = step >= 1 ? 'flex items-center gap-2 text-brand-600 font-bold' : 'flex items-center gap-2 text-gray-400';
+    ind2.className = step >= 2 ? 'flex items-center gap-2 text-brand-600 font-bold' : 'flex items-center gap-2 text-gray-400';
+    ind3.className = step === 3 ? 'flex items-center gap-2 text-brand-600 font-bold' : 'flex items-center gap-2 text-gray-400';
+  }
+
+  async function uploadAndPreviewCsv() {
+    if (!selectedCsvFile) return;
+
+    const errBox = document.getElementById('csvErrorBox');
+    const nextBtn = document.getElementById('csvUploadNextBtn');
+    errBox.classList.add('hidden');
+    nextBtn.disabled = true;
+    nextBtn.innerHTML = '<span>Scanning CSV...</span>';
+
+    const formData = new FormData();
+    formData.append('file', selectedCsvFile);
+
+    try {
+      const resp = await fetch("{% url 'contacts:import_preview' %}", {
+        method: "POST",
+        body: formData,
+        headers: {
+          "X-CSRFToken": getCsrfToken(),
+          "X-Requested-With": "XMLHttpRequest",
+        }
+      });
+      const data = await resp.json();
+
+      if (!resp.ok || data.status === 'error') {
+        errBox.innerText = data.message || "Failed to scan CSV file.";
+        errBox.classList.remove('hidden');
+      } else {
+        csvPreviewData = data;
+        buildMappingTable(data);
+        goToCsvStep(2);
+      }
+    } catch (err) {
+      errBox.innerText = "Error uploading file: " + err.message;
+      errBox.classList.remove('hidden');
+    } finally {
+      nextBtn.disabled = false;
+      nextBtn.innerHTML = '<span>Continue to Mapping →</span>';
+    }
+  }
+
+  function buildMappingTable(data) {
+    const tbody = document.getElementById('csvMappingRows');
+    tbody.innerHTML = '';
+
+    const warningBanner = document.getElementById('csvWarningBanner');
+    if (data.warning || (data.duplicate_headers && data.duplicate_headers.length > 0)) {
+      let warnText = data.warning || '';
+      if (data.duplicate_headers && data.duplicate_headers.length > 0) {
+        warnText += ` Note: Duplicate headers detected: ${data.duplicate_headers.join(', ')}.`;
+      }
+      warningBanner.innerText = warnText;
+      warningBanner.classList.remove('hidden');
+    } else {
+      warningBanner.classList.add('hidden');
+    }
+
+    const headers = data.headers || [];
+    const sampleRow = (data.rows && data.rows[0]) ? data.rows[0] : [];
+    const suggestions = data.suggestions || {};
+    const approvedFields = data.approved_fields || [];
+
+    headers.forEach((hdr, idx) => {
+      const sampleVal = sampleRow[idx] !== undefined ? sampleRow[idx] : '';
+      const suggested = suggestions[hdr] || { decision: "skip" };
+
+      const tr = document.createElement('tr');
+      tr.className = "hover:bg-gray-50/60";
+
+      let optionsHtml = `
+        <option value="skip" ${suggested.decision === 'skip' ? 'selected' : ''}>— Skip this column —</option>
+        <optgroup label="Standard Fields">
+          <option value="phone" ${suggested.decision === 'phone' || (suggested.decision === 'map' && suggested.target === 'phone') ? 'selected' : ''}>Phone (Required)</option>
+          <option value="first_name" ${suggested.decision === 'first_name' || (suggested.decision === 'map' && suggested.target === 'first_name') ? 'selected' : ''}>First Name</option>
+          <option value="last_name" ${suggested.decision === 'last_name' || (suggested.decision === 'map' && suggested.target === 'last_name') ? 'selected' : ''}>Last Name</option>
+          <option value="name" ${suggested.decision === 'name' || (suggested.decision === 'map' && suggested.target === 'name') ? 'selected' : ''}>Full Name (Splits to First & Last)</option>
+          <option value="email" ${suggested.decision === 'email' || (suggested.decision === 'map' && suggested.target === 'email') ? 'selected' : ''}>Email</option>
+          <option value="timezone" ${suggested.decision === 'timezone' || (suggested.decision === 'map' && suggested.target === 'timezone') ? 'selected' : ''}>Timezone</option>
+        </optgroup>
+      `;
+
+      if (approvedFields.length > 0) {
+        optionsHtml += `<optgroup label="Approved Custom Fields">`;
+        approvedFields.forEach(f => {
+          const isSelected = suggested.decision === 'map' && suggested.target_field === f.key;
+          optionsHtml += `<option value="map:${f.key}" ${isSelected ? 'selected' : ''}>${f.label} (${f.key})</option>`;
+        });
+        optionsHtml += `</optgroup>`;
+      }
+
+      optionsHtml += `
+        <optgroup label="Create New Field">
+          <option value="add">➕ Create new custom field</option>
+        </optgroup>
+      `;
+
+      tr.innerHTML = `
+        <td class="py-2.5 px-3 font-semibold text-gray-800">
+          ${hdr || '<span class="italic text-gray-400">Blank Header</span>'}
+        </td>
+        <td class="py-2.5 px-3 text-gray-500 font-mono text-[11px] max-w-[150px] truncate" title="${sampleVal}">
+          ${sampleVal || '<span class="text-gray-300 italic">Empty</span>'}
+        </td>
+        <td class="py-2.5 px-3">
+          <select data-header="${hdr}" class="col-mapper w-full py-1.5 px-2 bg-white border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-brand-500">
+            ${optionsHtml}
+          </select>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  async function processCsvImport() {
+    const errBox = document.getElementById('csvErrorBox');
+    const processBtn = document.getElementById('csvProcessBtn');
+    errBox.classList.add('hidden');
+
+    // Collect mapping
+    const selectors = document.querySelectorAll('.col-mapper');
+    const mapping = {};
+    let phoneColumnCount = 0;
+
+    selectors.forEach(sel => {
+      const hdr = sel.getAttribute('data-header');
+      const val = sel.value;
+
+      if (val === 'skip') {
+        mapping[hdr] = { decision: "skip" };
+      } else if (val === 'phone') {
+        mapping[hdr] = { decision: "map", target: "phone" };
+        phoneColumnCount++;
+      } else if (val === 'first_name') {
+        mapping[hdr] = { decision: "map", target: "first_name" };
+      } else if (val === 'last_name') {
+        mapping[hdr] = { decision: "map", target: "last_name" };
+      } else if (val === 'name') {
+        mapping[hdr] = { decision: "map", target: "name" };
+      } else if (val === 'email') {
+        mapping[hdr] = { decision: "map", target: "email" };
+      } else if (val === 'timezone') {
+        mapping[hdr] = { decision: "map", target: "timezone" };
+      } else if (val.startsWith('map:')) {
+        const target = val.replace('map:', '');
+        mapping[hdr] = { decision: "map", target: target };
+      } else if (val === 'add') {
+        // Automatically use normalized header for key
+        let safeKey = hdr.toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/^_+/, '');
+        if (!safeKey || !/^[a-z]/.test(safeKey)) {
+          safeKey = 'field_' + safeKey;
+        }
+        mapping[hdr] = { decision: "add", target: safeKey, label: hdr };
+      }
+    });
+
+    if (phoneColumnCount !== 1) {
+      errBox.innerText = "Please map exactly one column to Phone.";
+      errBox.classList.remove('hidden');
+      return;
+    }
+
+    const consentChecked = document.getElementById('csvConsentAttestation').checked;
+    const targetListId = document.getElementById('csvTargetList').value;
+
+    const formData = new FormData();
+    formData.append('file', selectedCsvFile);
+    formData.append('mapping', JSON.stringify(mapping));
+    formData.append('contact_list_id', targetListId);
+    formData.append('consent_attested', consentChecked ? '1' : '0');
+    formData.append('attestation_text', consentChecked ? 'Attested via web CSV import' : '');
+
+    processBtn.disabled = true;
+    processBtn.innerHTML = '<span>Processing Import...</span>';
+
+    try {
+      const resp = await fetch("{% url 'contacts:import_process' %}", {
+        method: "POST",
+        body: formData,
+        headers: {
+          "X-CSRFToken": getCsrfToken(),
+          "X-Requested-With": "XMLHttpRequest",
+        }
+      });
+      const data = await resp.json();
+
+      if (!resp.ok || data.status === 'error') {
+        errBox.innerText = data.message || "Failed to process import.";
+        errBox.classList.remove('hidden');
+      } else {
+        renderImportReport(data.report);
+        goToCsvStep(3);
+      }
+    } catch (err) {
+      errBox.innerText = "Network error: " + err.message;
+      errBox.classList.remove('hidden');
+    } finally {
+      processBtn.disabled = false;
+      processBtn.innerHTML = '<span>Start Import</span>';
+    }
+  }
+
+  function renderImportReport(report) {
+    document.getElementById('repTotal').innerText = report.total_processed || 0;
+    document.getElementById('repCreated').innerText = report.created || 0;
+    document.getElementById('repUpdated').innerText = report.updated || 0;
+    const errors = report.errors || [];
+    document.getElementById('repErrors').innerText = errors.length;
+
+    const errSec = document.getElementById('csvErrorsSection');
+    const errTbody = document.getElementById('csvErrorsTableBody');
+    errTbody.innerHTML = '';
+
+    if (errors.length > 0) {
+      errSec.classList.remove('hidden');
+      errors.forEach(e => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="p-1 font-mono font-bold">${e.row || '—'}</td>
+          <td class="p-1 font-mono text-[11px]">${e.phone || e.data || '—'}</td>
+          <td class="p-1">${e.error || 'Failed'}</td>
+        `;
+        errTbody.appendChild(tr);
+      });
+    } else {
+      errSec.classList.add('hidden');
+    }
+  }
+</script>
+{% endblock %}

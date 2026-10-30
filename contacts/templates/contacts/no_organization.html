@@ -1,0 +1,22 @@
+{% extends "messaging/base_app.html" %}
+
+{% block title %}No Business Found · SparkText{% endblock %}
+
+{% block header_title %}Contacts{% endblock %}
+{% block header_subtitle %}Audience and subscriber management{% endblock %}
+
+{% block content %}
+<div class="max-w-md mx-auto my-16 text-center bg-white border border-gray-200 rounded-2xl p-8 shadow-sm">
+  <div class="w-16 h-16 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mx-auto mb-4 text-2xl font-bold border border-amber-100">
+    🏢
+  </div>
+  <h2 class="text-xl font-bold text-gray-900 mb-2">No Business Profile Assigned</h2>
+  <p class="text-sm text-gray-600 mb-6 leading-relaxed">
+    Your user account is not currently linked to a business organization. Please contact your platform administrator or complete your business onboarding to manage contacts.
+  </p>
+  <a href="{% url 'messaging:dashboard' %}" class="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 transition shadow-sm shadow-brand-600/30">
+    Return to Dashboard
+  </a>
+</div>
+{% endblock %}
+

@@ -1,9 +1,29 @@
 from django.urls import path
 from . import views
+from . import views_webhooks
 
-app_name = 'messaging'
+app_name = "messaging"
 
 urlpatterns = [
-    path('dashboard/', views.dashboard, name='dashboard'),
-    
+    # Dashboard & Inbox
+    path("dashboard/", views.dashboard, name="dashboard"),
+    path("inbox/", views.inbox, name="inbox"),
+    path("inbox/new/", views.start_new_chat, name="start_new_chat"),
+    path("inbox/<int:conversation_id>/", views.conversation_detail, name="conversation_detail"),
+    path("inbox/<int:conversation_id>/send/", views.send_conversation_message, name="send_message"),
+    path("inbox/<int:conversation_id>/messages/", views.poll_messages, name="poll_messages"),
+    path("inbox/<int:conversation_id>/status/", views.update_conversation_status, name="update_status"),
+
+    # Direct contact message shortcut
+    path("contacts/<int:contact_id>/message/", views.contact_message_redirect, name="contact_message"),
+
+    # Twilio Webhooks
+    path("webhooks/twilio/sms/", views_webhooks.twilio_inbound_sms, name="twilio_inbound_sms"),
+    path("webhooks/twilio/status/", views_webhooks.twilio_status_callback, name="twilio_status_callback"),
+]
+
+# DEV ONLY SIMULATOR (can be deleted anytime)
+from . import views_dev
+urlpatterns += [
+    path("inbox/<int:conversation_id>/simulate-reply/", views_dev.simulate_customer_reply, name="simulate_reply"),
 ]
