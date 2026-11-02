@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import PhoneNumber, Conversation, Message
+from .models import PhoneNumber, Conversation, Message, AIAssistantConfig, AIJob, AIReply
 
 
 @admin.register(PhoneNumber)
@@ -86,9 +86,82 @@ class MessageAdmin(admin.ModelAdmin):
         "error_code",
         "error_message",
         "num_segments",
+        "is_ai_assisted",
         "created_at",
         "sent_at",
         "delivered_at",
+    ]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(AIAssistantConfig)
+class AIAssistantConfigAdmin(admin.ModelAdmin):
+    list_display = ["organization", "mode", "business_name", "tone", "max_reply_chars", "updated_at"]
+    list_filter = ["mode"]
+    search_fields = ["organization__name", "business_name", "knowledge"]
+    readonly_fields = ["updated_at"]
+
+
+@admin.register(AIJob)
+class AIJobAdmin(admin.ModelAdmin):
+    list_display = ["id", "conversation", "status", "attempts", "run_after", "created_at"]
+    list_filter = ["status"]
+    search_fields = ["conversation__contact__phone", "trigger_message__body"]
+    readonly_fields = [
+        "conversation",
+        "trigger_message",
+        "status",
+        "attempts",
+        "run_after",
+        "created_at",
+        "started_at",
+        "finished_at",
+    ]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(AIReply)
+class AIReplyAdmin(admin.ModelAdmin):
+    list_display = [
+        "id",
+        "conversation",
+        "status",
+        "skip_reason",
+        "model_name",
+        "input_tokens",
+        "output_tokens",
+        "latency_ms",
+        "created_at",
+    ]
+    list_filter = ["status", "model_name"]
+    search_fields = ["conversation__contact__phone", "trigger_message__body", "raw_output", "skip_reason"]
+    readonly_fields = [
+        "conversation",
+        "trigger_message",
+        "job",
+        "status",
+        "skip_reason",
+        "model_name",
+        "input_tokens",
+        "output_tokens",
+        "latency_ms",
+        "queue_wait_ms",
+        "raw_output",
+        "parsed_output",
+        "error",
+        "resulting_message",
+        "cost",
+        "created_at",
     ]
 
     def has_add_permission(self, request):

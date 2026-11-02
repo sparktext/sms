@@ -64,6 +64,12 @@ class Conversation(models.Model):
         NEEDS_HUMAN = "needs_human", _("Needs Human")
         CLOSED = "closed", _("Closed")
 
+    class AIMode(models.TextChoices):
+        DEFAULT = "default", _("Default (Use Business Settings)")
+        AUTO = "auto", _("Auto (AI Direct Replies)")
+        SUGGEST = "suggest", _("Suggest (Drafts Only)")
+        OFF = "off", _("Off (Human Takeover)")
+
     organization = models.ForeignKey(
         "core.Organization",
         on_delete=models.CASCADE,
@@ -94,7 +100,25 @@ class Conversation(models.Model):
     last_message_at = models.DateTimeField(default=timezone.now)
     last_inbound_at = models.DateTimeField(null=True, blank=True)
     unread_count = models.PositiveIntegerField(default=0)
+    qualification_answers = models.JSONField(default=dict, blank=True)
+    ai_draft_reply = models.TextField(blank=True, default="")
+    handoff_reason = models.CharField(max_length=255, blank=True, default="")
+    ai_mode = models.CharField(
+        max_length=15,
+        choices=AIMode.choices,
+        default=AIMode.DEFAULT,
+        help_text=_("Per-conversation AI mode override"),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
+
+    def get_effective_ai_mode(self, config=None) -> str:
+        """Returns the conversation's active AI mode, falling back to organization config."""
+        if self.ai_mode and self.ai_mode != self.AIMode.DEFAULT:
+            return self.ai_mode
+        if config:
+            return config.mode
+        cfg = getattr(self.organization, "ai_config", None)
+        return cfg.mode if cfg else "off"
 
     class Meta:
         constraints = [
@@ -201,6 +225,10 @@ class Message(models.Model):
         default="",
     )
     num_segments = models.PositiveSmallIntegerField(null=True, blank=True)
+    is_ai_assisted = models.BooleanField(
+        default=False,
+        help_text=_("Whether this outbound message was drafted or suggested by AI"),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     sent_at = models.DateTimeField(null=True, blank=True)
     delivered_at = models.DateTimeField(null=True, blank=True)
@@ -223,3 +251,176 @@ class Message(models.Model):
 
     def __str__(self):
         return f"{self.direction.upper()} ({self.status}) - {self.conversation.contact.phone} [{self.created_at}]"
+
+
+class AIAssistantConfig(models.Model):
+    """
+    Per-organization AI Assistant settings.
+    Controls whether the AI is OFF, in SUGGEST mode, or in AUTO mode.
+    Holds business knowledge, custom tone, safety rules, and qualification questions.
+    """
+    class Mode(models.TextChoices):
+        OFF = "off", _("Off")
+        SUGGEST = "suggest", _("Suggest (Draft for Human Approval)")
+        AUTO = "auto", _("Auto (Directly Send AI Replies)")
+
+    organization = models.OneToOneField(
+        "core.Organization",
+        on_delete=models.CASCADE,
+        related_name="ai_config",
+    )
+    mode = models.CharField(
+        max_length=15,
+        choices=Mode.choices,
+        default=Mode.OFF,
+    )
+    business_name = models.CharField(max_length=120, blank=True, default="")
+    business_description = models.TextField(blank=True, default="")
+    knowledge = models.TextField(
+        blank=True,
+        default="",
+        help_text=_("Business knowledge base: services, office hours, FAQ, policies"),
+    )
+    tone = models.CharField(
+        max_length=100,
+        blank=True,
+        default="friendly, professional, concise",
+    )
+    qualification_questions = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=_("List of qualification questions: [{key, question, required}]"),
+    )
+    never_say = models.TextField(
+        blank=True,
+        default="",
+        help_text=_("Strict negative rules/phrases the AI must never mention (one per line)"),
+    )
+    handoff_rules = models.TextField(
+        blank=True,
+        default="",
+        help_text=_("Custom rules describing when to hand off to a human agent"),
+    )
+    max_reply_chars = models.PositiveIntegerField(
+        default=320,
+        help_text=_("Maximum character length for AI reply (default 320 for ~2 SMS segments)"),
+    )
+    max_ai_replies_per_hour_per_contact = models.PositiveIntegerField(
+        default=6,
+        help_text=_("Safety rate limit cap per contact per rolling hour"),
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = _("AI Assistant Configuration")
+        verbose_name_plural = _("AI Assistant Configurations")
+
+    def __str__(self):
+        return f"AI Config ({self.mode}) - {self.organization.name}"
+
+
+class AIJob(models.Model):
+    """
+    Background job queue for processing incoming SMS messages through the AI Assistant.
+    Supports a short debounce window (e.g. 4 seconds) to collapse multiple fast incoming texts.
+    """
+    class Status(models.TextChoices):
+        PENDING = "pending", _("Pending")
+        RUNNING = "running", _("Running")
+        DONE = "done", _("Done")
+        FAILED = "failed", _("Failed")
+
+    conversation = models.ForeignKey(
+        Conversation,
+        on_delete=models.CASCADE,
+        related_name="ai_jobs",
+    )
+    trigger_message = models.ForeignKey(
+        Message,
+        on_delete=models.CASCADE,
+        related_name="ai_trigger_jobs",
+    )
+    status = models.CharField(
+        max_length=15,
+        choices=Status.choices,
+        default=Status.PENDING,
+        db_index=True,
+    )
+    attempts = models.PositiveIntegerField(default=0)
+    run_after = models.DateTimeField(default=timezone.now, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["run_after", "created_at"]
+        indexes = [
+            models.Index(fields=["status", "run_after"], name="idx_aijob_status_runafter"),
+        ]
+
+    def __str__(self):
+        return f"AIJob #{self.id} [{self.status}] conv={self.conversation_id} msg={self.trigger_message_id}"
+
+
+class AIReply(models.Model):
+    """
+    Comprehensive audit ledger of all AI generation events, including skipped triggers,
+    draft creations, auto-sends, human handoffs, tokens, and response latencies.
+    """
+    class Status(models.TextChoices):
+        DRAFT = "draft", _("Draft")
+        SENT = "sent", _("Sent")
+        BLOCKED = "blocked", _("Blocked")
+        HANDED_OFF = "handed_off", _("Handed Off")
+        FAILED = "failed", _("Failed")
+        SKIPPED = "skipped", _("Skipped")
+
+    conversation = models.ForeignKey(
+        Conversation,
+        on_delete=models.CASCADE,
+        related_name="ai_replies",
+    )
+    trigger_message = models.ForeignKey(
+        Message,
+        on_delete=models.CASCADE,
+        related_name="ai_replies_triggered",
+    )
+    job = models.ForeignKey(
+        AIJob,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="replies",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.DRAFT,
+    )
+    skip_reason = models.CharField(max_length=255, blank=True, default="")
+    model_name = models.CharField(max_length=100, blank=True, default="")
+    input_tokens = models.PositiveIntegerField(default=0)
+    output_tokens = models.PositiveIntegerField(default=0)
+    latency_ms = models.PositiveIntegerField(default=0)
+    queue_wait_ms = models.PositiveIntegerField(default=0)
+    raw_output = models.TextField(blank=True, default="")
+    parsed_output = models.JSONField(default=dict, blank=True)
+    error = models.TextField(blank=True, default="")
+    resulting_message = models.ForeignKey(
+        Message,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ai_reply_origin",
+    )
+    cost = models.DecimalField(max_digits=10, decimal_places=6, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = _("AI Reply")
+        verbose_name_plural = _("AI Replies")
+
+    def __str__(self):
+        return f"AIReply #{self.id} [{self.status}] conv={self.conversation_id}"
+

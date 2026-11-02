@@ -7,12 +7,16 @@ app_name = "messaging"
 urlpatterns = [
     # Dashboard & Inbox
     path("dashboard/", views.dashboard, name="dashboard"),
+    path("ai-assistant/", views.ai_assistant_settings, name="ai_assistant_settings"),
     path("inbox/", views.inbox, name="inbox"),
     path("inbox/new/", views.start_new_chat, name="start_new_chat"),
     path("inbox/<int:conversation_id>/", views.conversation_detail, name="conversation_detail"),
     path("inbox/<int:conversation_id>/send/", views.send_conversation_message, name="send_message"),
     path("inbox/<int:conversation_id>/messages/", views.poll_messages, name="poll_messages"),
     path("inbox/<int:conversation_id>/status/", views.update_conversation_status, name="update_status"),
+    path("inbox/<int:conversation_id>/draft-action/", views.handle_ai_draft_action, name="ai_draft_action"),
+    path("inbox/<int:conversation_id>/resume-ai/", views.resume_ai_conversation, name="resume_ai"),
+    path("inbox/<int:conversation_id>/ai-mode/", views.update_conversation_ai_mode, name="update_ai_mode"),
 
     # Direct contact message shortcut
     path("contacts/<int:contact_id>/message/", views.contact_message_redirect, name="contact_message"),

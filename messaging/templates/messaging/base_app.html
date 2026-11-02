@@ -190,8 +190,9 @@
           </a>
 
           <a
-            href="#"
-            class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition {{ idle }}"
+            href="{% url 'messaging:ai_assistant_settings' %}"
+            {% if current == "messaging:ai_assistant_settings" %} aria-current="page" {% endif %}
+            class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition {% if current == 'messaging:ai_assistant_settings' %} {{ active }} {% else %} {{ idle }} {% endif %}"
           >
             <svg
               class="w-5 h-5 opacity-70"

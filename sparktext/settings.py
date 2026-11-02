@@ -27,6 +27,12 @@ env = environ.Env(
     TWILIO_VALIDATE_WEBHOOKS=(bool, True),
     MESSAGING_PROVIDER=(str, "twilio"),
     MESSAGING_REPLY_WINDOW_HOURS=(int, 24),
+    AI_CLIENT=(str, "openai"),
+    AI_BASE_URL=(str, "http://localhost:1235/v1"),
+    AI_MODEL=(str, "google/gemma-4-e4b"),
+    AI_API_KEY=(str, ""),
+    AI_TIMEOUT_SECONDS=(int, 45),
+    AI_MAX_RETRIES=(int, 1),
 )
 environ.Env.read_env(BASE_DIR / ".env", overwrite=True)
 
@@ -176,3 +182,11 @@ PUBLIC_BASE_URL = env("PUBLIC_BASE_URL", default="")
 TWILIO_VALIDATE_WEBHOOKS = env("TWILIO_VALIDATE_WEBHOOKS", default=True)
 MESSAGING_PROVIDER = env("MESSAGING_PROVIDER", default="twilio")
 MESSAGING_REPLY_WINDOW_HOURS = env("MESSAGING_REPLY_WINDOW_HOURS", default=24)
+
+# AI Assistant Settings
+AI_CLIENT = env("AI_CLIENT", default="openai")
+AI_BASE_URL = env("AI_BASE_URL", default="http://localhost:1235/v1")
+AI_MODEL = env("AI_MODEL", default="google/gemma-4-e4b")
+AI_API_KEY = env("AI_API_KEY", default="")
+AI_TIMEOUT_SECONDS = env("AI_TIMEOUT_SECONDS", default=45)
+AI_MAX_RETRIES = env("AI_MAX_RETRIES", default=1)

@@ -46,21 +46,30 @@ def can_send_manual(contact: Contact, conversation: Optional[Conversation]) -> T
     )
 
 
-def send_message(conversation: Conversation, body: str, user) -> Message:
+def send_message(
+    conversation: Conversation,
+    body: str,
+    user=None,
+    sender_type: str = Message.SenderType.HUMAN,
+    is_ai_assisted: bool = False,
+) -> Message:
     """
-    Sends a manual 1-to-1 SMS message:
-    1. Validates user organization and message length.
+    Sends an outbound SMS message:
+    1. Validates sender credentials and message length.
     2. Runs compliance check via can_send_manual.
     3. Commits the Message row in 'queued' status BEFORE invoking provider.
     4. Dispatches via SMS provider outside any database transaction.
     5. Updates Message with provider SID / status, and handles Twilio 21610 opt-out.
     6. Updates conversation.last_message_at.
     """
-    if not user or not user.is_authenticated:
-        raise PermissionDenied(_("Authentication required to send messages."))
+    if sender_type == Message.SenderType.HUMAN:
+        if not user or not user.is_authenticated:
+            raise PermissionDenied(_("Authentication required to send messages."))
 
-    if user.organization_id != conversation.organization_id:
-        raise PermissionDenied(_("User does not belong to the conversation's business organization."))
+        if user.organization_id != conversation.organization_id:
+            raise PermissionDenied(_("User does not belong to the conversation's business organization."))
+    elif sender_type == Message.SenderType.AI:
+        user = None
 
     cleaned_body = (body or "").strip()
     if not cleaned_body:
@@ -79,11 +88,12 @@ def send_message(conversation: Conversation, body: str, user) -> Message:
             conversation=conversation,
             organization=conversation.organization,
             direction=Message.Direction.OUTBOUND,
-            sender_type=Message.SenderType.HUMAN,
+            sender_type=sender_type,
             sent_by=user,
             body=cleaned_body,
             status=Message.Status.QUEUED,
             provider=getattr(settings, "MESSAGING_PROVIDER", "twilio"),
+            is_ai_assisted=is_ai_assisted,
         )
 
     # Step 2: Call provider OUTSIDE open transaction

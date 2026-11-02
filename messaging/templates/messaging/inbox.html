@@ -136,23 +136,24 @@
 
     {% if conversation %}
       <!-- Top Chat Header Bar -->
-      <div class="p-3.5 bg-white border-b border-gray-200 shrink-0 flex items-center justify-between gap-3 shadow-2xs">
+      <div class="px-4 py-3 bg-white border-b border-gray-200 shrink-0 flex flex-wrap items-center justify-between gap-y-2.5 gap-x-3 shadow-2xs">
+        <!-- Left: Contact Avatar & Info -->
         <div class="flex items-center gap-3 min-w-0">
           <!-- Mobile back button -->
           <a href="{% url 'messaging:inbox' %}{% if status_filter %}?status={{ status_filter }}{% endif %}"
-             class="md:hidden p-1.5 text-gray-500 hover:bg-gray-100 rounded-lg transition" title="Back to chat list">
+             class="md:hidden p-1.5 text-gray-500 hover:bg-gray-100 rounded-lg transition shrink-0" title="Back to chat list">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
             </svg>
           </a>
 
           <!-- Contact Avatar -->
-          <div class="w-9 h-9 rounded-xl bg-brand-50 text-brand-700 font-bold text-xs flex items-center justify-center shrink-0 border border-brand-100">
+          <div class="w-10 h-10 rounded-xl bg-brand-50 text-brand-700 font-bold text-xs flex items-center justify-center shrink-0 border border-brand-100">
             {% if conversation.contact.first_name %}{{ conversation.contact.first_name|slice:":1"|upper }}{% elif conversation.contact.last_name %}{{ conversation.contact.last_name|slice:":1"|upper }}{% else %}#FF{% endif %}
           </div>
 
           <div class="min-w-0">
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 whitespace-nowrap">
               <h3 class="font-bold text-sm text-gray-900 truncate">
                 {% if conversation.contact.first_name or conversation.contact.last_name %}
                   {{ conversation.contact.first_name }} {{ conversation.contact.last_name }}
@@ -160,37 +161,49 @@
                   {{ conversation.contact.phone }}
                 {% endif %}
               </h3>
-              <a href="{% url 'contacts:detail' conversation.contact.id %}" class="text-[11px] font-semibold text-brand-600 hover:underline" title="View Full Profile">
-                Profile →
+              <a href="{% url 'contacts:detail' conversation.contact.id %}" class="inline-flex items-center gap-1 text-[10px] font-semibold text-brand-600 hover:text-brand-800 bg-brand-50 hover:bg-brand-100 border border-brand-200 px-2 py-0.5 rounded-md transition shrink-0" title="View Full Contact Profile">
+                <span>Profile</span>
+                <span class="text-[9px]">↗</span>
               </a>
             </div>
-            <div class="text-[11px] text-gray-500 font-mono">
+            <div class="text-[11px] text-gray-500 font-mono whitespace-nowrap flex items-center gap-1.5 mt-0.5">
               <span>{{ conversation.contact.phone }}</span>
-              <span class="text-gray-300 mx-1">·</span>
+              <span class="text-gray-300">·</span>
               <span class="font-sans text-[10px] text-gray-400">via {{ conversation.phone_number.e164 }}</span>
             </div>
           </div>
         </div>
 
-        <!-- Right Side: Status Selector & Consent Pill -->
-        <div class="flex items-center gap-2 shrink-0">
+        <!-- Right Side: Status Selector, AI Mode Selector & Consent Pill -->
+        <div class="flex items-center gap-2 shrink-0 flex-wrap">
           {% if conversation.contact.sms_status == "opted_in" %}
-          <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+          <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 whitespace-nowrap">
             <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Opted In
           </span>
           {% elif conversation.contact.sms_status == "opted_out" %}
-          <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+          <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200 whitespace-nowrap">
             <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span> Opted Out
           </span>
           {% else %}
-          <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+          <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 whitespace-nowrap">
             <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span> No consent
           </span>
           {% endif %}
 
+          <!-- Per-Conversation AI Mode Selector (Human Takeover / Suggest / Auto) -->
+          <form method="post" action="{% url 'messaging:update_ai_mode' conversation.id %}" class="inline-block" title="Control AI Assistant mode for this specific conversation">
+            {% csrf_token %}
+            <select name="ai_mode" onchange="this.form.submit()" class="text-xs font-semibold px-2.5 py-1 rounded-lg border transition cursor-pointer {% if conversation.ai_mode == 'off' %}bg-rose-50 border-rose-200 text-rose-800 font-bold{% elif conversation.ai_mode == 'suggest' %}bg-indigo-50 border-indigo-200 text-indigo-800 font-bold{% elif conversation.ai_mode == 'auto' %}bg-purple-50 border-purple-200 text-purple-800 font-bold{% else %}bg-gray-50 border-gray-200 text-gray-700{% endif %} focus:outline-none focus:ring-1 focus:ring-brand-500">
+              <option value="default" {% if conversation.ai_mode == "default" %}selected{% endif %}>⚙️ AI: Default</option>
+              <option value="auto" {% if conversation.ai_mode == "auto" %}selected{% endif %}>🤖 AI: Auto</option>
+              <option value="suggest" {% if conversation.ai_mode == "suggest" %}selected{% endif %}>✨ AI: Suggest</option>
+              <option value="off" {% if conversation.ai_mode == "off" %}selected{% endif %}>🛑 AI: Off</option>
+            </select>
+          </form>
+
           <form method="post" action="{% url 'messaging:update_status' conversation.id %}" class="inline-block">
             {% csrf_token %}
-            <select name="status" onchange="this.form.submit()" class="text-xs font-semibold px-2 py-1 rounded-lg bg-gray-50 border border-gray-200 text-gray-700 focus:outline-none focus:ring-1 focus:ring-brand-500 cursor-pointer">
+            <select name="status" onchange="this.form.submit()" class="text-xs font-semibold px-2.5 py-1 rounded-lg bg-gray-50 border border-gray-200 text-gray-700 focus:outline-none focus:ring-1 focus:ring-brand-500 cursor-pointer">
               <option value="open" {% if conversation.status == "open" %}selected{% endif %}>🟢 Open</option>
               <option value="needs_human" {% if conversation.status == "needs_human" %}selected{% endif %}>🟡 Needs Human</option>
               <option value="closed" {% if conversation.status == "closed" %}selected{% endif %}>⚪ Closed</option>
@@ -199,15 +212,77 @@
         </div>
       </div>
 
+      <!-- Handoff Warning Banner when status is Needs Human -->
+      {% if conversation.status == 'needs_human' %}
+      <div class="px-4 py-2.5 bg-amber-50/90 border-b border-amber-200 text-amber-900 text-xs flex items-center justify-between gap-3 shrink-0 shadow-2xs">
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="text-amber-600 font-bold text-sm shrink-0">⚠️</span>
+          <div class="truncate">
+            <strong class="font-bold">Needs Human Attention:</strong>
+            <span class="text-amber-800 ml-1">{{ conversation.handoff_reason|default:"Customer inquiry requires human assistance." }}</span>
+          </div>
+        </div>
+        <form method="post" action="{% url 'messaging:resume_ai' conversation.id %}" class="shrink-0">
+          {% csrf_token %}
+          <button type="submit" class="px-2.5 py-1 text-[11px] font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-lg transition shadow-2xs cursor-pointer">
+            Resume AI Assistant
+          </button>
+        </form>
+      </div>
+      {% endif %}
+
+      <!-- Human Takeover Banner when AI is explicitly stopped or switched to Suggest for this chat -->
+      {% if conversation.ai_mode == 'off' %}
+      <div class="px-4 py-2 bg-slate-900 text-white text-xs flex items-center justify-between gap-3 shrink-0 shadow-2xs">
+        <div class="flex items-center gap-2">
+          <span>🛑</span>
+          <span><strong>Human Takeover Active:</strong> AI is stopped for this conversation. You can chat freely without AI intervention.</span>
+        </div>
+        <form method="post" action="{% url 'messaging:update_ai_mode' conversation.id %}">
+          {% csrf_token %}
+          <input type="hidden" name="ai_mode" value="default">
+          <button type="submit" class="px-2.5 py-1 text-[11px] font-semibold text-slate-900 bg-white hover:bg-gray-100 rounded-lg transition shadow-2xs cursor-pointer">
+            Re-enable AI
+          </button>
+        </form>
+      </div>
+      {% elif conversation.ai_mode == 'suggest' %}
+      <div class="px-4 py-1.5 bg-indigo-50 border-b border-indigo-200 text-indigo-900 text-[11px] flex items-center justify-between gap-2 shrink-0">
+        <div class="flex items-center gap-1.5">
+          <span>✨</span>
+          <span><strong>Suggest Mode Active:</strong> Gemma will draft suggestions for your review instead of auto-sending.</span>
+        </div>
+        <form method="post" action="{% url 'messaging:update_ai_mode' conversation.id %}">
+          {% csrf_token %}
+          <input type="hidden" name="ai_mode" value="auto">
+          <button type="submit" class="text-brand-600 font-semibold hover:underline cursor-pointer">
+            Switch to Auto →
+          </button>
+        </form>
+      </div>
+      {% endif %}
+
       <!-- Messages Thread Area -->
       <div id="chat-window" class="flex-1 overflow-y-auto p-4 sm:p-6 space-y-3 bg-[#f8fafc]/90">
         {% if messages %}
           {% for msg in messages %}
+          {% if msg.sender_type == 'system' %}
+            <!-- System audit notification -->
+            <div id="msg-{{ msg.id }}" data-msg-id="{{ msg.id }}" class="w-full flex justify-center my-2">
+              <span class="px-3 py-1 rounded-full text-[11px] font-medium bg-gray-100 text-gray-600 border border-gray-200/80 shadow-2xs text-center max-w-md">
+                ℹ️ {{ msg.body }}
+              </span>
+            </div>
+          {% else %}
           <div id="msg-{{ msg.id }}" data-msg-id="{{ msg.id }}" class="flex flex-col {% if msg.direction == 'outbound' %}items-end{% else %}items-start{% endif %}">
             
             <div class="max-w-md sm:max-w-lg rounded-2xl px-4 py-2.5 text-xs sm:text-sm shadow-2xs leading-relaxed
               {% if msg.direction == 'outbound' %}
-                bg-brand-600 text-white rounded-br-xs
+                {% if msg.sender_type == 'ai' %}
+                  bg-gradient-to-r from-brand-600 to-indigo-600 text-white rounded-br-xs
+                {% else %}
+                  bg-brand-600 text-white rounded-br-xs
+                {% endif %}
               {% else %}
                 bg-white text-gray-900 border border-gray-200/90 rounded-bl-xs
               {% endif %}">
@@ -230,13 +305,19 @@
                   <span>{{ msg.get_status_display }}</span>
                 {% endif %}
 
-                {% if msg.sent_by %}
+                {% if msg.sender_type == 'ai' %}
+                  <span class="text-indigo-600 font-bold">· 🤖 AI Assistant</span>
+                {% elif msg.sent_by %}
                   <span class="text-gray-400">· by {{ msg.sent_by.first_name|default:msg.sent_by.email }}</span>
+                  {% if msg.is_ai_assisted %}
+                    <span class="text-indigo-500 font-medium">· ✨ AI-assisted</span>
+                  {% endif %}
                 {% endif %}
               {% endif %}
             </div>
 
           </div>
+          {% endif %}
           {% endfor %}
         {% else %}
           <div id="empty-chat-placeholder" class="h-full flex flex-col items-center justify-center text-center py-12">
@@ -251,6 +332,43 @@
 
       <!-- Bottom Composer Bar -->
       <div class="p-3.5 bg-white border-t border-gray-200 shrink-0">
+        <!-- AI Suggestion Draft Card (Suggest Mode) -->
+        {% if conversation.ai_draft_reply %}
+        <div id="ai-draft-card" class="mb-3 p-3 rounded-xl bg-gradient-to-r from-indigo-50/90 to-purple-50/90 border border-indigo-200 text-indigo-950 text-xs shadow-2xs space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="font-bold flex items-center gap-1.5 text-brand-700">
+              <span>✨</span> AI Suggestion
+            </span>
+            <span class="text-[10px] text-gray-500 font-medium">Gemma Copilot Draft</span>
+          </div>
+          <p id="ai-draft-text" class="text-xs text-gray-800 whitespace-pre-wrap leading-relaxed bg-white/80 p-2.5 rounded-lg border border-indigo-100 font-sans">{{ conversation.ai_draft_reply }}</p>
+          <div class="flex items-center justify-end gap-2 pt-0.5">
+            <button
+              type="button"
+              onclick="discardAIDraft('{% url 'messaging:ai_draft_action' conversation.id %}')"
+              class="px-2.5 py-1 text-[11px] font-medium text-gray-500 hover:text-gray-800 hover:bg-gray-200/60 rounded-lg transition cursor-pointer"
+            >
+              Discard
+            </button>
+            <button
+              type="button"
+              onclick="applyAIDraftToComposer()"
+              class="px-2.5 py-1 text-[11px] font-semibold text-brand-700 hover:bg-brand-100 rounded-lg transition border border-brand-200 cursor-pointer"
+            >
+              Edit Draft
+            </button>
+            <button
+              type="button"
+              onclick="sendAIDraft('{% url 'messaging:ai_draft_action' conversation.id %}')"
+              class="px-3 py-1 text-[11px] font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition shadow-2xs cursor-pointer flex items-center gap-1"
+            >
+              <span>Approve & Send</span>
+              <span>→</span>
+            </button>
+          </div>
+        </div>
+        {% endif %}
+
         {% if not can_send %}
           <div class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2.5">
             <span class="font-bold text-amber-700 text-sm leading-none">⚠️</span>
@@ -621,6 +739,65 @@
       closeNewChatModal();
     }
   });
+
+  // AI Suggestion Draft Actions
+  function applyAIDraftToComposer() {
+    const draftText = document.getElementById("ai-draft-text")?.textContent || "";
+    const textarea = document.getElementById("message-body");
+    if (textarea) {
+      textarea.value = draftText.trim();
+      textarea.dispatchEvent(new Event("input"));
+      textarea.focus();
+    }
+  }
+
+  function discardAIDraft(actionUrl) {
+    const formData = new FormData();
+    formData.append("action", "discard");
+    formData.append("csrfmiddlewaretoken", "{{ csrf_token }}");
+
+    fetch(actionUrl, {
+      method: "POST",
+      headers: { "X-Requested-With": "XMLHttpRequest" },
+      body: formData,
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.status === "success") {
+        const card = document.getElementById("ai-draft-card");
+        if (card) card.remove();
+      }
+    })
+    .catch(err => console.error("Error discarding draft:", err));
+  }
+
+  function sendAIDraft(actionUrl) {
+    const draftText = document.getElementById("ai-draft-text")?.textContent || "";
+    const formData = new FormData();
+    formData.append("action", "send");
+    formData.append("body", draftText.trim());
+    formData.append("csrfmiddlewaretoken", "{{ csrf_token }}");
+
+    fetch(actionUrl, {
+      method: "POST",
+      headers: { "X-Requested-With": "XMLHttpRequest" },
+      body: formData,
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.status === "success") {
+        const card = document.getElementById("ai-draft-card");
+        if (card) card.remove();
+        window.location.reload();
+      } else {
+        alert(data.message || "Failed to send AI draft.");
+      }
+    })
+    .catch(err => {
+      console.error("Error sending draft:", err);
+      alert("A network error occurred while sending the draft.");
+    });
+  }
 
   // Live Client-side search for contacts in the left pane
   function filterChatList(query) {

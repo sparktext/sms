@@ -176,6 +176,48 @@ def twilio_inbound_sms(request):
     except Exception as exc:
         logger.exception("Error processing consent keyword on inbound message %s: %s", message_sid, exc)
 
+    # Queue or debounce AI job if AI Assistant is configured and applicable
+    try:
+        from datetime import timedelta
+        from messaging.models import AIAssistantConfig, AIJob
+
+        config = getattr(org, "ai_config", None) or AIAssistantConfig.objects.filter(organization=org).first()
+        keyword = classify_keyword(body)
+        effective_mode = conversation.get_effective_ai_mode(config)
+
+        # Only queue if mode is not off, not a compliance keyword, contact not opted out, conv not needs_human/closed
+        if (
+            effective_mode != AIAssistantConfig.Mode.OFF
+            and keyword not in ["STOP", "START", "HELP"]
+            and contact.sms_status != Contact.SMSStatus.OPTED_OUT
+            and conversation.status not in [Conversation.Status.NEEDS_HUMAN, Conversation.Status.CLOSED]
+        ):
+            debounce_seconds = getattr(settings, "AI_DEBOUNCE_SECONDS", 4)
+            run_after = timezone.now() + timedelta(seconds=debounce_seconds)
+
+            with transaction.atomic():
+                pending_job = (
+                    AIJob.objects.select_for_update()
+                    .filter(conversation=conversation, status=AIJob.Status.PENDING)
+                    .first()
+                )
+                if pending_job:
+                    pending_job.trigger_message = message
+                    pending_job.run_after = run_after
+                    pending_job.save(update_fields=["trigger_message", "run_after"])
+                    logger.info("Debounced existing pending AIJob #%d for conv %d", pending_job.id, conversation.id)
+                else:
+                    new_job = AIJob.objects.create(
+                        conversation=conversation,
+                        trigger_message=message,
+                        status=AIJob.Status.PENDING,
+                        run_after=run_after,
+                    )
+                    logger.info("Created new AIJob #%d for conv %d (run_after=%s)", new_job.id, conversation.id, run_after)
+
+    except Exception as exc:
+        logger.exception("Failed to schedule AI job for message %s: %s", message_sid, exc)
+
     return HttpResponse("<Response></Response>", content_type="text/xml", status=200)
 
 
