@@ -1,0 +1,512 @@
+{% extends "messaging/base_app.html" %}
+
+{% block title %}Create Campaign - SparkText{% endblock %}
+
+{% block header_title %}Create SMS Campaign{% endblock %}
+{% block header_subtitle %}Target subscriber lists with personalized, TCPA-compliant broadcasts{% endblock %}
+
+{% block header_actions %}
+<a
+  href="{% url 'campaigns:list' %}"
+  class="px-3.5 py-2 text-xs font-semibold text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 rounded-xl transition shadow-2xs cursor-pointer"
+>
+  ← Cancel & Back
+</a>
+{% endblock %}
+
+{% block content %}
+<form id="campaign-form" method="post" action="{% url 'campaigns:create' %}" class="max-w-4xl space-y-6">
+  {% csrf_token %}
+
+  <!-- CARD 1: Basic Campaign Info -->
+  <div class="bg-white rounded-2xl border border-gray-200 p-5 shadow-2xs space-y-4">
+    <div class="border-b border-gray-100 pb-3">
+      <h3 class="text-sm font-bold text-gray-900 flex items-center gap-2">
+        <span class="w-6 h-6 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center text-xs font-bold">1</span>
+        <span>Campaign Identification</span>
+      </h3>
+      <p class="text-xs text-gray-500 mt-0.5">Name your broadcast and choose the outbound business phone number</p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
+        <label for="campaign-name" class="block text-xs font-bold text-gray-700 mb-1">
+          Campaign Name <span class="text-rose-500">*</span>
+        </label>
+        <input
+          type="text"
+          id="campaign-name"
+          name="name"
+          required
+          placeholder="e.g. Q4 Auto Policy Review & Discounts"
+          class="w-full px-3.5 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900"
+        />
+      </div>
+
+      <div>
+        <label for="phone-number-id" class="block text-xs font-bold text-gray-700 mb-1">
+          Sending Phone Number <span class="text-rose-500">*</span>
+        </label>
+        <select
+          id="phone-number-id"
+          name="phone_number_id"
+          required
+          class="w-full px-3 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900 bg-white"
+        >
+          {% for p in phone_numbers %}
+          <option value="{{ p.id }}" {% if p.is_default %}selected{% endif %}>{{ p.e164 }}{% if p.label %} ({{ p.label }}){% endif %}{% if p.is_default %} ★ Default Primary{% endif %}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- CARD 2: Audience Targeting & Segmentation -->
+  <div class="bg-white rounded-2xl border border-gray-200 p-5 shadow-2xs space-y-4">
+    <div class="border-b border-gray-100 pb-3 flex items-center justify-between">
+      <div>
+        <h3 class="text-sm font-bold text-gray-900 flex items-center gap-2">
+          <span class="w-6 h-6 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center text-xs font-bold">2</span>
+          <span>Target Audience & Filters</span>
+        </h3>
+        <p class="text-xs text-gray-500 mt-0.5">Select subscriber lists and optionally filter by contact stage / tags</p>
+      </div>
+
+      <!-- Live Audience Counter Pill -->
+      <div id="audience-counter-box" class="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900 text-white text-xs font-medium shadow-2xs">
+        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+        <span id="counter-summary">Calculating audience...</span>
+      </div>
+    </div>
+
+    <!-- Contact Lists Multi-Select -->
+    <div>
+      <label class="block text-xs font-bold text-gray-700 mb-1.5">
+        Target Lists (Select one or multiple)
+      </label>
+      
+      {% if contact_lists %}
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 max-h-48 overflow-y-auto p-1 border border-gray-100 rounded-xl bg-gray-50/50">
+        {% for lst in contact_lists %}
+        <label class="list-checkbox-card flex items-center gap-2.5 p-2.5 rounded-xl border border-gray-200 bg-white hover:border-brand-300 hover:bg-brand-50/30 cursor-pointer transition">
+          <input
+            type="checkbox"
+            name="lists"
+            value="{{ lst.id }}"
+            onchange="recalculateAudience()"
+            class="rounded border-gray-300 text-brand-600 focus:ring-brand-500 cursor-pointer"
+          />
+          <div class="min-w-0 flex-1">
+            <div class="text-xs font-bold text-gray-900 truncate">{{ lst.name }}</div>
+            <div class="text-[10px] text-gray-400">{{ lst.total_contacts }} contact{{ lst.total_contacts|pluralize }}</div>
+          </div>
+        </label>
+        {% endfor %}
+      </div>
+      <p class="text-[11px] text-gray-400 mt-1">Leave all lists unchecked to target all eligible organization contacts.</p>
+      {% else %}
+      <div class="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs">
+        No contact lists created yet. The campaign will target your organization's entire contact database.
+        You can create lists under <a href="{% url 'contacts:lists' %}" class="font-bold underline text-brand-700">Contacts → Lists</a>.
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Stage / Custom Field Filter -->
+    <div class="pt-2 border-t border-gray-100 grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div>
+        <label for="filter-stage" class="block text-xs font-bold text-gray-700 mb-1">
+          Filter by Lead Stage
+        </label>
+        <select
+          id="filter-stage"
+          name="filter_stage"
+          onchange="recalculateAudience()"
+          class="w-full px-3 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900 bg-white"
+        >
+          <option value="__all__">All Stages (No stage filter)</option>
+          {% for st in stage_options %}
+          <option value="{{ st }}">{{ st }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Compliance Disclaimer Card -->
+      <div class="p-3 rounded-xl bg-brand-50/70 border border-brand-100 flex items-start gap-2 text-xs text-brand-900">
+        <span class="text-sm">🛡️</span>
+        <div>
+          <strong class="font-bold block">Opt-In Guard Active:</strong>
+          <p class="text-[11px] text-brand-800 leading-relaxed">
+            Contacts without express consent or who previously replied STOP will be <strong>automatically skipped</strong> to protect carrier reputation and TCPA compliance.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Live Detailed Breakdown Banner -->
+    <div id="audience-details-banner" class="p-3 bg-gray-50 border border-gray-200 rounded-xl flex items-center justify-between text-xs text-gray-600">
+      <div class="flex items-center gap-3">
+        <span>👥 Total in Segment: <strong id="val-total" class="text-gray-900 font-bold">0</strong></span>
+        <span>·</span>
+        <span>✅ Eligible (Opted In): <strong id="val-eligible" class="text-emerald-600 font-bold">0</strong></span>
+        <span>·</span>
+        <span>⚠️ Skipped (No Consent / STOP): <strong id="val-skipped" class="text-amber-700 font-bold">0</strong></span>
+      </div>
+      <div class="text-[11px] text-gray-400 font-medium">Updates live</div>
+    </div>
+  </div>
+
+  <!-- CARD 3: Message Composer & Merge Tags -->
+  <div class="bg-white rounded-2xl border border-gray-200 p-5 shadow-2xs space-y-4">
+    <div class="border-b border-gray-100 pb-3 flex items-center justify-between">
+      <div>
+        <h3 class="text-sm font-bold text-gray-900 flex items-center gap-2">
+          <span class="w-6 h-6 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center text-xs font-bold">3</span>
+          <span>Message Copy & Personalization</span>
+        </h3>
+        <p class="text-xs text-gray-500 mt-0.5">Use merge tags to personalize each text message</p>
+      </div>
+    </div>
+
+    <!-- Saved Templates Preset Selector -->
+    <div class="bg-gray-50/80 border border-gray-200/90 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+      <div class="flex items-center gap-2">
+        <span class="w-6 h-6 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center text-xs">
+          📄
+        </span>
+        <span class="text-xs font-bold text-gray-800">Load from Saved Templates:</span>
+      </div>
+      <div class="flex items-center gap-2 flex-1 sm:max-w-md">
+        <select
+          id="template-preset-picker"
+          onchange="applyTemplatePreset(this)"
+          class="w-full text-xs bg-white border border-gray-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-500/20 text-gray-700"
+        >
+          <option value="">-- Choose a template to auto-fill --</option>
+          {% for st in saved_templates %}
+          <option
+            value="{{ st.id }}"
+            data-body="{{ st.body }}"
+            {% if selected_template and selected_template.id == st.id %}selected{% endif %}
+          >
+            {{ st.name }} ({{ st.get_category_display }})
+          </option>
+          {% endfor %}
+        </select>
+        <a
+          href="{% url 'templates:index' %}"
+          target="_blank"
+          class="text-[11px] font-semibold text-brand-600 hover:text-brand-800 whitespace-nowrap"
+          title="Open Templates manager in new tab"
+        >
+          Manage →
+        </a>
+      </div>
+    </div>
+
+    <!-- Variable Chips -->
+    <div>
+      <label class="block text-xs font-bold text-gray-700 mb-1.5">Click tag to insert:</label>
+      <div class="flex flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          onclick="insertTag('first_name')"
+          class="px-2.5 py-1 text-[11px] font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-lg transition cursor-pointer"
+        >
+          + First Name
+        </button>
+        <button
+          type="button"
+          onclick="insertTag('last_name')"
+          class="px-2.5 py-1 text-[11px] font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-lg transition cursor-pointer"
+        >
+          + Last Name
+        </button>
+        <button
+          type="button"
+          onclick="insertTag('full_name')"
+          class="px-2.5 py-1 text-[11px] font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-lg transition cursor-pointer"
+        >
+          + Full Name
+        </button>
+        <button
+          type="button"
+          onclick="insertTag('business_name')"
+          class="px-2.5 py-1 text-[11px] font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-lg transition cursor-pointer"
+        >
+          + Business Name
+        </button>
+        <button
+          type="button"
+          onclick="insertTag('phone')"
+          class="px-2.5 py-1 text-[11px] font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-lg transition cursor-pointer"
+        >
+          + Contact Phone
+        </button>
+      </div>
+    </div>
+
+    <!-- Textarea -->
+    <div>
+      <textarea
+        id="message-template"
+        name="message_template"
+        rows="4"
+        maxlength="1600"
+        required
+        oninput="updateMessageMetrics()"
+        placeholder="Hi &#123;&#123; first_name &#125;&#125;, this is &#123;&#123; business_name &#125;&#125;. We are offering exclusive coverage reviews this month! Reply YES to learn more."
+        class="w-full px-3.5 py-2.5 text-xs sm:text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900 transition leading-relaxed resize-none"
+      ></textarea>
+
+      <div class="flex items-center justify-between text-[11px] text-gray-400 font-mono mt-1 px-1">
+        <div id="char-counter">0 / 1600 characters · 1 segment</div>
+        <div class="text-[10px] text-gray-400 font-sans italic">
+          Standard disclaimer ("Reply STOP to opt out") is auto-appended if omitted.
+        </div>
+      </div>
+    </div>
+
+    <!-- Live Preview Card -->
+    <div class="p-3.5 rounded-xl bg-gray-50 border border-gray-200 space-y-1.5">
+      <div class="text-[10px] font-bold uppercase tracking-wider text-gray-400 flex items-center justify-between">
+        <span>Sample Recipient Preview (e.g. John Miller)</span>
+        <span>📱 Mobile SMS</span>
+      </div>
+      <div class="p-3 bg-white rounded-xl border border-gray-200/90 shadow-2xs text-xs text-gray-800 whitespace-pre-wrap leading-relaxed">
+        <p id="preview-text" class="text-gray-500 italic">Start typing your message above to see sample output...</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- CARD 4: Scheduling & Dispatch -->
+  <div class="bg-white rounded-2xl border border-gray-200 p-5 shadow-2xs space-y-4">
+    <div class="border-b border-gray-100 pb-3">
+      <h3 class="text-sm font-bold text-gray-900 flex items-center gap-2">
+        <span class="w-6 h-6 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center text-xs font-bold">4</span>
+        <span>Dispatch Timing</span>
+      </h3>
+      <p class="text-xs text-gray-500 mt-0.5">Send immediately or schedule for a specific date and time</p>
+    </div>
+
+    <div class="space-y-3">
+      <!-- Immediate -->
+      <label class="flex items-center gap-3 p-3 rounded-xl border border-gray-200 hover:border-brand-300 hover:bg-brand-50/20 cursor-pointer transition">
+        <input
+          type="radio"
+          name="timing"
+          value="immediate"
+          checked
+          onchange="toggleScheduleInput()"
+          class="text-brand-600 focus:ring-brand-500"
+        />
+        <div>
+          <strong class="text-xs font-bold text-gray-900 block">⚡ Send Immediately</strong>
+          <span class="text-[11px] text-gray-500">Starts dispatching to carrier networks as soon as campaign is created</span>
+        </div>
+      </label>
+
+      <!-- Scheduled -->
+      <label class="flex items-center gap-3 p-3 rounded-xl border border-gray-200 hover:border-brand-300 hover:bg-brand-50/20 cursor-pointer transition">
+        <input
+          type="radio"
+          name="timing"
+          value="scheduled"
+          id="radio-scheduled"
+          onchange="toggleScheduleInput()"
+          class="text-brand-600 focus:ring-brand-500"
+        />
+        <div>
+          <strong class="text-xs font-bold text-gray-900 block">🗓️ Schedule for Later</strong>
+          <span class="text-[11px] text-gray-500">Pick a future date and time (queued in your timezone)</span>
+        </div>
+      </label>
+
+      <!-- DateTime Picker Box -->
+      <div id="schedule-picker-box" class="hidden pl-8 pt-1">
+        <label for="scheduled-at" class="block text-xs font-bold text-gray-700 mb-1">
+          Dispatch Date & Time <span class="text-rose-500">*</span>
+        </label>
+        <input
+          type="datetime-local"
+          id="scheduled-at"
+          name="scheduled_at"
+          min="{{ now_iso }}"
+          oninput="updateScheduledIso()"
+          class="px-3.5 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900 bg-white"
+        />
+        <input type="hidden" name="scheduled_at_iso" id="scheduled-at-iso" />
+        <p id="tz-notice" class="text-[11px] text-gray-400 mt-1">Times are scheduled in your local browser timezone.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Form Actions -->
+  <div class="flex items-center justify-end gap-3 pt-2">
+    <a
+      href="{% url 'campaigns:list' %}"
+      class="px-4 py-2 text-xs font-semibold text-gray-600 hover:text-gray-900 rounded-xl transition"
+    >
+      Cancel
+    </a>
+    <button
+      type="submit"
+      id="submit-campaign-btn"
+      class="px-5 py-2.5 text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs cursor-pointer flex items-center gap-2"
+    >
+      <span>Launch Campaign</span>
+      <span>→</span>
+    </button>
+  </div>
+
+</form>
+
+<script>
+  function applyTemplatePreset(selectEl) {
+    if (!selectEl) return;
+    const selectedOption = selectEl.options[selectEl.selectedIndex];
+    if (!selectedOption) return;
+    const body = selectedOption.getAttribute('data-body');
+    if (body) {
+      const textarea = document.getElementById("message-template");
+      if (textarea) {
+        textarea.value = body;
+        updateMessageMetrics();
+      }
+    }
+  }
+
+  function insertTag(tagName) {
+    const textarea = document.getElementById("message-template");
+    if (!textarea) return;
+
+    const tag = tagName.includes("{") ? tagName : ("{" + "{ " + tagName + " }" + "}");
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const text = textarea.value;
+
+    textarea.value = text.substring(0, start) + tag + text.substring(end);
+    textarea.selectionStart = textarea.selectionEnd = start + tag.length;
+    textarea.focus();
+    updateMessageMetrics();
+  }
+
+  function updateMessageMetrics() {
+    const textarea = document.getElementById("message-template");
+    const counter = document.getElementById("char-counter");
+    const preview = document.getElementById("preview-text");
+    if (!textarea) return;
+
+    const text = textarea.value;
+    const len = text.length;
+
+    let segments = 1;
+    if (len > 160) {
+      segments = Math.ceil(len / 153);
+    }
+    if (counter) {
+      counter.textContent = `${len} / 1600 characters · ${segments} segment${segments > 1 ? 's' : ''}`;
+    }
+
+    if (preview) {
+      if (!text.trim()) {
+        preview.textContent = "Start typing your message above to see sample output...";
+        preview.className = "text-gray-400 italic";
+      } else {
+        let sample = text
+          .replace(/\{\{\s*first_name\s*\}\}/gi, "John")
+          .replace(/\{\{\s*last_name\s*\}\}/gi, "Miller")
+          .replace(/\{\{\s*full_name\s*\}\}/gi, "John Miller")
+          .replace(/\{\{\s*phone\s*\}\}/gi, "+1 (650) 253-0000")
+          .replace(/\{\{\s*business_name\s*\}\}/gi, "{{ request.user.organization.name|default:'SparkText' }}");
+
+        if (!sample.toLowerCase().includes("stop")) {
+          sample += "\n\nReply STOP to opt out";
+        }
+        preview.textContent = sample;
+        preview.className = "text-gray-900";
+      }
+    }
+  }
+
+  function toggleScheduleInput() {
+    const isScheduled = document.getElementById("radio-scheduled")?.checked;
+    const box = document.getElementById("schedule-picker-box");
+    const input = document.getElementById("scheduled-at");
+    const btn = document.getElementById("submit-campaign-btn");
+
+    if (box) {
+      if (isScheduled) {
+        box.classList.remove("hidden");
+        if (input) input.required = true;
+        if (btn) btn.innerHTML = "<span>Schedule Campaign</span><span>🗓️</span>";
+      } else {
+        box.classList.add("hidden");
+        if (input) input.required = false;
+        if (btn) btn.innerHTML = "<span>Launch Campaign</span><span>→</span>";
+      }
+    }
+  }
+
+  function recalculateAudience() {
+    const checkedBoxes = document.querySelectorAll("input[name='lists']:checked");
+    const listIds = Array.from(checkedBoxes).map(cb => cb.value);
+    const stage = document.getElementById("filter-stage")?.value || "";
+
+    const params = new URLSearchParams();
+    listIds.forEach(id => params.append("lists[]", id));
+    if (stage) params.append("stage", stage);
+
+    fetch("{% url 'campaigns:audience_preview' %}?" + params.toString())
+      .then(res => res.json())
+      .then(data => {
+        if (data.status === "success") {
+          document.getElementById("val-total").textContent = data.total;
+          document.getElementById("val-eligible").textContent = data.eligible ?? data.will_send;
+          document.getElementById("val-skipped").textContent = data.skipped ?? data.will_skip;
+
+          const pill = document.getElementById("counter-summary");
+          if (pill) {
+            pill.textContent = `${data.will_send} eligible recipient${data.will_send === 1 ? '' : 's'}`;
+          }
+        }
+      })
+      .catch(err => console.debug("Audience calc error:", err));
+  }
+
+  function updateScheduledIso() {
+    const input = document.getElementById("scheduled-at");
+    const isoInput = document.getElementById("scheduled-at-iso");
+    if (input && isoInput && input.value) {
+      const d = new Date(input.value);
+      if (!isNaN(d.getTime())) {
+        isoInput.value = d.toISOString();
+      }
+    }
+  }
+
+  // Initialize on page load
+  document.addEventListener("DOMContentLoaded", function() {
+    const picker = document.getElementById("template-preset-picker");
+    if (picker && picker.value) {
+      applyTemplatePreset(picker);
+    } else {
+      updateMessageMetrics();
+    }
+    recalculateAudience();
+
+    document.getElementById("campaign-form")?.addEventListener("submit", function() {
+      updateScheduledIso();
+    });
+
+    try {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const notice = document.getElementById("tz-notice");
+      if (notice && tz) {
+        notice.textContent = `Times are set in your local timezone (${tz}).`;
+      }
+    } catch(e) {}
+  });
+</script>
+{% endblock %}
+

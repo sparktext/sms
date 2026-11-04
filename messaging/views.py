@@ -4,11 +4,13 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError, PermissionDenied
 from django.http import JsonResponse, Http404
 from django.shortcuts import render, get_object_or_404, redirect
+from django.urls import reverse
 from django.views.decorators.http import require_POST
 from django.utils import timezone
 from django.contrib import messages
 
 from contacts.models import Contact
+from core.models import User
 from .models import PhoneNumber, Conversation, Message
 from .services import can_send_manual, send_message
 
@@ -79,10 +81,13 @@ def _get_inbox_data(org, status_filter="open", q=""):
         "needs_human": Conversation.objects.filter(organization=org, status=Conversation.Status.NEEDS_HUMAN).count(),
         "closed": Conversation.objects.filter(organization=org, status=Conversation.Status.CLOSED).count(),
     }
-    has_active_number = PhoneNumber.objects.filter(organization=org, is_active=True).exists()
+    active_phone_numbers = list(
+        PhoneNumber.objects.filter(organization=org, is_active=True).order_by("-is_default", "label", "e164")
+    )
+    has_active_number = len(active_phone_numbers) > 0
     all_contacts = list(Contact.objects.filter(organization=org).order_by("first_name", "last_name", "phone")[:100])
 
-    return conversations, counts, has_active_number, all_contacts
+    return conversations, counts, has_active_number, all_contacts, active_phone_numbers
 
 
 @login_required
@@ -97,7 +102,7 @@ def inbox(request):
 
     status_filter = request.GET.get("status", "open").strip().lower()
     q = request.GET.get("q", "").strip()
-    conversations, counts, has_active_number, all_contacts = _get_inbox_data(org, status_filter, q)
+    conversations, counts, has_active_number, all_contacts, active_phone_numbers = _get_inbox_data(org, status_filter, q)
 
     context = {
         "conversations": conversations,
@@ -107,6 +112,7 @@ def inbox(request):
         "q": q,
         "counts": counts,
         "has_active_number": has_active_number,
+        "active_phone_numbers": active_phone_numbers,
         "all_contacts": all_contacts,
         "is_debug": getattr(settings, "DEBUG", False),
     }
@@ -138,15 +144,29 @@ def conversation_detail(request, conversation_id):
     status_filter = request.GET.get("status", "").strip().lower()
     q = request.GET.get("q", "").strip()
     valid_statuses = [Conversation.Status.OPEN, Conversation.Status.NEEDS_HUMAN, Conversation.Status.CLOSED]
+
+    # If an explicit status filter was requested and it differs from this conversation's status:
+    if status_filter in valid_statuses and conversation.status != status_filter:
+        matching_conv = Conversation.objects.filter(
+            organization=org,
+            status=status_filter,
+        ).order_by("-last_message_at", "-created_at").first()
+        if matching_conv:
+            return redirect(f"{reverse('messaging:conversation_detail', kwargs={'conversation_id': matching_conv.id})}?status={status_filter}")
+        else:
+            return redirect(f"{reverse('messaging:inbox')}?status={status_filter}")
+
     if status_filter not in valid_statuses:
         status_filter = conversation.status
 
-    conversations, counts, has_active_number, all_contacts = _get_inbox_data(org, status_filter, q)
+    conversations, counts, has_active_number, all_contacts, active_phone_numbers = _get_inbox_data(org, status_filter, q)
 
     messages_qs = conversation.messages.select_related("sent_by").order_by("created_at")
     message_list = list(messages_qs)
 
     can_send, block_reason = can_send_manual(conversation.contact, conversation)
+
+    org_members = list(User.objects.filter(organization=org).order_by("first_name", "email"))
 
     context = {
         "conversations": conversations,
@@ -158,7 +178,9 @@ def conversation_detail(request, conversation_id):
         "q": q,
         "counts": counts,
         "has_active_number": has_active_number,
+        "active_phone_numbers": active_phone_numbers,
         "all_contacts": all_contacts,
+        "org_members": org_members,
         "is_debug": getattr(settings, "DEBUG", False),
     }
     return render(request, "messaging/inbox.html", context)
@@ -186,6 +208,22 @@ def send_conversation_message(request, conversation_id):
     try:
         msg = send_message(conversation=conversation, body=body, user=request.user)
 
+        # Automatic Human Takeover (GoHighLevel/Podium model):
+        # When a staff agent manually replies, automatically pause AI for this conversation.
+        ai_mode_changed = False
+        if conversation.ai_mode != Conversation.AIMode.OFF:
+            conversation.ai_mode = Conversation.AIMode.OFF
+            conversation.save(update_fields=["ai_mode"])
+            ai_mode_changed = True
+            Message.objects.create(
+                conversation=conversation,
+                organization=org,
+                direction=Message.Direction.OUTBOUND,
+                sender_type=Message.SenderType.SYSTEM,
+                body=f"Human agent {request.user.first_name or request.user.email} took over. AI paused for this chat.",
+                status=Message.Status.DELIVERED,
+            )
+
         is_ajax = (
             request.headers.get("X-Requested-With") == "XMLHttpRequest"
             or request.content_type == "application/json"
@@ -197,6 +235,8 @@ def send_conversation_message(request, conversation_id):
                 "delivery_status": msg.status,
                 "sent_at": msg.created_at.strftime("%I:%M %p"),
                 "body": msg.body,
+                "ai_mode": conversation.ai_mode,
+                "ai_mode_changed": ai_mode_changed,
             })
 
         messages.success(request, "Message sent.")
@@ -315,11 +355,22 @@ def start_new_chat(request):
     if not org:
         raise PermissionDenied("User is not associated with an organization.")
 
-    phone_number = PhoneNumber.objects.filter(organization=org, is_active=True).first()
+    phone_number = None
+    sender_phone_number_id = request.POST.get("sender_phone_number_id", "").strip()
+    if sender_phone_number_id:
+        phone_number = PhoneNumber.objects.filter(
+            id=sender_phone_number_id,
+            organization=org,
+            is_active=True,
+        ).first()
+
+    if not phone_number:
+        phone_number = PhoneNumber.get_default_for_org(org)
+
     if not phone_number:
         return JsonResponse({
             "status": "error",
-            "message": "Your business does not have an active phone number configured yet. Please add an active phone number in Admin.",
+            "message": "Your business does not have an active phone number configured yet. Please add an active phone number in Settings.",
         }, status=400)
 
     contact_id = request.POST.get("contact_id", "").strip()
@@ -593,3 +644,149 @@ def update_conversation_ai_mode(request, conversation_id):
             })
 
     return redirect("messaging:conversation_detail", conversation_id=conversation.id)
+
+
+@login_required
+def phone_numbers_settings(request):
+    """
+    Settings page for managing organization phone numbers, primary default sending line,
+    labels, and messaging webhook endpoints.
+    """
+    org = request.user.organization
+    if not org:
+        raise PermissionDenied("User is not associated with an organization.")
+
+    if request.method == "POST":
+        action = request.POST.get("action", "").strip()
+        if action == "add_number":
+            raw_phone = request.POST.get("phone", "").strip()
+            label = request.POST.get("label", "").strip()
+            is_default = request.POST.get("is_default") == "on"
+            if raw_phone:
+                from contacts.utils import normalize_phone
+                try:
+                    norm_phone = normalize_phone(raw_phone)
+                    if PhoneNumber.objects.filter(e164=norm_phone).exists():
+                        messages.error(request, f"Phone number {norm_phone} is already registered in the system.")
+                    else:
+                        num = PhoneNumber.objects.create(
+                            organization=org,
+                            e164=norm_phone,
+                            label=label,
+                            is_default=is_default,
+                            is_active=True,
+                        )
+                        messages.success(request, f"Added phone number {norm_phone} ({label or 'No label'}).")
+                except ValidationError as exc:
+                    messages.error(request, f"Invalid phone number: {exc}")
+            else:
+                messages.error(request, "Phone number cannot be empty.")
+            return redirect("messaging:phone_numbers_settings")
+
+    phone_numbers = PhoneNumber.objects.filter(organization=org).order_by("-is_default", "-is_active", "-created_at")
+    from .utils import get_public_base_url
+    public_base = get_public_base_url() or request.build_absolute_uri("/").rstrip("/")
+    active_provider = getattr(settings, "MESSAGING_PROVIDER", "telnyx").lower()
+
+    context = {
+        "phone_numbers": phone_numbers,
+        "public_base": public_base,
+        "active_provider": active_provider,
+        "telnyx_phone": getattr(settings, "TELNYX_PHONE_NUMBER", ""),
+        "twilio_phone": getattr(settings, "TWILIO_PHONE_NUMBER", ""),
+    }
+    return render(request, "messaging/phone_numbers_settings.html", context)
+
+
+@login_required
+@require_POST
+def phone_number_action(request, phone_id):
+    """
+    Handles actions on an individual phone number:
+    - make_default: Sets as primary default sending line
+    - toggle_active: Enables/disables the phone number
+    - update_label: Modifies the phone number label
+    """
+    org = request.user.organization
+    if not org:
+        raise PermissionDenied("User is not associated with an organization.")
+
+    phone_number = get_object_or_404(PhoneNumber, id=phone_id, organization=org)
+    action = request.POST.get("action", "").strip()
+
+    if action == "make_default":
+        phone_number.is_default = True
+        phone_number.is_active = True
+        phone_number.save()
+        messages.success(request, f"{phone_number.e164} is now the Primary Default sending line.")
+    elif action == "toggle_active":
+        if phone_number.is_default and phone_number.is_active:
+            messages.error(request, "Cannot deactivate the Primary Default number. Please designate another number as Primary first.")
+        else:
+            phone_number.is_active = not phone_number.is_active
+            phone_number.save(update_fields=["is_active"])
+            status_text = "activated" if phone_number.is_active else "deactivated"
+            messages.info(request, f"{phone_number.e164} has been {status_text}.")
+    elif action == "update_label":
+        new_label = request.POST.get("label", "").strip()
+        phone_number.label = new_label
+        phone_number.save(update_fields=["label"])
+        messages.success(request, f"Updated label for {phone_number.e164} to '{new_label}'.")
+
+    return redirect("messaging:phone_numbers_settings")
+
+
+@login_required
+@require_POST
+def update_contact_stage(request, contact_id):
+    """
+    AJAX endpoint to update a contact's CRM stage from the Lead Dossier panel.
+    """
+    org = request.user.organization
+    if not org:
+        raise PermissionDenied("User is not associated with an organization.")
+
+    contact = get_object_or_404(Contact, id=contact_id, organization=org)
+    new_stage = request.POST.get("stage", "").strip()
+
+    if not isinstance(contact.custom_fields, dict):
+        contact.custom_fields = {}
+
+    contact.custom_fields["stage"] = new_stage
+    contact.save(update_fields=["custom_fields"])
+
+    return JsonResponse({
+        "status": "success",
+        "stage": new_stage,
+        "contact_id": contact.id,
+    })
+
+
+@login_required
+@require_POST
+def update_conversation_assigned_to(request, conversation_id):
+    """
+    AJAX endpoint to assign a conversation to a team member from the Lead Dossier panel.
+    """
+    org = request.user.organization
+    if not org:
+        raise PermissionDenied("User is not associated with an organization.")
+
+    conversation = get_object_or_404(Conversation, id=conversation_id, organization=org)
+    user_id = request.POST.get("assigned_to_id", "").strip()
+
+    if user_id:
+        assigned_user = get_object_or_404(User, id=user_id, organization=org)
+        conversation.assigned_to = assigned_user
+        assigned_name = assigned_user.first_name or assigned_user.email
+    else:
+        conversation.assigned_to = None
+        assigned_name = "Unassigned"
+
+    conversation.save(update_fields=["assigned_to"])
+
+    return JsonResponse({
+        "status": "success",
+        "assigned_to": assigned_name,
+        "conversation_id": conversation.id,
+    })

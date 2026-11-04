@@ -1,0 +1,295 @@
+import re
+import logging
+from typing import Dict, Any, List, Tuple
+from django.db import transaction
+from django.utils import timezone
+from django.core.exceptions import ValidationError
+
+from core.models import Organization
+from contacts.models import Contact, ContactList
+from compliance.services import can_send_marketing
+from messaging.models import Conversation, Message
+from messaging.services import send_message
+from .models import Campaign, CampaignRecipient
+
+logger = logging.getLogger(__name__)
+
+
+def render_campaign_message(
+    template: str,
+    contact: Contact,
+    organization: Organization,
+    auto_append_opt_out: bool = True,
+) -> str:
+    """
+    Renders message template with personalized contact attributes.
+    Supports:
+      {{ first_name }}, {{ last_name }}, {{ phone }}, {{ business_name }}
+      and any custom field (e.g. {{ stage }}).
+    Ensures standard TCPA opt-out disclosure is present.
+    """
+    first_name = contact.first_name.strip() if contact.first_name else ""
+    last_name = contact.last_name.strip() if contact.last_name else ""
+    full_name = f"{first_name} {last_name}".strip() or first_name or "Valued Customer"
+    business_name = organization.name.strip() if organization else "SparkText"
+
+    context_vars = {
+        "first_name": first_name or "there",
+        "last_name": last_name,
+        "full_name": full_name,
+        "phone": contact.phone,
+        "business_name": business_name,
+    }
+
+    # Add custom fields if any
+    if isinstance(contact.custom_fields, dict):
+        for k, v in contact.custom_fields.items():
+            context_vars[k.lower()] = str(v) if v is not None else ""
+
+    rendered = template
+    for key, val in context_vars.items():
+        pattern = re.compile(r"\{\{\s*" + re.escape(key) + r"\s*\}\}", re.IGNORECASE)
+        rendered = pattern.sub(val, rendered)
+
+    # Clean up any un-matched {{ ... }} placeholders cleanly
+    rendered = re.sub(r"\{\{\s*[\w\.\-_]+\s*\}\}", "", rendered).strip()
+
+    # Append TCPA opt-out disclosure if missing
+    if auto_append_opt_out:
+        lower_body = rendered.lower()
+        if "stop" not in lower_body:
+            rendered = f"{rendered}\n\nReply STOP to opt out"
+
+    return rendered.strip()
+
+
+def resolve_campaign_contacts(
+    organization: Organization,
+    list_ids: List[int] = None,
+    filter_criteria: Dict[str, Any] = None,
+):
+    """
+    Resolves the targeted contact queryset based on selected contact lists
+    and custom field criteria (e.g. {'stage': 'Intake'}).
+    Returns a distinct queryset of Contact objects belonging to the organization.
+    """
+    qs = Contact.objects.filter(organization=organization)
+
+    if list_ids:
+        qs = qs.filter(lists__id__in=list_ids)
+
+    if filter_criteria and isinstance(filter_criteria, dict):
+        for field_key, expected_val in filter_criteria.items():
+            if field_key and expected_val is not None:
+                cleaned_val = str(expected_val).strip()
+                if cleaned_val:
+                    # Filter matching JSON field key
+                    qs = qs.filter(custom_fields__contains={field_key: cleaned_val})
+
+    return qs.distinct()
+
+
+@transaction.atomic
+def build_campaign_recipients(campaign: Campaign) -> Tuple[int, int]:
+    """
+    Populates CampaignRecipient rows for a campaign:
+    - Renders personalized message for each contact.
+    - Evaluates can_send_marketing:
+        * Opted In -> status=PENDING
+        * Opted Out -> status=SKIPPED (reason="Contact opted out")
+        * Unknown -> status=SKIPPED (reason="No opt-in consent on file")
+    Returns (total_recipients, eligible_count).
+    """
+    # Delete any existing recipient rows (in case editing a draft)
+    campaign.recipients.all().delete()
+
+    list_ids = list(campaign.lists.values_list("id", flat=True))
+    contacts = resolve_campaign_contacts(
+        organization=campaign.organization,
+        list_ids=list_ids,
+        filter_criteria=campaign.filter_criteria,
+    )
+
+    recipients_to_create = []
+    eligible_count = 0
+    skipped_count = 0
+
+    for contact in contacts:
+        is_opted_in = can_send_marketing(contact)
+        personalized = render_campaign_message(
+            template=campaign.message_template,
+            contact=contact,
+            organization=campaign.organization,
+        )
+
+        if not is_opted_in:
+            skipped_count += 1
+            if contact.sms_status == Contact.SMSStatus.OPTED_OUT:
+                reason = "Contact opted out (STOP received)"
+            else:
+                reason = "No active opt-in consent on file"
+
+            recipients_to_create.append(
+                CampaignRecipient(
+                    campaign=campaign,
+                    contact=contact,
+                    status=CampaignRecipient.Status.SKIPPED,
+                    skip_reason=reason,
+                    personalized_body=personalized,
+                )
+            )
+        else:
+            eligible_count += 1
+            recipients_to_create.append(
+                CampaignRecipient(
+                    campaign=campaign,
+                    contact=contact,
+                    status=CampaignRecipient.Status.PENDING,
+                    personalized_body=personalized,
+                )
+            )
+
+    if recipients_to_create:
+        CampaignRecipient.objects.bulk_create(recipients_to_create, batch_size=500)
+
+    total = len(recipients_to_create)
+    campaign.total_recipients = total
+    campaign.skipped_count = skipped_count
+    campaign.save(update_fields=["total_recipients", "skipped_count"])
+
+    return total, eligible_count
+
+
+def process_campaign_batch(campaign: Campaign, limit: int = 50) -> int:
+    """
+    Dispatches a batch of pending recipients for a campaign.
+    Uses messaging.services.send_message with sender_type=CAMPAIGN.
+    Returns the number of messages processed in this batch.
+    """
+    if campaign.status not in [Campaign.Status.SCHEDULED, Campaign.Status.SENDING]:
+        return 0
+
+    if campaign.status == Campaign.Status.SCHEDULED:
+        campaign.status = Campaign.Status.SENDING
+        campaign.started_at = timezone.now()
+        campaign.save(update_fields=["status", "started_at"])
+
+    pending_recipients = (
+        CampaignRecipient.objects.filter(
+            campaign=campaign,
+            status=CampaignRecipient.Status.PENDING,
+        )
+        .select_related("contact")
+        .order_by("id")[:limit]
+    )
+
+    processed = 0
+
+    for recip in pending_recipients:
+        contact = recip.contact
+
+        # Re-check consent before dispatch (in case contact opted out since creation)
+        if not can_send_marketing(contact):
+            recip.status = CampaignRecipient.Status.SKIPPED
+            recip.skip_reason = "Contact opted out prior to delivery"
+            recip.save(update_fields=["status", "skip_reason"])
+            campaign.skipped_count += 1
+            processed += 1
+            continue
+
+        # Get or create 2-way conversation for this contact and sender phone number
+        conversation, _ = Conversation.objects.get_or_create(
+            organization=campaign.organization,
+            contact=contact,
+            phone_number=campaign.phone_number,
+            defaults={"status": Conversation.Status.OPEN},
+        )
+
+        try:
+            msg = send_message(
+                conversation=conversation,
+                body=recip.personalized_body,
+                user=campaign.created_by,
+                sender_type=Message.SenderType.CAMPAIGN,
+            )
+            recip.message = msg
+            recip.status = CampaignRecipient.Status.SENT
+            recip.sent_at = timezone.now()
+            recip.save(update_fields=["message", "status", "sent_at"])
+            campaign.sent_count += 1
+
+            if msg.status == Message.Status.DELIVERED:
+                recip.status = CampaignRecipient.Status.DELIVERED
+                recip.save(update_fields=["status"])
+                campaign.delivered_count += 1
+
+        except Exception as exc:
+            logger.error("Failed to dispatch campaign message for recipient %s: %s", recip.id, exc)
+            recip.status = CampaignRecipient.Status.FAILED
+            recip.error_message = str(exc)
+            recip.save(update_fields=["status", "error_message"])
+            campaign.failed_count += 1
+
+        processed += 1
+
+    # Check if all recipients have finished
+    remaining = CampaignRecipient.objects.filter(
+        campaign=campaign,
+        status__in=[CampaignRecipient.Status.PENDING, CampaignRecipient.Status.QUEUED],
+    ).count()
+
+    if remaining == 0:
+        campaign.status = Campaign.Status.COMPLETED
+        campaign.completed_at = timezone.now()
+        campaign.save(update_fields=["status", "completed_at", "sent_count", "delivered_count", "failed_count", "skipped_count"])
+    else:
+        campaign.save(update_fields=["sent_count", "delivered_count", "failed_count", "skipped_count"])
+
+    return processed
+
+
+def cancel_campaign(campaign: Campaign) -> bool:
+    """
+    Cancels an active or scheduled campaign.
+    Marks any remaining pending recipients as skipped.
+    """
+    if campaign.status in [Campaign.Status.COMPLETED, Campaign.Status.CANCELLED]:
+        return False
+
+    campaign.status = Campaign.Status.CANCELLED
+    campaign.save(update_fields=["status"])
+
+    CampaignRecipient.objects.filter(
+        campaign=campaign,
+        status__in=[CampaignRecipient.Status.PENDING, CampaignRecipient.Status.QUEUED],
+    ).update(
+        status=CampaignRecipient.Status.SKIPPED,
+        skip_reason="Campaign cancelled by user",
+    )
+
+    return True
+
+
+def check_and_dispatch_due_campaigns(organization: Organization = None, limit: int = 50) -> int:
+    """
+    Checks for any SCHEDULED campaigns whose scheduled_at has arrived (or is null),
+    and dispatches them. Safe to call on page load or from background tasks.
+    """
+    from django.db.models import Q
+    now = timezone.now()
+    qs = Campaign.objects.filter(
+        Q(status=Campaign.Status.SCHEDULED, scheduled_at__lte=now)
+        | Q(status=Campaign.Status.SCHEDULED, scheduled_at__isnull=True)
+        | Q(status=Campaign.Status.SENDING)
+    )
+    if organization:
+        qs = qs.filter(organization=organization)
+
+    total_dispatched = 0
+    for camp in qs.order_by("created_at")[:10]:
+        try:
+            total_dispatched += process_campaign_batch(camp, limit=limit)
+        except Exception as exc:
+            logger.error("Error processing due campaign #%s: %s", camp.id, exc)
+    return total_dispatched
+

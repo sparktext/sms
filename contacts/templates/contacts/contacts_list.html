@@ -6,6 +6,12 @@
 {% block header_subtitle %}Manage subscriber phone numbers, opt-in consent status, and customer properties{% endblock %}
 
 {% block header_actions %}
+<button type="button" onclick="openApiModal()" class="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-semibold text-brand-700 bg-brand-50 border border-brand-200 rounded-xl hover:bg-brand-100 hover:text-brand-900 transition shadow-xs cursor-pointer">
+  <svg class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+  </svg>
+  API / Webhook
+</button>
 <button type="button" onclick="openCsvModal()" class="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 hover:text-gray-900 transition shadow-xs cursor-pointer">
   <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
@@ -34,6 +40,12 @@
   <a href="{% url 'contacts:fields' %}" class="px-3.5 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-900 rounded-lg hover:bg-gray-100 transition">
     Custom Fields ({{ contact_fields.count }})
   </a>
+  <button type="button" onclick="openApiModal()" class="px-3.5 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-900 rounded-lg hover:bg-gray-100 transition flex items-center gap-1.5 cursor-pointer">
+    <svg class="w-3.5 h-3.5 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+    </svg>
+    API & Webhooks
+  </button>
 </div>
 
 <!-- KPI / Status Pills -->
@@ -743,6 +755,325 @@
     </div>
   </div>
 </div>
+
+<!-- ========================================================================= -->
+<!-- MODAL 3: LEAD API & WEBHOOK MODAL                                         -->
+<!-- ========================================================================= -->
+<div id="apiLeadModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="api-modal-title" role="dialog" aria-modal="true">
+  <!-- Backdrop -->
+  <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity" onclick="closeApiModal()"></div>
+
+  <div class="flex min-h-full items-center justify-center p-4 text-center sm:p-0">
+    <div class="relative transform overflow-hidden rounded-2xl bg-white text-left shadow-2xl transition-all sm:my-8 sm:w-full sm:max-w-3xl border border-gray-100">
+      
+      <!-- Modal Header -->
+      <div class="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center border border-brand-100">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+            </svg>
+          </div>
+          <div>
+            <h3 class="text-lg font-bold text-gray-900" id="api-modal-title">Lead Ingestion API & Webhooks</h3>
+            <p class="text-xs text-gray-500 mt-0.5">Upload leads in real-time via API URL or import directly from external endpoints</p>
+          </div>
+        </div>
+        <button type="button" onclick="closeApiModal()" class="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition cursor-pointer">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <!-- Mode Tabs: [Inbound API URL / Webhook] vs [Pull from Remote API URL] -->
+      <div class="px-6 pt-4 bg-gray-50/60 border-b border-gray-100 flex items-center gap-4">
+        <button type="button" id="tabPushBtn" onclick="switchApiTab('push')" class="pb-3 text-xs font-bold border-b-2 border-brand-600 text-brand-700 flex items-center gap-2 cursor-pointer">
+          <svg class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+          </svg>
+          Inbound Webhook & API URL (Push to SparkText)
+        </button>
+        <button type="button" id="tabPullBtn" onclick="switchApiTab('pull')" class="pb-3 text-xs font-semibold text-gray-500 hover:text-gray-900 border-b-2 border-transparent flex items-center gap-2 cursor-pointer transition">
+          <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+          Pull from External API URL (Direct Import)
+        </button>
+      </div>
+
+      <!-- TAB 1: PUSH VIA API / WEBHOOK -->
+      <div id="apiTabPush" class="p-6 space-y-6">
+        <!-- Inbound Webhook URL Card -->
+        <div class="bg-brand-50/40 rounded-2xl p-4 border border-brand-100 space-y-3">
+          <div class="flex items-center justify-between">
+            <label class="text-xs font-bold text-gray-900 uppercase tracking-wider flex items-center gap-1.5">
+              <span>Your Inbound Webhook / API URL</span>
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800">Ready</span>
+            </label>
+            <span class="text-[11px] text-gray-500">Method: <strong class="text-brand-700">POST</strong></span>
+          </div>
+
+          <!-- URL box with 1-click copy -->
+          <div class="flex items-stretch gap-2">
+            <div class="relative flex-1">
+              <input
+                type="text"
+                readonly
+                id="apiFullEndpointUrl"
+                value="{{ request.scheme }}://{{ request.get_host }}/api/v1/leads/?api_key={{ org.api_key }}"
+                class="w-full bg-white px-3.5 py-2.5 text-xs font-mono font-medium text-gray-800 border border-gray-300 rounded-xl focus:outline-none"
+              >
+            </div>
+            <button
+              type="button"
+              onclick="copyToClipboard('apiFullEndpointUrl', this)"
+              class="px-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold rounded-xl transition flex items-center gap-1.5 shadow-xs cursor-pointer flex-shrink-0"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+              </svg>
+              <span>Copy URL</span>
+            </button>
+          </div>
+
+          <!-- Path-based Webhook format (great for Zapier/Make) -->
+          <div class="pt-2 border-t border-brand-100/60 flex items-center justify-between text-[11px] text-gray-600">
+            <span>Clean Webhook URL format (Zapier/Make/Webflow):</span>
+            <code id="apiCleanWebhookUrl" class="font-mono text-[10px] bg-white px-2 py-0.5 rounded border border-gray-200 text-gray-700 select-all">
+              {{ request.scheme }}://{{ request.get_host }}/api/v1/leads/{{ org.api_key }}/
+            </code>
+          </div>
+        </div>
+
+        <!-- Organization API Key Details -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div class="border border-gray-200 rounded-xl p-3.5 bg-white">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-xs font-semibold text-gray-700">Organization API Key</span>
+              <button type="button" onclick="regenerateOrgApiKey()" class="text-[11px] text-rose-600 hover:text-rose-800 font-semibold cursor-pointer">
+                ↻ Regenerate
+              </button>
+            </div>
+            <div class="flex items-center gap-2">
+              <input
+                type="password"
+                id="apiOrgKeyValue"
+                readonly
+                value="{{ org.api_key }}"
+                class="flex-1 text-xs font-mono bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-700"
+              >
+              <button
+                type="button"
+                onclick="toggleApiKeyVisibility()"
+                class="px-2 py-1.5 text-xs text-gray-600 hover:text-gray-900 border border-gray-200 rounded-lg bg-gray-50 cursor-pointer"
+                title="Show / Hide Key"
+              >
+                👁
+              </button>
+              <button
+                type="button"
+                onclick="copyToClipboard('apiOrgKeyValue', this)"
+                class="px-2.5 py-1.5 text-xs font-medium text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-lg cursor-pointer"
+              >
+                Copy
+              </button>
+            </div>
+          </div>
+
+          <div class="border border-gray-200 rounded-xl p-3.5 bg-white">
+            <span class="text-xs font-semibold text-gray-700 block mb-1">HTTP Auth Header Format</span>
+            <code class="block text-xs font-mono text-gray-700 bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5 select-all">
+              Authorization: Bearer {{ org.api_key }}
+            </code>
+          </div>
+        </div>
+
+        <!-- Code Snippet Switcher & Interactive Simulator -->
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-bold text-gray-900 uppercase tracking-wider">Example Request Code</span>
+            <div class="flex items-center gap-1 bg-gray-100 p-0.5 rounded-lg text-[11px]">
+              <button type="button" onclick="switchCodeLang('curl')" id="btnLangCurl" class="px-2.5 py-1 rounded-md font-semibold bg-white text-gray-900 shadow-xs cursor-pointer">cURL</button>
+              <button type="button" onclick="switchCodeLang('js')" id="btnLangJs" class="px-2.5 py-1 rounded-md font-semibold text-gray-600 hover:text-gray-900 cursor-pointer">JavaScript</button>
+              <button type="button" onclick="switchCodeLang('python')" id="btnLangPy" class="px-2.5 py-1 rounded-md font-semibold text-gray-600 hover:text-gray-900 cursor-pointer">Python</button>
+            </div>
+          </div>
+
+          <!-- Code Snippet Area -->
+          <div id="codeSnippetBox" class="bg-slate-900 text-slate-100 rounded-xl p-3 text-[11px] font-mono overflow-x-auto relative group">
+            <button
+              type="button"
+              onclick="copySnippetCode(this)"
+              class="absolute top-2 right-2 px-2 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-[10px] rounded cursor-pointer"
+            >
+              Copy
+            </button>
+            <pre id="codePre" class="whitespace-pre"></pre>
+          </div>
+        </div>
+
+        <!-- Live Ingestion Test Box -->
+        <div class="border border-gray-200 rounded-2xl p-4 bg-gray-50/50 space-y-3">
+          <div class="flex items-center justify-between">
+            <div class="text-xs font-bold text-gray-900 flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span>Test Ingestion In Real-Time</span>
+            </div>
+            <span class="text-[11px] text-gray-500">Sends directly to your Inbound API URL</span>
+          </div>
+
+          <textarea
+            id="apiSimulatorJson"
+            rows="5"
+            class="w-full font-mono text-xs bg-white border border-gray-300 rounded-xl p-3 text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
+          >{
+  "phone": "+16505550199",
+  "first_name": "Alex",
+  "last_name": "Morgan",
+  "email": "alex.morgan@example.com",
+  "list": "Web Leads",
+  "stage": "Intake",
+  "form": "Quote Request Page",
+  "consent": true
+}</textarea>
+
+          <div class="flex items-center justify-between">
+            <button
+              type="button"
+              id="apiSimulateBtn"
+              onclick="executeApiSimulation()"
+              class="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-xl transition cursor-pointer flex items-center gap-1.5"
+            >
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+              </svg>
+              <span>Send Test Lead</span>
+            </button>
+          </div>
+
+          <!-- Simulator Response Box -->
+          <div id="apiSimResultBox" class="hidden bg-white border border-gray-200 rounded-xl p-3 text-xs font-mono space-y-1">
+            <div class="flex items-center justify-between text-[11px] text-gray-500 pb-1 border-b border-gray-100">
+              <span>Server Response:</span>
+              <span id="simStatusCode" class="font-bold text-emerald-600">201 Created</span>
+            </div>
+            <pre id="simResponseBody" class="text-slate-800 text-[11px] overflow-x-auto max-h-32 pt-1"></pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 2: PULL FROM EXTERNAL API URL -->
+      <div id="apiTabPull" class="p-6 space-y-5 hidden">
+        <div class="bg-blue-50/50 rounded-2xl p-4 border border-blue-100 text-xs text-blue-900 space-y-1">
+          <p class="font-bold text-blue-950 flex items-center gap-1.5">
+            <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Import Leads from External API / Webhook Endpoint
+          </p>
+          <p class="text-blue-800 text-[11px]">
+            Provide an external JSON feed or lead provider export URL. SparkText will fetch subscriber records and import them automatically.
+          </p>
+        </div>
+
+        <form id="remoteApiPullForm" onsubmit="submitRemoteApiPull(event)" class="space-y-4">
+          <div id="pullErrorBox" class="hidden p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 font-medium"></div>
+          <div id="pullSuccessBox" class="hidden p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-700 font-medium"></div>
+
+          <div>
+            <label class="block text-xs font-semibold text-gray-700 mb-1">
+              External API URL <span class="text-rose-500">*</span>
+            </label>
+            <input
+              type="url"
+              name="remote_url"
+              id="remote_url"
+              required
+              placeholder="https://api.leadvendor.com/v1/leads.json"
+              class="w-full px-3.5 py-2 text-xs bg-gray-50 border border-gray-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-800 font-mono"
+            >
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-semibold text-gray-700 mb-1">HTTP Method</label>
+              <select
+                name="remote_method"
+                id="remote_method"
+                class="w-full px-3.5 py-2 text-xs bg-gray-50 border border-gray-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-700"
+              >
+                <option value="GET">GET (Standard JSON feed)</option>
+                <option value="POST">POST (Webhook request)</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold text-gray-700 mb-1">
+                Authorization Header <span class="text-gray-400 font-normal">(Optional)</span>
+              </label>
+              <input
+                type="text"
+                name="remote_auth"
+                id="remote_auth"
+                placeholder="Bearer your_secret_token"
+                class="w-full px-3.5 py-2 text-xs bg-gray-50 border border-gray-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-800 font-mono"
+              >
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-gray-700 mb-1">
+              Assign to Contact List <span class="text-gray-400 font-normal">(Optional)</span>
+            </label>
+            <select
+              name="remote_list_id"
+              id="remote_list_id"
+              class="w-full px-3.5 py-2 text-xs bg-gray-50 border border-gray-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-700"
+            >
+              <option value="">Do not assign to list</option>
+              {% for cl in contact_lists %}
+              <option value="{{ cl.id }}">{{ cl.name }} ({{ cl.contacts.count }} contacts)</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <!-- TCPA Checkbox -->
+          <div class="p-3.5 bg-amber-50/70 border border-amber-200/80 rounded-xl flex items-start gap-2.5">
+            <input
+              type="checkbox"
+              id="remote_consent"
+              name="remote_consent"
+              checked
+              class="mt-0.5 rounded border-amber-300 text-brand-600 focus:ring-brand-500 cursor-pointer"
+            >
+            <label for="remote_consent" class="text-xs text-amber-900 cursor-pointer">
+              <strong>TCPA Opt-In Attestation:</strong> I certify that all imported subscribers from this API endpoint have given express written consent to receive automated SMS communications.
+            </label>
+          </div>
+
+          <div class="pt-3 border-t border-gray-100 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onclick="closeApiModal()"
+              class="px-4 py-2 text-xs font-semibold text-gray-600 hover:text-gray-900 transition cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              id="remotePullSubmitBtn"
+              class="px-5 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs cursor-pointer flex items-center gap-2"
+            >
+              <span>Fetch & Import Leads</span>
+            </button>
+          </div>
+        </form>
+      </div>
+
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -1156,5 +1487,290 @@
       errSec.classList.add('hidden');
     }
   }
+
+  // --- LEAD API & WEBHOOK MODAL LOGIC ---
+  function refreshApiUrls() {
+    const origin = window.location.origin;
+    const keyEl = document.getElementById('apiOrgKeyValue');
+    if (!keyEl) return;
+    const key = keyEl.value;
+    const fullUrlInput = document.getElementById('apiFullEndpointUrl');
+    const cleanWebhookEl = document.getElementById('apiCleanWebhookUrl');
+    if (fullUrlInput) {
+      fullUrlInput.value = `${origin}/api/v1/leads/?api_key=${key}`;
+    }
+    if (cleanWebhookEl) {
+      cleanWebhookEl.innerText = `${origin}/api/v1/leads/${key}/`;
+    }
+  }
+
+  function openApiModal() {
+    document.getElementById('apiLeadModal').classList.remove('hidden');
+    refreshApiUrls();
+    switchApiTab('push');
+    switchCodeLang(currentSnippetLang || 'curl');
+  }
+
+  function closeApiModal() {
+    document.getElementById('apiLeadModal').classList.add('hidden');
+    const errBox = document.getElementById('pullErrorBox');
+    const succBox = document.getElementById('pullSuccessBox');
+    const resBox = document.getElementById('apiSimResultBox');
+    if (errBox) errBox.classList.add('hidden');
+    if (succBox) succBox.classList.add('hidden');
+    if (resBox) resBox.classList.add('hidden');
+  }
+
+  function switchApiTab(tab) {
+    const tabPush = document.getElementById('apiTabPush');
+    const tabPull = document.getElementById('apiTabPull');
+    const btnPush = document.getElementById('tabPushBtn');
+    const btnPull = document.getElementById('tabPullBtn');
+
+    if (tab === 'push') {
+      tabPush.classList.remove('hidden');
+      tabPull.classList.add('hidden');
+      btnPush.className = 'pb-3 text-xs font-bold border-b-2 border-brand-600 text-brand-700 flex items-center gap-2 cursor-pointer';
+      btnPull.className = 'pb-3 text-xs font-semibold text-gray-500 hover:text-gray-900 border-b-2 border-transparent flex items-center gap-2 cursor-pointer transition';
+    } else {
+      tabPush.classList.add('hidden');
+      tabPull.classList.remove('hidden');
+      btnPush.className = 'pb-3 text-xs font-semibold text-gray-500 hover:text-gray-900 border-b-2 border-transparent flex items-center gap-2 cursor-pointer transition';
+      btnPull.className = 'pb-3 text-xs font-bold border-b-2 border-brand-600 text-brand-700 flex items-center gap-2 cursor-pointer';
+    }
+  }
+
+  function toggleApiKeyVisibility() {
+    const input = document.getElementById('apiOrgKeyValue');
+    if (input.type === 'password') {
+      input.type = 'text';
+    } else {
+      input.type = 'password';
+    }
+  }
+
+  function copyToClipboard(elementId, btnElement) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+    const text = el.value || el.innerText;
+    navigator.clipboard.writeText(text).then(() => {
+      const originalHTML = btnElement.innerHTML;
+      btnElement.innerHTML = `
+        <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+        </svg>
+        <span>Copied!</span>
+      `;
+      setTimeout(() => {
+        btnElement.innerHTML = originalHTML;
+      }, 2000);
+    });
+  }
+
+  function copySnippetCode(btnElement) {
+    const code = document.getElementById('codePre').innerText;
+    navigator.clipboard.writeText(code).then(() => {
+      const orig = btnElement.innerText;
+      btnElement.innerText = 'Copied!';
+      setTimeout(() => { btnElement.innerText = orig; }, 2000);
+    });
+  }
+
+  let currentSnippetLang = 'curl';
+  function switchCodeLang(lang) {
+    currentSnippetLang = lang;
+    const btnCurl = document.getElementById('btnLangCurl');
+    const btnJs = document.getElementById('btnLangJs');
+    const btnPy = document.getElementById('btnLangPy');
+    const pre = document.getElementById('codePre');
+
+    [btnCurl, btnJs, btnPy].forEach(b => {
+      b.className = 'px-2.5 py-1 rounded-md font-semibold text-gray-600 hover:text-gray-900 cursor-pointer';
+    });
+
+    const apiUrl = document.getElementById('apiFullEndpointUrl').value;
+
+    if (lang === 'curl') {
+      btnCurl.className = 'px-2.5 py-1 rounded-md font-semibold bg-white text-gray-900 shadow-xs cursor-pointer';
+      pre.innerText = `curl -X POST "${apiUrl}" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "phone": "+16505550199",
+    "first_name": "Jane",
+    "last_name": "Smith",
+    "email": "jane@example.com",
+    "list": "Web Leads",
+    "stage": "Intake",
+    "consent": true
+  }'`;
+    } else if (lang === 'js') {
+      btnJs.className = 'px-2.5 py-1 rounded-md font-semibold bg-white text-gray-900 shadow-xs cursor-pointer';
+      pre.innerText = `const response = await fetch("${apiUrl}", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    phone: "+16505550199",
+    first_name: "Jane",
+    last_name: "Smith",
+    email: "jane@example.com",
+    list: "Web Leads",
+    stage: "Intake",
+    consent: true
+  })
+});
+const data = await response.json();
+console.log(data);`;
+    } else if (lang === 'python') {
+      btnPy.className = 'px-2.5 py-1 rounded-md font-semibold bg-white text-gray-900 shadow-xs cursor-pointer';
+      pre.innerText = `import requests
+
+url = "${apiUrl}"
+payload = {
+    "phone": "+16505550199",
+    "first_name": "Jane",
+    "last_name": "Smith",
+    "email": "jane@example.com",
+    "list": "Web Leads",
+    "stage": "Intake",
+    "consent": True
+}
+res = requests.post(url, json=payload)
+print(res.json())`;
+    }
+  }
+
+  async function regenerateOrgApiKey() {
+    if (!confirm("Are you sure you want to regenerate your API Key? Any existing webhooks using the old key will need to be updated.")) {
+      return;
+    }
+    try {
+      const resp = await fetch("{% url 'contacts:regenerate_api_key' %}", {
+        method: "POST",
+        headers: {
+          "X-CSRFToken": getCsrfToken(),
+          "X-Requested-With": "XMLHttpRequest",
+        }
+      });
+      const data = await resp.json();
+      if (data.status === "success") {
+        document.getElementById('apiOrgKeyValue').value = data.api_key;
+        document.getElementById('apiFullEndpointUrl').value = data.api_url;
+        document.getElementById('apiCleanWebhookUrl').innerText = data.webhook_url;
+        switchCodeLang(currentSnippetLang);
+        alert("New API key generated successfully!");
+      } else {
+        alert(data.message || "Failed to regenerate API key.");
+      }
+    } catch (err) {
+      alert("Error regenerating API key: " + err.message);
+    }
+  }
+
+  async function executeApiSimulation() {
+    const simBtn = document.getElementById('apiSimulateBtn');
+    const simJson = document.getElementById('apiSimulatorJson').value;
+    const resBox = document.getElementById('apiSimResultBox');
+    const codeEl = document.getElementById('simStatusCode');
+    const bodyEl = document.getElementById('simResponseBody');
+
+    simBtn.disabled = true;
+    simBtn.innerHTML = '<span>Sending...</span>';
+    resBox.classList.add('hidden');
+
+    try {
+      let parsed;
+      try {
+        parsed = JSON.parse(simJson);
+      } catch (e) {
+        alert("Invalid JSON: " + e.message);
+        simBtn.disabled = false;
+        simBtn.innerHTML = '<span>Send Test Lead</span>';
+        return;
+      }
+
+      const key = document.getElementById('apiOrgKeyValue').value;
+      const endpoint = `/api/v1/leads/?api_key=${encodeURIComponent(key)}`;
+      const resp = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": getCsrfToken(),
+          "ngrok-skip-browser-warning": "true",
+        },
+        body: JSON.stringify(parsed)
+      });
+
+      const data = await resp.json().catch(() => ({ status: resp.status, message: resp.statusText }));
+      resBox.classList.remove('hidden');
+      codeEl.innerText = `${resp.status} ${resp.statusText || (resp.ok ? 'OK' : 'Error')}`;
+      if (resp.ok) {
+        codeEl.className = "font-bold text-emerald-600";
+      } else {
+        codeEl.className = "font-bold text-rose-600";
+      }
+      bodyEl.innerText = JSON.stringify(data, null, 2);
+
+    } catch (err) {
+      resBox.classList.remove('hidden');
+      codeEl.innerText = "Error";
+      codeEl.className = "font-bold text-rose-600";
+      bodyEl.innerText = err.message;
+    } finally {
+      simBtn.disabled = false;
+      simBtn.innerHTML = '<span>Send Test Lead</span>';
+    }
+  }
+
+  async function submitRemoteApiPull(e) {
+    e.preventDefault();
+    const btn = document.getElementById('remotePullSubmitBtn');
+    const errBox = document.getElementById('pullErrorBox');
+    const succBox = document.getElementById('pullSuccessBox');
+    errBox.classList.add('hidden');
+    succBox.classList.add('hidden');
+
+    const formData = new FormData();
+    formData.append("url", document.getElementById('remote_url').value);
+    formData.append("method", document.getElementById('remote_method').value);
+    formData.append("auth_header", document.getElementById('remote_auth').value);
+    formData.append("contact_list_id", document.getElementById('remote_list_id').value);
+    formData.append("consent_attested", document.getElementById('remote_consent').checked ? "1" : "0");
+
+    btn.disabled = true;
+    btn.innerHTML = '<span>Fetching Leads from URL...</span>';
+
+    try {
+      const resp = await fetch("{% url 'contacts:fetch_remote_leads' %}", {
+        method: "POST",
+        headers: {
+          "X-CSRFToken": getCsrfToken(),
+          "X-Requested-With": "XMLHttpRequest",
+        },
+        body: formData,
+      });
+      const data = await resp.json();
+      if (data.status === "success") {
+        succBox.innerText = data.message;
+        succBox.classList.remove('hidden');
+        setTimeout(() => { window.location.reload(); }, 2500);
+      } else {
+        errBox.innerText = data.message || "Failed to import leads from API URL.";
+        errBox.classList.remove('hidden');
+      }
+    } catch (err) {
+      errBox.innerText = "Network or server error: " + err.message;
+      errBox.classList.remove('hidden');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<span>Fetch & Import Leads</span>';
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    refreshApiUrls();
+    if (new URLSearchParams(window.location.search).get('open_api') === '1') {
+      openApiModal();
+    }
+  });
 </script>
 {% endblock %}

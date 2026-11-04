@@ -1,12 +1,16 @@
 import json
+import logging
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
-from django.db.models import Q, Count
+from django.db.models import Q, Count, ProtectedError
 from django.http import JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
+from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST, require_GET, require_http_methods
 
+from core.models import Organization
 from .models import Contact, ContactField, ContactList, ImportBatch
 from .services import (
     save_contact,
@@ -14,7 +18,25 @@ from .services import (
     preview_csv,
     suggest_column_mappings,
     import_contacts_csv,
+    ingest_lead_data,
+    fetch_and_import_remote_leads,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _is_ajax(request) -> bool:
+    """
+    Returns True only if the request explicitly asks for a JSON response
+    (via X-Requested-With: XMLHttpRequest or Accept: application/json without text/html).
+    Standard browser form submissions send Accept: text/html,...*/* and should receive HTML redirects.
+    """
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return True
+    accept = request.headers.get("Accept", "")
+    if "application/json" in accept and "text/html" not in accept:
+        return True
+    return False
 
 
 @login_required
@@ -158,7 +180,7 @@ def add_contact(request):
             except ContactList.DoesNotExist:
                 pass
 
-        if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.accepts("application/json"):
+        if _is_ajax(request):
             return JsonResponse({
                 "status": "success",
                 "created": created,
@@ -166,13 +188,15 @@ def add_contact(request):
                 "first_name": contact.first_name,
                 "last_name": contact.last_name,
             })
+        messages.success(request, f"Contact {contact.phone} saved successfully.")
         return redirect("contacts:list")
 
     except ValidationError as ve:
         err_msg = "; ".join(ve.messages) if hasattr(ve, "messages") else str(ve)
-        if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.accepts("application/json"):
+        if _is_ajax(request):
             return JsonResponse({"status": "error", "message": err_msg}, status=400)
-        return render(request, "contacts/contacts_list.html", {"error": err_msg})
+        messages.error(request, err_msg)
+        return redirect("contacts:list")
 
 
 @login_required
@@ -346,23 +370,26 @@ def edit_contact(request, contact_id):
             valid_lists = ContactList.objects.filter(id__in=list_ids, organization=org)
             updated.lists.set(valid_lists)
 
-        if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.accepts("application/json"):
+        if _is_ajax(request):
             return JsonResponse({
                 "status": "success",
                 "phone": updated.phone,
                 "first_name": updated.first_name,
                 "last_name": updated.last_name,
             })
+        messages.success(request, "Contact updated successfully.")
         return redirect("contacts:detail", contact_id=updated.id)
 
     except ValidationError as ve:
         err_msg = "; ".join(ve.messages) if hasattr(ve, "messages") else str(ve)
-        if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.accepts("application/json"):
+        if _is_ajax(request):
             return JsonResponse({"status": "error", "message": err_msg}, status=400)
+        messages.error(request, err_msg)
         return redirect("contacts:detail", contact_id=contact.id)
     except Exception as exc:
-        if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.accepts("application/json"):
+        if _is_ajax(request):
             return JsonResponse({"status": "error", "message": str(exc)}, status=400)
+        messages.error(request, str(exc))
         return redirect("contacts:detail", contact_id=contact.id)
 
 
@@ -374,14 +401,25 @@ def delete_contact(request, contact_id):
     """
     org = request.user.organization
     if not org:
-        return JsonResponse({"status": "error", "message": "No organization."}, status=400)
+        if _is_ajax(request):
+            return JsonResponse({"status": "error", "message": "No organization."}, status=400)
+        messages.error(request, "No organization.")
+        return redirect("contacts:list")
 
     contact = get_object_or_404(Contact, id=contact_id, organization=org)
     phone = contact.phone
-    contact.delete()
+    try:
+        contact.delete()
+    except ProtectedError:
+        msg = f"Cannot delete contact {phone} because referenced records are protected."
+        if _is_ajax(request):
+            return JsonResponse({"status": "error", "message": msg}, status=400)
+        messages.error(request, msg)
+        return redirect("contacts:list")
 
-    if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.accepts("application/json"):
+    if _is_ajax(request):
         return JsonResponse({"status": "success", "message": f"Contact {phone} deleted."})
+    messages.success(request, f"Contact {phone} deleted.")
     return redirect("contacts:list")
 
 
@@ -429,14 +467,22 @@ def contacts_bulk_action(request):
         msg = f"Removed {count} contact(s) from '{target_list.name}'."
 
     elif action == "delete":
-        contacts_qs.delete()
-        msg = f"Deleted {count} contact(s)."
+        try:
+            contacts_qs.delete()
+            msg = f"Deleted {count} contact(s)."
+        except ProtectedError:
+            msg = "Some selected contacts could not be deleted because protected records reference them."
+            if _is_ajax(request):
+                return JsonResponse({"status": "error", "message": msg}, status=400)
+            messages.error(request, msg)
+            return redirect("contacts:list")
 
     else:
         return JsonResponse({"status": "error", "message": f"Unsupported action '{action}'."}, status=400)
 
-    if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.accepts("application/json"):
+    if _is_ajax(request):
         return JsonResponse({"status": "success", "message": msg, "count": count})
+    messages.success(request, msg)
     return redirect("contacts:list")
 
 
@@ -456,15 +502,91 @@ def lists_index(request):
     lists_qs = (
         ContactList.objects.filter(organization=org)
         .annotate(contact_count=Count("contacts"))
+        .prefetch_related("contacts")
         .order_by("name")
     )
+
+    all_contacts = Contact.objects.filter(organization=org).order_by("first_name", "last_name", "phone")
+
+    # Map of list_id -> [contact_id, ...] for instant membership status in modal
+    memberships = {
+        cl.id: list(cl.contacts.values_list("id", flat=True))
+        for cl in lists_qs
+    }
 
     context = {
         "org": org,
         "lists": lists_qs,
         "total_lists": lists_qs.count(),
+        "all_contacts": all_contacts,
+        "memberships_json": json.dumps(memberships),
     }
     return render(request, "contacts/lists_index.html", context)
+
+
+@login_required
+@require_POST
+def add_contacts_to_list(request, list_id):
+    """
+    Directly adds selected existing contacts or a newly created contact into a ContactList.
+    """
+    org = request.user.organization
+    is_json = _is_ajax(request)
+
+    if not org:
+        if is_json:
+            return JsonResponse({"status": "error", "message": "No organization."}, status=400)
+        messages.error(request, "No organization associated with this account.")
+        return redirect("contacts:lists")
+
+    cl = get_object_or_404(ContactList, id=list_id, organization=org)
+    added_count = 0
+
+    # Option A: Quick-add a new contact
+    new_phone = request.POST.get("new_phone", "").strip()
+    if new_phone:
+        first_name = request.POST.get("new_first_name", "").strip()
+        last_name = request.POST.get("new_last_name", "").strip()
+        try:
+            contact, created = save_contact(
+                organization=org,
+                data={
+                    "phone": new_phone,
+                    "first_name": first_name,
+                    "last_name": last_name,
+                    "sms_status": Contact.SMSStatus.OPTED_IN,
+                },
+            )
+            cl.contacts.add(contact)
+            added_count += 1
+        except ValidationError as ve:
+            err_msg = "; ".join(ve.messages) if hasattr(ve, "messages") else str(ve)
+            if is_json:
+                return JsonResponse({"status": "error", "message": err_msg}, status=400)
+            messages.error(request, err_msg)
+            return redirect("contacts:lists")
+
+    # Option B: Add existing selected contacts
+    contact_ids = request.POST.getlist("contact_ids")
+    if not contact_ids:
+        raw_json = request.POST.get("contact_ids_json", "")
+        if raw_json:
+            try:
+                contact_ids = json.loads(raw_json)
+            except json.JSONDecodeError:
+                contact_ids = []
+
+    if contact_ids:
+        valid_contacts = Contact.objects.filter(id__in=contact_ids, organization=org)
+        cl.contacts.add(*valid_contacts)
+        added_count += valid_contacts.count()
+
+    msg = f"Added {added_count} contact(s) to '{cl.name}'."
+    if is_json:
+        return JsonResponse({"status": "success", "message": msg, "count": added_count})
+
+    messages.success(request, msg)
+    return redirect("contacts:lists")
 
 
 @login_required
@@ -474,20 +596,33 @@ def create_list(request):
     Create a new ContactList for the organization.
     """
     org = request.user.organization
+    is_json = _is_ajax(request)
+
     if not org:
-        return JsonResponse({"status": "error", "message": "No organization."}, status=400)
+        if is_json:
+            return JsonResponse({"status": "error", "message": "No organization."}, status=400)
+        messages.error(request, "No organization associated with this account.")
+        return redirect("contacts:lists")
 
     name = request.POST.get("name", "").strip()
     if not name:
-        return JsonResponse({"status": "error", "message": "List name cannot be blank."}, status=400)
+        if is_json:
+            return JsonResponse({"status": "error", "message": "List name cannot be blank."}, status=400)
+        messages.error(request, "List name cannot be blank.")
+        return redirect("contacts:lists")
 
     if ContactList.objects.filter(organization=org, name__iexact=name).exists():
-        return JsonResponse({"status": "error", "message": f"A list named '{name}' already exists."}, status=400)
+        if is_json:
+            return JsonResponse({"status": "error", "message": f"A list named '{name}' already exists."}, status=400)
+        messages.error(request, f"A list named '{name}' already exists.")
+        return redirect("contacts:lists")
 
     cl = ContactList.objects.create(organization=org, name=name)
 
-    if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.accepts("application/json"):
+    if is_json:
         return JsonResponse({"status": "success", "id": cl.id, "name": cl.name})
+    
+    messages.success(request, f"Contact list '{cl.name}' created successfully.")
     return redirect("contacts:lists")
 
 
@@ -498,22 +633,35 @@ def edit_list(request, list_id):
     Rename an existing ContactList.
     """
     org = request.user.organization
+    is_json = _is_ajax(request)
+
     if not org:
-        return JsonResponse({"status": "error", "message": "No organization."}, status=400)
+        if is_json:
+            return JsonResponse({"status": "error", "message": "No organization."}, status=400)
+        messages.error(request, "No organization associated with this account.")
+        return redirect("contacts:lists")
 
     cl = get_object_or_404(ContactList, id=list_id, organization=org)
     name = request.POST.get("name", "").strip()
     if not name:
-        return JsonResponse({"status": "error", "message": "List name cannot be blank."}, status=400)
+        if is_json:
+            return JsonResponse({"status": "error", "message": "List name cannot be blank."}, status=400)
+        messages.error(request, "List name cannot be blank.")
+        return redirect("contacts:lists")
 
     if ContactList.objects.filter(organization=org, name__iexact=name).exclude(id=cl.id).exists():
-        return JsonResponse({"status": "error", "message": f"A list named '{name}' already exists."}, status=400)
+        if is_json:
+            return JsonResponse({"status": "error", "message": f"A list named '{name}' already exists."}, status=400)
+        messages.error(request, f"A list named '{name}' already exists.")
+        return redirect("contacts:lists")
 
     cl.name = name
     cl.save()
 
-    if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.accepts("application/json"):
+    if is_json:
         return JsonResponse({"status": "success", "id": cl.id, "name": cl.name})
+    
+    messages.success(request, f"Contact list renamed to '{cl.name}'.")
     return redirect("contacts:lists")
 
 
@@ -524,15 +672,22 @@ def delete_list(request, list_id):
     Delete a ContactList. Contacts themselves remain in the database.
     """
     org = request.user.organization
+    is_json = _is_ajax(request)
+
     if not org:
-        return JsonResponse({"status": "error", "message": "No organization."}, status=400)
+        if is_json:
+            return JsonResponse({"status": "error", "message": "No organization."}, status=400)
+        messages.error(request, "No organization associated with this account.")
+        return redirect("contacts:lists")
 
     cl = get_object_or_404(ContactList, id=list_id, organization=org)
     name = cl.name
     cl.delete()
 
-    if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.accepts("application/json"):
+    if is_json:
         return JsonResponse({"status": "success", "message": f"List '{name}' deleted."})
+    
+    messages.success(request, f"Contact list '{name}' deleted.")
     return redirect("contacts:lists")
 
 
@@ -566,14 +721,22 @@ def create_field(request):
     Create a new approved custom field for the organization.
     """
     org = request.user.organization
+    is_json = _is_ajax(request)
+
     if not org:
-        return JsonResponse({"status": "error", "message": "No organization."}, status=400)
+        if is_json:
+            return JsonResponse({"status": "error", "message": "No organization."}, status=400)
+        messages.error(request, "No organization associated with this account.")
+        return redirect("contacts:fields")
 
     key = request.POST.get("key", "").strip().lower()
     label = request.POST.get("label", "").strip()
 
     if not label:
-        return JsonResponse({"status": "error", "message": "Field label cannot be blank."}, status=400)
+        if is_json:
+            return JsonResponse({"status": "error", "message": "Field label cannot be blank."}, status=400)
+        messages.error(request, "Field label cannot be blank.")
+        return redirect("contacts:fields")
 
     if not key:
         import re
@@ -585,12 +748,16 @@ def create_field(request):
     try:
         field.full_clean()
         field.save()
-        if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.accepts("application/json"):
+        if is_json:
             return JsonResponse({"status": "success", "id": field.id, "key": field.key, "label": field.label})
+        messages.success(request, f"Custom field '{field.label}' created successfully.")
         return redirect("contacts:fields")
     except ValidationError as ve:
         err_msg = "; ".join(ve.messages) if hasattr(ve, "messages") else str(ve)
-        return JsonResponse({"status": "error", "message": err_msg}, status=400)
+        if is_json:
+            return JsonResponse({"status": "error", "message": err_msg}, status=400)
+        messages.error(request, err_msg)
+        return redirect("contacts:fields")
 
 
 @login_required
@@ -600,19 +767,29 @@ def edit_field(request, field_id):
     Update the display label of an approved custom field (key is read-only).
     """
     org = request.user.organization
+    is_json = _is_ajax(request)
+
     if not org:
-        return JsonResponse({"status": "error", "message": "No organization."}, status=400)
+        if is_json:
+            return JsonResponse({"status": "error", "message": "No organization."}, status=400)
+        messages.error(request, "No organization.")
+        return redirect("contacts:fields")
 
     field = get_object_or_404(ContactField, id=field_id, organization=org)
     label = request.POST.get("label", "").strip()
     if not label:
-        return JsonResponse({"status": "error", "message": "Field label cannot be blank."}, status=400)
+        if is_json:
+            return JsonResponse({"status": "error", "message": "Field label cannot be blank."}, status=400)
+        messages.error(request, "Field label cannot be blank.")
+        return redirect("contacts:fields")
 
     field.label = label
     field.save(update_fields=["label"])
 
-    if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.accepts("application/json"):
+    if is_json:
         return JsonResponse({"status": "success", "id": field.id, "label": field.label})
+    
+    messages.success(request, f"Custom field '{field.label}' updated.")
     return redirect("contacts:fields")
 
 
@@ -623,14 +800,248 @@ def delete_field(request, field_id):
     Delete an approved custom field from the organization.
     """
     org = request.user.organization
+    is_json = _is_ajax(request)
+
     if not org:
-        return JsonResponse({"status": "error", "message": "No organization."}, status=400)
+        if is_json:
+            return JsonResponse({"status": "error", "message": "No organization."}, status=400)
+        messages.error(request, "No organization.")
+        return redirect("contacts:fields")
 
     field = get_object_or_404(ContactField, id=field_id, organization=org)
     key = field.key
     field.delete()
 
-    if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.accepts("application/json"):
+    if is_json:
         return JsonResponse({"status": "success", "message": f"Field '{key}' deleted."})
+    
+    messages.success(request, f"Custom field '{key}' deleted.")
     return redirect("contacts:fields")
+
+
+# =========================================================================
+# LEAD INGESTION REST / WEBHOOK API & REMOTE URL IMPORT
+# =========================================================================
+
+@csrf_exempt
+def lead_ingest_api(request, api_key=None):
+    """
+    Public Ingestion REST & Webhook API endpoint for uploading leads.
+    Supports:
+    - Path parameter: /api/v1/leads/<api_key>/
+    - Query parameter: ?api_key=<api_key>
+    - Headers: Authorization: Bearer <api_key> OR X-API-Key: <api_key>
+    - Active session fallback (for dashboard testing)
+    """
+    token = api_key or request.GET.get("api_key") or request.POST.get("api_key")
+    if not token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header.replace("Bearer ", "").strip()
+        elif auth_header:
+            token = auth_header.strip()
+        if not token:
+            token = request.headers.get("X-API-Key", "").strip()
+
+    org = None
+    if token:
+        org = Organization.objects.filter(api_key=token).first()
+    elif request.user.is_authenticated and getattr(request.user, "organization", None):
+        org = request.user.organization
+
+    if not org:
+        return JsonResponse({
+            "status": "error",
+            "message": "Unauthorized. A valid organization API key is required via ?api_key=, header 'X-API-Key', or Bearer token."
+        }, status=401)
+
+    # If GET: return schema, documentation, and sample payload
+    if request.method == "GET":
+        base_url = f"{request.scheme}://{request.get_host()}"
+        return JsonResponse({
+            "status": "ok",
+            "service": "SparkText Lead Ingestion API v1",
+            "organization": org.name,
+            "api_url": f"{base_url}/api/v1/leads/?api_key={org.api_key}",
+            "webhook_url": f"{base_url}/api/v1/leads/{org.api_key}/",
+            "supported_methods": ["POST"],
+            "payload_format": "JSON object, JSON array (batch), or URL-encoded form data",
+            "required_fields": ["phone"],
+            "optional_fields": [
+                "first_name", "last_name", "email", "timezone", "list", "stage", "form", "consent", "custom_fields"
+            ],
+            "sample_json": {
+                "phone": "+16505550199",
+                "first_name": "Jane",
+                "last_name": "Smith",
+                "email": "jane@example.com",
+                "list": "Web Leads",
+                "stage": "Intake",
+                "form": "Contact Us Form",
+                "consent": True,
+            }
+        })
+
+    if request.method != "POST":
+        return JsonResponse({"status": "error", "message": "Method not allowed. Use POST to upload leads."}, status=405)
+
+    # Parse body
+    payload = None
+    content_type = request.content_type.lower() if hasattr(request, "content_type") else ""
+    if "application/json" in content_type or request.body.strip().startswith((b"{", b"[")):
+        try:
+            payload = json.loads(request.body.decode("utf-8"))
+        except Exception as e:
+            return JsonResponse({"status": "error", "message": f"Malformed JSON: {e}"}, status=400)
+    else:
+        payload = request.POST.dict()
+
+    if not payload:
+        return JsonResponse({"status": "error", "message": "No lead data received in request."}, status=400)
+
+    # Check if batch list
+    leads_list = []
+    if isinstance(payload, list):
+        leads_list = payload
+    elif isinstance(payload, dict):
+        for k in ["leads", "contacts", "data", "results", "items"]:
+            if isinstance(payload.get(k), list):
+                leads_list = payload[k]
+                break
+
+    if leads_list:
+        created_count = 0
+        updated_count = 0
+        failed_count = 0
+        results = []
+        errors = []
+
+        for idx, item in enumerate(leads_list, start=1):
+            if not isinstance(item, dict):
+                failed_count += 1
+                errors.append({"index": idx, "error": "Item is not a valid JSON dictionary."})
+                continue
+            try:
+                contact, created = ingest_lead_data(organization=org, raw_dict=item, source=Contact.Source.API)
+                if created:
+                    created_count += 1
+                else:
+                    updated_count += 1
+                results.append({
+                    "id": contact.id,
+                    "phone": contact.phone,
+                    "first_name": contact.first_name,
+                    "last_name": contact.last_name,
+                    "sms_status": contact.sms_status,
+                    "created": created,
+                })
+            except ValidationError as ve:
+                failed_count += 1
+                msg = "; ".join(ve.messages) if hasattr(ve, "messages") else str(ve)
+                errors.append({"index": idx, "error": msg})
+            except Exception as exc:
+                failed_count += 1
+                errors.append({"index": idx, "error": str(exc)})
+
+        return JsonResponse({
+            "status": "success",
+            "message": f"Processed {len(leads_list)} lead(s): {created_count} created, {updated_count} updated, {failed_count} failed.",
+            "total": len(leads_list),
+            "created_count": created_count,
+            "updated_count": updated_count,
+            "failed_count": failed_count,
+            "contacts": results,
+            "errors": errors[:50],
+        }, status=201 if created_count > 0 else 200)
+
+    # Single lead dict
+    if not isinstance(payload, dict):
+        return JsonResponse({"status": "error", "message": "Expected JSON object or array."}, status=400)
+
+    try:
+        contact, created = ingest_lead_data(organization=org, raw_dict=payload, source=Contact.Source.API)
+        return JsonResponse({
+            "status": "success",
+            "message": f"Lead {contact.phone} {'created' if created else 'updated'} successfully.",
+            "contact": {
+                "id": contact.id,
+                "phone": contact.phone,
+                "first_name": contact.first_name,
+                "last_name": contact.last_name,
+                "email": contact.email,
+                "sms_status": contact.sms_status,
+                "created": created,
+            }
+        }, status=201 if created else 200)
+    except ValidationError as ve:
+        msg = "; ".join(ve.messages) if hasattr(ve, "messages") else str(ve)
+        return JsonResponse({"status": "error", "message": msg}, status=400)
+    except Exception as exc:
+        logger.exception("Lead ingestion error")
+        return JsonResponse({"status": "error", "message": str(exc)}, status=500)
+
+
+@login_required
+@require_POST
+def fetch_remote_leads_view(request):
+    """
+    Imports leads by pulling from a remote API URL (e.g. JSON feed, webhook endpoint, external CRM).
+    """
+    org = request.user.organization
+    if not org:
+        return JsonResponse({"status": "error", "message": "No organization."}, status=400)
+
+    url = request.POST.get("url", "").strip()
+    if not url:
+        return JsonResponse({"status": "error", "message": "API URL is required."}, status=400)
+
+    method = request.POST.get("method", "GET").strip().upper()
+    auth_header = request.POST.get("auth_header", "").strip()
+    list_id_raw = request.POST.get("contact_list_id", "").strip()
+    contact_list_id = int(list_id_raw) if list_id_raw.isdigit() else None
+    consent_attested = request.POST.get("consent_attested", "1") in ("1", "true", "yes", "on")
+
+    try:
+        res = fetch_and_import_remote_leads(
+            organization=org,
+            url=url,
+            method=method,
+            auth_header=auth_header,
+            contact_list_id=contact_list_id,
+            consent_attested=consent_attested,
+        )
+        msg = f"Imported {res['created']} new lead(s) ({res['updated']} updated, {res['skipped']} skipped) from API URL."
+        return JsonResponse({
+            "status": "success",
+            "message": msg,
+            "data": res,
+        })
+    except ValidationError as ve:
+        msg = "; ".join(ve.messages) if hasattr(ve, "messages") else str(ve)
+        return JsonResponse({"status": "error", "message": msg}, status=400)
+    except Exception as exc:
+        logger.exception("Remote API fetch error")
+        return JsonResponse({"status": "error", "message": str(exc)}, status=500)
+
+
+@login_required
+@require_POST
+def regenerate_api_key_view(request):
+    """
+    Regenerates the organization's unique API key.
+    """
+    org = request.user.organization
+    if not org:
+        return JsonResponse({"status": "error", "message": "No organization."}, status=400)
+
+    new_key = org.regenerate_api_key()
+    base_url = f"{request.scheme}://{request.get_host()}"
+    return JsonResponse({
+        "status": "success",
+        "api_key": new_key,
+        "api_url": f"{base_url}/api/v1/leads/?api_key={new_key}",
+        "webhook_url": f"{base_url}/api/v1/leads/{new_key}/",
+        "message": "New API key generated successfully.",
+    })
+
 

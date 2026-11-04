@@ -141,7 +141,11 @@ def record_consent_view(request):
             source=source,
             proof_text=proof_text,
         )
-        if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.accepts("application/json"):
+        is_ajax = (
+            request.headers.get("X-Requested-With") == "XMLHttpRequest"
+            or (request.headers.get("Accept") and "application/json" in request.headers.get("Accept") and "text/html" not in request.headers.get("Accept"))
+        )
+        if is_ajax:
             return JsonResponse({
                 "status": "success",
                 "event_id": event.id,

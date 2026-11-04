@@ -78,9 +78,25 @@ def send_message(
     if len(cleaned_body) > 1600:
         raise ValidationError({"body": _("Message exceeds maximum length of 1,600 characters.")})
 
-    allowed, reason = can_send_manual(conversation.contact, conversation)
-    if not allowed:
-        raise ValidationError({"non_field_errors": reason})
+    if sender_type == Message.SenderType.CAMPAIGN:
+        from compliance.services import can_send_marketing
+        if not can_send_marketing(conversation.contact):
+            raise ValidationError({"non_field_errors": _("Marketing campaigns require active opt-in consent.")})
+    else:
+        allowed, reason = can_send_manual(conversation.contact, conversation)
+        if not allowed:
+            raise ValidationError({"non_field_errors": reason})
+
+    # Resolve provider and appropriate status callback URL dynamically
+    provider = get_sms_provider()
+    public_base = get_public_base_url()
+    from .providers.telnyx_provider import TelnyxProvider
+    if isinstance(provider, TelnyxProvider):
+        provider_name = "telnyx"
+        status_callback = f"{public_base}/webhooks/telnyx/status/" if public_base else None
+    else:
+        provider_name = "twilio"
+        status_callback = f"{public_base}/webhooks/twilio/status/" if public_base else None
 
     # Step 1: Create and commit the queued message row first
     with transaction.atomic():
@@ -92,18 +108,15 @@ def send_message(
             sent_by=user,
             body=cleaned_body,
             status=Message.Status.QUEUED,
-            provider=getattr(settings, "MESSAGING_PROVIDER", "twilio"),
+            provider=provider_name,
             is_ai_assisted=is_ai_assisted,
         )
 
     # Step 2: Call provider OUTSIDE open transaction
-    provider = get_sms_provider()
-    public_base = get_public_base_url()
-    status_callback = f"{public_base}/webhooks/twilio/status/" if public_base else None
-
     logger.info(
-        "Dispatching outbound SMS (msg_id=%s) to %s with status_callback=%s",
+        "Dispatching outbound SMS (msg_id=%s, provider=%s) to %s with status_callback=%s",
         message.id,
+        provider_name,
         conversation.contact.phone,
         status_callback,
     )

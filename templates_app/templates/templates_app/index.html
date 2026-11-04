@@ -1,0 +1,637 @@
+{% extends "messaging/base_app.html" %}
+
+{% block title %}SMS Templates · SparkText{% endblock %}
+
+{% block header_title %}SMS Templates{% endblock %}
+{% block header_subtitle %}Create and manage reusable message copy, broadcast presets, and agent quick replies{% endblock %}
+
+{% block header_actions %}
+<button
+  type="button"
+  onclick="openCreateTemplateModal()"
+  class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-sm shadow-brand-600/30 cursor-pointer"
+>
+  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+  </svg>
+  New Template
+</button>
+{% endblock %}
+
+{% block content %}
+{% csrf_token %}
+
+<!-- Category Navigation Tabs -->
+<div class="flex items-center gap-2 border-b border-gray-200 pb-3 mb-6 overflow-x-auto no-scrollbar">
+  <a
+    href="?category=all{% if q %}&q={{ q }}{% endif %}"
+    class="px-3.5 py-1.5 text-xs font-semibold rounded-lg transition whitespace-nowrap {% if selected_category == 'all' %}text-brand-700 bg-brand-50 border border-brand-200{% else %}text-gray-500 hover:text-gray-900 hover:bg-gray-100{% endif %}"
+  >
+    All Templates ({{ counts.all }})
+  </a>
+  <a
+    href="?category=marketing{% if q %}&q={{ q }}{% endif %}"
+    class="px-3.5 py-1.5 text-xs font-semibold rounded-lg transition whitespace-nowrap {% if selected_category == 'marketing' %}text-brand-700 bg-brand-50 border border-brand-200{% else %}text-gray-500 hover:text-gray-900 hover:bg-gray-100{% endif %}"
+  >
+    Marketing & Broadcasts ({{ counts.marketing }})
+  </a>
+  <a
+    href="?category=quick_reply{% if q %}&q={{ q }}{% endif %}"
+    class="px-3.5 py-1.5 text-xs font-semibold rounded-lg transition whitespace-nowrap {% if selected_category == 'quick_reply' %}text-brand-700 bg-brand-50 border border-brand-200{% else %}text-gray-500 hover:text-gray-900 hover:bg-gray-100{% endif %}"
+  >
+    Quick Replies ({{ counts.quick_reply }})
+  </a>
+  <a
+    href="?category=follow_up{% if q %}&q={{ q }}{% endif %}"
+    class="px-3.5 py-1.5 text-xs font-semibold rounded-lg transition whitespace-nowrap {% if selected_category == 'follow_up' %}text-brand-700 bg-brand-50 border border-brand-200{% else %}text-gray-500 hover:text-gray-900 hover:bg-gray-100{% endif %}"
+  >
+    Lead Follow-up ({{ counts.follow_up }})
+  </a>
+  <a
+    href="?category=transactional{% if q %}&q={{ q }}{% endif %}"
+    class="px-3.5 py-1.5 text-xs font-semibold rounded-lg transition whitespace-nowrap {% if selected_category == 'transactional' %}text-brand-700 bg-brand-50 border border-brand-200{% else %}text-gray-500 hover:text-gray-900 hover:bg-gray-100{% endif %}"
+  >
+    Transactional & Reminders ({{ counts.transactional }})
+  </a>
+</div>
+
+<!-- Search & Controls Toolbar -->
+<div class="bg-white border border-gray-200 rounded-2xl p-4 shadow-xs mb-6">
+  <form method="get" class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+    {% if selected_category and selected_category != 'all' %}
+    <input type="hidden" name="category" value="{{ selected_category }}">
+    {% endif %}
+
+    <div class="relative flex-1">
+      <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+        </svg>
+      </div>
+      <input
+        type="search"
+        name="q"
+        value="{{ q }}"
+        placeholder="Search templates by title or message text..."
+        class="w-full pl-9 pr-3.5 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900"
+      >
+    </div>
+
+    <div class="flex items-center gap-2">
+      <button
+        type="submit"
+        class="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-xl transition cursor-pointer"
+      >
+        Search
+      </button>
+      {% if q or selected_category != 'all' %}
+      <a
+        href="{% url 'templates:index' %}"
+        class="px-3 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 transition"
+      >
+        Reset
+      </a>
+      {% endif %}
+    </div>
+  </form>
+</div>
+
+<!-- Templates Cards Grid -->
+{% if templates %}
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+  {% for t in templates %}
+  <div class="bg-white border border-gray-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between hover:border-brand-300 hover:shadow-md transition group">
+    <div>
+      <!-- Card Top: Category Badge & Actions Menu -->
+      <div class="flex items-start justify-between gap-2 mb-3">
+        <div>
+          {% if t.category == 'marketing' %}
+          <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+            📢 Marketing
+          </span>
+          {% elif t.category == 'quick_reply' %}
+          <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+            ⚡ Quick Reply
+          </span>
+          {% elif t.category == 'follow_up' %}
+          <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+            🎯 Follow-up
+          </span>
+          {% else %}
+          <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-purple-50 text-purple-700 border border-purple-200">
+            🔔 Transactional
+          </span>
+          {% endif %}
+
+          {% if t.is_default %}
+          <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600 ml-1">
+            Starter
+          </span>
+          {% endif %}
+        </div>
+
+        <div class="flex items-center gap-1">
+          <button
+            type="button"
+            onclick="openEditTemplateModal({{ t.id }})"
+            class="p-1.5 text-gray-400 hover:text-brand-600 rounded-lg hover:bg-gray-100 transition cursor-pointer"
+            title="Edit Template"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            onclick="confirmDeleteTemplate({{ t.id }}, '{{ t.name|escapejs }}')"
+            class="p-1.5 text-gray-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition cursor-pointer"
+            title="Delete Template"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Title -->
+      <h4 class="text-sm font-bold text-gray-900 mb-2 leading-snug">
+        {{ t.name }}
+      </h4>
+
+      <!-- Body Preview with bubble styling -->
+      <div class="bg-gray-50 border border-gray-200/80 rounded-xl p-3 text-xs text-gray-800 font-normal leading-relaxed whitespace-pre-wrap select-all mb-3 relative group/text">
+        {{ t.body }}
+      </div>
+    </div>
+
+    <!-- Card Bottom: Metrics & Quick Actions -->
+    <div>
+      <div class="flex items-center justify-between text-[11px] text-gray-500 pb-3 mb-3 border-b border-gray-100">
+        <span class="font-mono">{{ t.character_count }} chars</span>
+        <span class="inline-flex items-center gap-1 font-semibold {% if t.segment_count > 1 %}text-amber-600{% else %}text-emerald-600{% endif %}">
+          <span class="w-1.5 h-1.5 rounded-full {% if t.segment_count > 1 %}bg-amber-500{% else %}bg-emerald-500{% endif %}"></span>
+          {{ t.segment_count }} segment{% if t.segment_count > 1 %}s{% endif %}
+        </span>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <a
+          href="{% url 'campaigns:create' %}?template_id={{ t.id }}"
+          class="flex-1 text-center py-2 px-3 text-xs font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-xl transition cursor-pointer"
+        >
+          Use in Campaign →
+        </a>
+        <button
+          type="button"
+          data-copy-body="{{ t.body }}"
+          onclick="copyTemplateText(this)"
+          class="p-2 text-gray-500 hover:text-gray-900 border border-gray-200 hover:bg-gray-50 rounded-xl transition cursor-pointer"
+          title="Copy Text to Clipboard"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<!-- Empty State -->
+<div class="bg-white border border-gray-200 rounded-2xl p-12 text-center max-w-lg mx-auto shadow-xs">
+  <div class="w-12 h-12 rounded-2xl bg-brand-50 text-brand-600 flex items-center justify-center mx-auto mb-4 border border-brand-100">
+    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+    </svg>
+  </div>
+  <h3 class="text-base font-bold text-gray-900 mb-1">No templates found</h3>
+  <p class="text-xs text-gray-500 mb-5">
+    {% if q %}No templates matched "{{ q }}". Try a different search keyword.{% else %}Create your first SMS template to use across marketing broadcasts and chat.{% endif %}
+  </p>
+  <button
+    type="button"
+    onclick="openCreateTemplateModal()"
+    class="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs cursor-pointer"
+  >
+    + Create Template
+  </button>
+</div>
+{% endif %}
+
+
+<!-- ========================================================================= -->
+<!-- MODAL: CREATE & EDIT TEMPLATE                                             -->
+<!-- ========================================================================= -->
+<div id="templateModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+  <!-- Backdrop -->
+  <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity" onclick="closeTemplateModal()"></div>
+
+  <div class="flex min-h-full items-center justify-center p-4 text-center sm:p-0">
+    <div class="relative transform overflow-hidden rounded-2xl bg-white text-left shadow-2xl transition-all sm:my-8 sm:w-full sm:max-w-3xl border border-gray-100">
+      
+      <!-- Modal Header -->
+      <div class="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+        <div>
+          <h3 class="text-lg font-bold text-gray-900" id="tmplModalTitle">Create SMS Template</h3>
+          <p class="text-xs text-gray-500 mt-0.5">Use merge tags to personalize each subscriber's text message</p>
+        </div>
+        <button type="button" onclick="closeTemplateModal()" class="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition cursor-pointer">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <!-- Modal Body (Two columns: Editor + Phone Preview) -->
+      <form id="templateForm" onsubmit="submitTemplateForm(event)" class="p-6">
+        <input type="hidden" id="tmpl_id" name="template_id" value="">
+        <div id="tmplErrorBox" class="hidden p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 font-medium mb-4"></div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <!-- Left Column: Form Fields -->
+          <div class="lg:col-span-7 space-y-4">
+            <div>
+              <label class="block text-xs font-semibold text-gray-700 mb-1">
+                Template Name <span class="text-rose-500">*</span>
+              </label>
+              <input
+                type="text"
+                id="tmpl_name"
+                name="name"
+                required
+                placeholder="e.g. Auto Insurance Annual Review"
+                class="w-full px-3.5 py-2 text-xs bg-gray-50 border border-gray-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900"
+              >
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold text-gray-700 mb-1">Category</label>
+              <select
+                id="tmpl_category"
+                name="category"
+                class="w-full px-3.5 py-2 text-xs bg-gray-50 border border-gray-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-700"
+              >
+                {% for code, label in category_choices %}
+                <option value="{{ code }}">{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div>
+              <div class="flex items-center justify-between mb-1.5">
+                <label class="text-xs font-semibold text-gray-700">
+                  Message Copy <span class="text-rose-500">*</span>
+                </label>
+                <span class="text-[11px] text-gray-400">Insert tag:</span>
+              </div>
+
+              <!-- Quick Tag Insert Chips -->
+              <div class="flex flex-wrap gap-1 mb-2">
+                <button
+                  type="button"
+                  onclick="insertTmplTag('first_name')"
+                  class="px-2 py-0.5 text-[10px] font-semibold bg-gray-100 hover:bg-brand-50 hover:text-brand-700 text-gray-700 rounded-md transition cursor-pointer border border-gray-200"
+                >
+                  + First Name
+                </button>
+                <button
+                  type="button"
+                  onclick="insertTmplTag('last_name')"
+                  class="px-2 py-0.5 text-[10px] font-semibold bg-gray-100 hover:bg-brand-50 hover:text-brand-700 text-gray-700 rounded-md transition cursor-pointer border border-gray-200"
+                >
+                  + Last Name
+                </button>
+                <button
+                  type="button"
+                  onclick="insertTmplTag('business_name')"
+                  class="px-2 py-0.5 text-[10px] font-semibold bg-gray-100 hover:bg-brand-50 hover:text-brand-700 text-gray-700 rounded-md transition cursor-pointer border border-gray-200"
+                >
+                  + Business Name
+                </button>
+                <button
+                  type="button"
+                  onclick="insertTmplTag('phone')"
+                  class="px-2 py-0.5 text-[10px] font-semibold bg-gray-100 hover:bg-brand-50 hover:text-brand-700 text-gray-700 rounded-md transition cursor-pointer border border-gray-200"
+                >
+                  + Phone
+                </button>
+              </div>
+
+              <textarea
+                id="tmpl_body"
+                name="body"
+                rows="5"
+                required
+                oninput="updateTmplMetrics()"
+                placeholder="Hi &#123;&#123; first_name &#125;&#125;, this is &#123;&#123; business_name &#125;&#125;. Reply YES to get started. Reply STOP to opt out."
+                class="w-full px-3.5 py-2.5 text-xs bg-gray-50 border border-gray-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900 leading-relaxed font-sans"
+              ></textarea>
+
+              <div class="flex items-center justify-between text-[11px] text-gray-500 mt-1.5">
+                <span id="tmplCharCount">0 characters</span>
+                <span id="tmplSegmentCount" class="font-semibold text-emerald-600">1 segment (GSM-7)</span>
+              </div>
+            </div>
+
+            <div class="p-3 bg-amber-50/70 border border-amber-200/70 rounded-xl text-[11px] text-amber-900">
+              💡 <strong>TCPA Compliance Tip:</strong> Always include an opt-out mechanism like <em>"Reply STOP to opt out"</em> in marketing broadcasts.
+            </div>
+          </div>
+
+          <!-- Right Column: Interactive Phone Mockup -->
+          <div class="lg:col-span-5 flex flex-col items-center justify-center bg-slate-50 border border-slate-200/80 rounded-2xl p-4">
+            <span class="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">Live Mobile Preview</span>
+            
+            <!-- Phone shell -->
+            <div class="w-full max-w-[240px] bg-white rounded-3xl shadow-lg border border-slate-300 overflow-hidden flex flex-col">
+              <!-- Phone notch header -->
+              <div class="bg-slate-800 text-white px-3 py-2 text-[10px] flex items-center justify-between">
+                <span>9:41</span>
+                <div class="w-12 h-2.5 bg-slate-900 rounded-full mx-auto"></div>
+                <span>5G 100%</span>
+              </div>
+              
+              <!-- Sender info -->
+              <div class="bg-slate-100 border-b border-slate-200 px-3 py-1.5 text-center">
+                <div class="w-6 h-6 rounded-full bg-slate-300 text-slate-600 font-bold text-[10px] flex items-center justify-center mx-auto mb-0.5">
+                  SMS
+                </div>
+                <div class="text-[10px] font-semibold text-slate-800">{{ org.name }}</div>
+                <div class="text-[8px] text-slate-400">Text Message</div>
+              </div>
+
+              <!-- Message thread area -->
+              <div class="p-3 bg-slate-50 min-h-[170px] flex flex-col justify-end">
+                <div class="bg-brand-600 text-white rounded-2xl rounded-bl-xs p-2.5 text-[11px] leading-relaxed shadow-xs" id="tmplMobileBubble">
+                  Type your message above to see real-time preview...
+                </div>
+                <div class="text-[8px] text-slate-400 text-right mt-1">Delivered</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Modal Footer -->
+        <div class="pt-5 mt-6 border-t border-gray-100 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onclick="closeTemplateModal()"
+            class="px-4 py-2 text-xs font-semibold text-gray-600 hover:text-gray-900 transition cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            id="tmplSubmitBtn"
+            class="px-5 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs cursor-pointer flex items-center gap-1.5"
+          >
+            <span>Save Template</span>
+          </button>
+        </div>
+      </form>
+
+    </div>
+  </div>
+</div>
+
+
+<!-- ========================================================================= -->
+<!-- MODAL: DELETE CONFIRMATION                                                -->
+<!-- ========================================================================= -->
+<div id="deleteModal" class="fixed inset-0 z-50 hidden overflow-y-auto" role="dialog" aria-modal="true">
+  <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity" onclick="closeDeleteModal()"></div>
+  <div class="flex min-h-full items-center justify-center p-4 text-center sm:p-0">
+    <div class="relative transform overflow-hidden rounded-2xl bg-white text-left shadow-2xl transition-all sm:my-8 sm:w-full sm:max-w-md border border-gray-100 p-6 space-y-4">
+      <div class="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center border border-rose-100">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+        </svg>
+      </div>
+      <div>
+        <h3 class="text-base font-bold text-gray-900">Delete Template?</h3>
+        <p class="text-xs text-gray-500 mt-1">
+          Are you sure you want to delete <strong id="deleteTmplName" class="text-gray-800"></strong>? This action cannot be undone.
+        </p>
+      </div>
+      <div class="flex items-center justify-end gap-2 pt-2">
+        <button
+          type="button"
+          onclick="closeDeleteModal()"
+          class="px-4 py-2 text-xs font-semibold text-gray-600 hover:text-gray-900 transition cursor-pointer"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          id="confirmDeleteBtn"
+          onclick="executeDeleteTemplate()"
+          class="px-4 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-xl transition cursor-pointer"
+        >
+          Delete
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  function getCsrfToken() {
+    const el = document.querySelector('[name=csrfmiddlewaretoken]');
+    return el ? el.value : '';
+  }
+
+  function copyTemplateText(btn) {
+    const text = btn.getAttribute('data-copy-body');
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
+      const orig = btn.innerHTML;
+      btn.innerHTML = `
+        <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+        </svg>
+      `;
+      setTimeout(() => { btn.innerHTML = orig; }, 1800);
+    });
+  }
+
+  function openCreateTemplateModal() {
+    document.getElementById('tmplModalTitle').innerText = 'Create SMS Template';
+    document.getElementById('tmpl_id').value = '';
+    document.getElementById('tmpl_name').value = '';
+    document.getElementById('tmpl_category').value = 'marketing';
+    document.getElementById('tmpl_body').value = '';
+    document.getElementById('tmplErrorBox').classList.add('hidden');
+    updateTmplMetrics();
+    document.getElementById('templateModal').classList.remove('hidden');
+  }
+
+  async function openEditTemplateModal(id) {
+    document.getElementById('tmplModalTitle').innerText = 'Edit SMS Template';
+    document.getElementById('tmplErrorBox').classList.add('hidden');
+
+    try {
+      const resp = await fetch(`/templates/${id}/edit/`, {
+        headers: { "X-Requested-With": "XMLHttpRequest" }
+      });
+      const data = await resp.json();
+      if (data.status === 'success') {
+        const t = data.template;
+        document.getElementById('tmpl_id').value = t.id;
+        document.getElementById('tmpl_name').value = t.name;
+        document.getElementById('tmpl_category').value = t.category;
+        document.getElementById('tmpl_body').value = t.body;
+        updateTmplMetrics();
+        document.getElementById('templateModal').classList.remove('hidden');
+      } else {
+        alert(data.message || 'Failed to load template.');
+      }
+    } catch (err) {
+      alert('Error fetching template details: ' + err.message);
+    }
+  }
+
+  function closeTemplateModal() {
+    document.getElementById('templateModal').classList.add('hidden');
+  }
+
+  let pendingDeleteId = null;
+  function confirmDeleteTemplate(id, name) {
+    pendingDeleteId = id;
+    document.getElementById('deleteTmplName').innerText = `"${name}"`;
+    document.getElementById('deleteModal').classList.remove('hidden');
+  }
+
+  function closeDeleteModal() {
+    document.getElementById('deleteModal').classList.add('hidden');
+    pendingDeleteId = null;
+  }
+
+  async function executeDeleteTemplate() {
+    if (!pendingDeleteId) return;
+    const btn = document.getElementById('confirmDeleteBtn');
+    btn.disabled = true;
+    btn.innerText = 'Deleting...';
+
+    try {
+      const resp = await fetch(`/templates/${pendingDeleteId}/delete/`, {
+        method: "POST",
+        headers: {
+          "X-CSRFToken": getCsrfToken(),
+          "X-Requested-With": "XMLHttpRequest",
+        }
+      });
+      const data = await resp.json();
+      if (data.status === 'success') {
+        window.location.reload();
+      } else {
+        alert(data.message || 'Failed to delete template.');
+        btn.disabled = false;
+        btn.innerText = 'Delete';
+      }
+    } catch (err) {
+      alert('Error deleting template: ' + err.message);
+      btn.disabled = false;
+      btn.innerText = 'Delete';
+    }
+  }
+
+  function insertTmplTag(tagName) {
+    const textarea = document.getElementById("tmpl_body");
+    if (!textarea) return;
+
+    const tag = "{" + "{ " + tagName + " }" + "}";
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const current = textarea.value;
+
+    textarea.value = current.substring(0, start) + tag + current.substring(end);
+    textarea.focus();
+    const newPos = start + tag.length;
+    textarea.setSelectionRange(newPos, newPos);
+    updateTmplMetrics();
+  }
+
+  function updateTmplMetrics() {
+    const textarea = document.getElementById("tmpl_body");
+    const charCounter = document.getElementById("tmplCharCount");
+    const segCounter = document.getElementById("tmplSegmentCount");
+    const bubble = document.getElementById("tmplMobileBubble");
+    if (!textarea) return;
+
+    const text = textarea.value;
+    const len = text.length;
+
+    charCounter.innerText = `${len} character${len === 1 ? '' : 's'}`;
+
+    let segments = 1;
+    if (len === 0) segments = 0;
+    else if (len <= 160) segments = 1;
+    else segments = Math.ceil(len / 153);
+
+    segCounter.innerText = `${segments} segment${segments === 1 ? '' : 's'} (GSM-7)`;
+    if (segments > 1) {
+      segCounter.className = 'font-semibold text-amber-600';
+    } else {
+      segCounter.className = 'font-semibold text-emerald-600';
+    }
+
+    // Update phone preview bubble with dummy tags substituted
+    if (!text.trim()) {
+      bubble.innerText = 'Type your message above to see real-time preview...';
+      bubble.className = 'bg-brand-600/40 text-white/80 rounded-2xl rounded-bl-xs p-2.5 text-[11px] leading-relaxed shadow-xs italic';
+    } else {
+      let preview = text
+        .replace(/\{\{\s*first_name\s*\}\}/g, 'Alex')
+        .replace(/\{\{\s*last_name\s*\}\}/g, 'Morgan')
+        .replace(/\{\{\s*business_name\s*\}\}/g, '{{ org.name }}')
+        .replace(/\{\{\s*phone\s*\}\}/g, '+1 (650) 555-0199');
+      bubble.innerText = preview;
+      bubble.className = 'bg-brand-600 text-white rounded-2xl rounded-bl-xs p-2.5 text-[11px] leading-relaxed shadow-xs';
+    }
+  }
+
+  async function submitTemplateForm(e) {
+    e.preventDefault();
+    const btn = document.getElementById('tmplSubmitBtn');
+    const errBox = document.getElementById('tmplErrorBox');
+    errBox.classList.add('hidden');
+
+    const tmplId = document.getElementById('tmpl_id').value;
+    const isEdit = !!tmplId;
+    const url = isEdit ? `/templates/${tmplId}/edit/` : `/templates/new/`;
+
+    const formData = new FormData(document.getElementById('templateForm'));
+    btn.disabled = true;
+    btn.innerHTML = '<span>Saving...</span>';
+
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: {
+          "X-CSRFToken": getCsrfToken(),
+          "X-Requested-With": "XMLHttpRequest",
+        },
+        body: formData,
+      });
+      const data = await resp.json();
+      if (resp.ok && data.status === 'success') {
+        window.location.reload();
+      } else {
+        errBox.innerText = data.message || 'Failed to save template.';
+        errBox.classList.remove('hidden');
+        btn.disabled = false;
+        btn.innerHTML = '<span>Save Template</span>';
+      }
+    } catch (err) {
+      errBox.innerText = 'Error: ' + err.message;
+      errBox.classList.remove('hidden');
+      btn.disabled = false;
+      btn.innerHTML = '<span>Save Template</span>';
+    }
+  }
+</script>
+{% endblock %}

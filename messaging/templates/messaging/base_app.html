@@ -238,8 +238,14 @@
           </a>
 
           <a
-            href="#"
-            class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition {{ idle }}"
+            href="{% url 'campaigns:list' %}"
+            {% if current == "campaigns:list" or current == "campaigns:create" or current == "campaigns:detail" %} aria-current="page" {% endif %}
+            class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition 
+            {% if current == 'campaigns:list' or current == 'campaigns:create' or current == 'campaigns:detail' %} 
+            {{ active }} 
+            {% else %} 
+            {{ idle }} 
+            {% endif %}"
           >
             <svg
               class="w-5 h-5 opacity-70"
@@ -258,8 +264,14 @@
           </a>
 
           <a
-            href="#"
-            class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition {{ idle }}"
+            href="{% url 'templates:index' %}"
+            {% if current == "templates:index" or "templates" in request.path %} aria-current="page" {% endif %}
+            class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition 
+            {% if current == 'templates:index' or 'templates' in request.path %} 
+            {{ active }} 
+            {% else %} 
+            {{ idle }} 
+            {% endif %}"
           >
             <svg
               class="w-5 h-5 opacity-70"
@@ -304,8 +316,9 @@
           </a>
 
           <a
-            href="#"
-            class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition {{ idle }}"
+            href="{% url 'messaging:phone_numbers_settings' %}"
+            {% if current == "messaging:phone_numbers_settings" %} aria-current="page" {% endif %}
+            class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition {% if current == 'messaging:phone_numbers_settings' %} {{ active }} {% else %} {{ idle }} {% endif %}"
           >
             <svg
               class="w-5 h-5 opacity-70"

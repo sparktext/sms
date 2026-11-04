@@ -1,13 +1,52 @@
+import secrets
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models
 
 
+def generate_api_key():
+    return f"spk_live_{secrets.token_hex(16)}"
+
+
 class Organization(models.Model):
     """One customer company. Everything else (contacts, messages...) points to this."""
+
+    class RegistrationStatus(models.TextChoices):
+        UNREGISTERED = "unregistered", "Unregistered"
+        IN_REVIEW = "in_review", "In Review"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+
     name = models.CharField(max_length=200)
     slug = models.SlugField(unique=True)
     timezone = models.CharField(max_length=64, default="America/Los_Angeles")
+    ein = models.CharField(max_length=30, blank=True, default="")
+    registration_status = models.CharField(
+        max_length=20,
+        choices=RegistrationStatus.choices,
+        default=RegistrationStatus.UNREGISTERED,
+    )
+    brand_sid = models.CharField(max_length=64, blank=True, default="")
+    campaign_sid = models.CharField(max_length=64, blank=True, default="")
+    verification_notes = models.TextField(blank=True, default="")
+    api_key = models.CharField(
+        max_length=64,
+        unique=True,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="API key for ingesting leads via webhook or REST API",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        if not self.api_key:
+            self.api_key = generate_api_key()
+        super().save(*args, **kwargs)
+
+    def regenerate_api_key(self):
+        self.api_key = generate_api_key()
+        self.save(update_fields=["api_key"])
+        return self.api_key
 
     def __str__(self):
         return f"{self.name} ({self.slug})"

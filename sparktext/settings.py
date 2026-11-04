@@ -25,11 +25,15 @@ env = environ.Env(
     TWILIO_PHONE_NUMBER=(str, ""),
     PUBLIC_BASE_URL=(str, ""),
     TWILIO_VALIDATE_WEBHOOKS=(bool, True),
-    MESSAGING_PROVIDER=(str, "twilio"),
+    TELNYX_API_KEY=(str, ""),
+    TELNYX_PUBLIC_KEY=(str, ""),
+    TELNYX_PHONE_NUMBER=(str, ""),
+    TELNYX_VALIDATE_WEBHOOKS=(bool, False),
+    MESSAGING_PROVIDER=(str, "telnyx"),
     MESSAGING_REPLY_WINDOW_HOURS=(int, 24),
     AI_CLIENT=(str, "openai"),
     AI_BASE_URL=(str, "http://localhost:1235/v1"),
-    AI_MODEL=(str, "google/gemma-4-e4b"),
+    AI_MODEL=(str, "google/gemma-4-12b-qat"),
     AI_API_KEY=(str, ""),
     AI_TIMEOUT_SECONDS=(int, 45),
     AI_MAX_RETRIES=(int, 1),
@@ -48,7 +52,10 @@ DEBUG = True
 
 ALLOWED_HOSTS = ["localhost", "127.0.0.1", "testserver", "*", "https://denim-creamed-starlit.ngrok-free.dev"]
 
-CSRF_TRUSTED_ORIGINS = ["https://denim-creamed-starlit.ngrok-free.dev"]
+CSRF_TRUSTED_ORIGINS = ["https://denim-creamed-starlit.ngrok-free.dev", "http://denim-creamed-starlit.ngrok-free.dev"]
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+USE_X_FORWARDED_HOST = True
+USE_X_FORWARDED_PORT = True
 # Application definition
 
 INSTALLED_APPS = [
@@ -63,6 +70,8 @@ INSTALLED_APPS = [
     'messaging',
     'contacts',
     'compliance',
+    'campaigns',
+    'templates_app',
     'core',
     'website',
 ]
@@ -174,19 +183,26 @@ MAILERS = {
     },
 }
 
-# Messaging & Twilio Settings
+# Messaging & Provider Settings
 TWILIO_ACCOUNT_SID = env("TWILIO_ACCOUNT_SID", default="")
 TWILIO_AUTH_TOKEN = env("TWILIO_AUTH_TOKEN", default="")
 TWILIO_PHONE_NUMBER = env("TWILIO_PHONE_NUMBER", default="")
 PUBLIC_BASE_URL = env("PUBLIC_BASE_URL", default="")
 TWILIO_VALIDATE_WEBHOOKS = env("TWILIO_VALIDATE_WEBHOOKS", default=True)
-MESSAGING_PROVIDER = env("MESSAGING_PROVIDER", default="twilio")
+
+# Telnyx Settings
+TELNYX_API_KEY = env("TELNYX_API_KEY", default="")
+TELNYX_PUBLIC_KEY = env("TELNYX_PUBLIC_KEY", default="")
+TELNYX_PHONE_NUMBER = env("TELNYX_PHONE_NUMBER", default="")
+TELNYX_VALIDATE_WEBHOOKS = env("TELNYX_VALIDATE_WEBHOOKS", default=False)
+
+MESSAGING_PROVIDER = env("MESSAGING_PROVIDER", default="telnyx")
 MESSAGING_REPLY_WINDOW_HOURS = env("MESSAGING_REPLY_WINDOW_HOURS", default=24)
 
 # AI Assistant Settings
 AI_CLIENT = env("AI_CLIENT", default="openai")
 AI_BASE_URL = env("AI_BASE_URL", default="http://localhost:1235/v1")
-AI_MODEL = env("AI_MODEL", default="google/gemma-4-e4b")
+AI_MODEL = env("AI_MODEL", default="google/gemma-4-12b-qat")
 AI_API_KEY = env("AI_API_KEY", default="")
 AI_TIMEOUT_SECONDS = env("AI_TIMEOUT_SECONDS", default=45)
 AI_MAX_RETRIES = env("AI_MAX_RETRIES", default=1)

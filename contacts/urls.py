@@ -21,10 +21,17 @@ urlpatterns = [
     path("contacts/lists/new/", views.create_list, name="create_list"),
     path("contacts/lists/<int:list_id>/edit/", views.edit_list, name="edit_list"),
     path("contacts/lists/<int:list_id>/delete/", views.delete_list, name="delete_list"),
+    path("contacts/lists/<int:list_id>/add-contacts/", views.add_contacts_to_list, name="add_contacts_to_list"),
 
     # Custom Contact Fields Management
     path("contacts/fields/", views.fields_index, name="fields"),
     path("contacts/fields/new/", views.create_field, name="create_field"),
     path("contacts/fields/<int:field_id>/edit/", views.edit_field, name="edit_field"),
     path("contacts/fields/<int:field_id>/delete/", views.delete_field, name="delete_field"),
+
+    # Lead Ingestion REST / Webhook API & Remote URL Import
+    path("contacts/api/leads/", views.lead_ingest_api, name="api_leads"),
+    path("contacts/api/leads/<str:api_key>/", views.lead_ingest_api, name="api_leads_with_key"),
+    path("contacts/api/fetch-remote/", views.fetch_remote_leads_view, name="fetch_remote_leads"),
+    path("contacts/api/regenerate-key/", views.regenerate_api_key_view, name="regenerate_api_key"),
 ]

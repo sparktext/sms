@@ -1,0 +1,341 @@
+{% extends "messaging/base_app.html" %}
+
+{% block title %}{{ campaign.name }} - Campaign Details{% endblock %}
+
+{% block header_title %}{{ campaign.name }}{% endblock %}
+{% block header_subtitle %}Campaign analytics, delivery progress, and recipient activity{% endblock %}
+
+{% block header_actions %}
+<div class="flex items-center gap-2">
+  <a
+    href="{% url 'campaigns:list' %}"
+    class="px-3.5 py-2 text-xs font-semibold text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 rounded-xl transition shadow-2xs cursor-pointer"
+  >
+    ← All Campaigns
+  </a>
+
+  {% if campaign.status == 'scheduled' or campaign.status == 'draft' %}
+  <form method="post" action="{% url 'campaigns:action' campaign.id %}">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="send_now">
+    <button
+      type="submit"
+      class="px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs cursor-pointer flex items-center gap-1.5"
+    >
+      <span>⚡ Send Now</span>
+    </button>
+  </form>
+  {% endif %}
+
+  {% if campaign.status == 'scheduled' or campaign.status == 'sending' %}
+  <form method="post" action="{% url 'campaigns:action' campaign.id %}" onsubmit="return confirm('Are you sure you want to cancel this campaign? Any pending messages will be stopped.');">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="cancel">
+    <button
+      type="submit"
+      class="px-3.5 py-2 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition cursor-pointer"
+    >
+      Cancel Campaign
+    </button>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+  <!-- Overview Header Card -->
+  <div class="bg-white rounded-2xl border border-gray-200 p-5 shadow-2xs space-y-4">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4">
+      <div>
+        <div class="flex items-center gap-2.5">
+          <h2 class="text-lg font-bold text-gray-900">{{ campaign.name }}</h2>
+          
+          <!-- Status pill -->
+          {% if campaign.status == 'completed' %}
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Completed
+            </span>
+          {% elif campaign.status == 'sending' %}
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 animate-pulse">
+              <span class="w-1.5 h-1.5 rounded-full bg-blue-500"></span> Sending...
+            </span>
+          {% elif campaign.status == 'scheduled' %}
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+              <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span> Scheduled
+            </span>
+          {% elif campaign.status == 'cancelled' %}
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+              <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span> Cancelled
+            </span>
+          {% else %}
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-gray-50 text-gray-600 border border-gray-200">
+              <span class="w-1.5 h-1.5 rounded-full bg-gray-400"></span> Draft
+            </span>
+          {% endif %}
+        </div>
+
+        <div class="text-xs text-gray-500 flex flex-wrap items-center gap-2 mt-1">
+          <span>Sender: <strong class="text-gray-700 font-mono">{{ campaign.phone_number.e164 }}</strong></span>
+          <span>·</span>
+          <span>Created by: <strong class="text-gray-700">{{ campaign.created_by.first_name|default:campaign.created_by.email|default:"User" }}</strong></span>
+          <span>·</span>
+          <span>Created: {{ campaign.created_at|date:"M d, Y h:i A" }}</span>
+          {% if campaign.scheduled_at %}
+            <span>·</span>
+            <span>Scheduled for: <strong class="text-brand-700">{{ campaign.scheduled_at|date:"M d, Y h:i A" }}</strong></span>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Quick Delivery Rate Badge -->
+      <div class="text-right">
+        <div class="text-2xl font-black text-brand-600">{{ campaign.delivery_rate }}%</div>
+        <div class="text-[11px] text-gray-400">Carrier Confirmation Rate</div>
+      </div>
+    </div>
+
+    <!-- Progress Bar -->
+    <div>
+      <div class="flex items-center justify-between text-xs text-gray-600 font-medium mb-1.5">
+        <span>Dispatch Progress ({{ campaign.sent_count }} / {{ campaign.total_recipients }} messages)</span>
+        <span class="font-bold text-gray-900">{{ campaign.progress_percent }}%</span>
+      </div>
+      <div class="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden">
+        <div
+          class="h-full bg-brand-600 rounded-full transition-all duration-500"
+          style="width: {{ campaign.progress_percent }}%"
+        ></div>
+      </div>
+    </div>
+
+    <!-- Metrics Cards Grid -->
+    <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-2">
+      <div class="bg-gray-50 rounded-xl p-3 border border-gray-100 text-center">
+        <div class="text-lg font-bold text-gray-900">{{ campaign.total_recipients }}</div>
+        <div class="text-[11px] text-gray-500 font-medium">Total Audience</div>
+      </div>
+      <div class="bg-gray-50 rounded-xl p-3 border border-gray-100 text-center">
+        <div class="text-lg font-bold text-brand-600">{{ campaign.sent_count }}</div>
+        <div class="text-[11px] text-gray-500 font-medium">Dispatched</div>
+      </div>
+      <div class="bg-gray-50 rounded-xl p-3 border border-gray-100 text-center">
+        <div class="text-lg font-bold text-emerald-600">{{ campaign.delivered_count }}</div>
+        <div class="text-[11px] text-gray-500 font-medium">Delivered</div>
+      </div>
+      <div class="bg-gray-50 rounded-xl p-3 border border-gray-100 text-center">
+        <div class="text-lg font-bold text-rose-600">{{ campaign.failed_count }}</div>
+        <div class="text-[11px] text-gray-500 font-medium">Failed</div>
+      </div>
+      <div class="bg-gray-50 rounded-xl p-3 border border-gray-100 text-center">
+        <div class="text-lg font-bold text-amber-700">{{ campaign.skipped_count }}</div>
+        <div class="text-[11px] text-gray-500 font-medium">Skipped (Opt-Out/Consent)</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Middle Grid: Template Preview & Audience Criteria -->
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <!-- Message Template -->
+    <div class="bg-white rounded-2xl border border-gray-200 p-4 shadow-2xs space-y-2">
+      <h3 class="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center justify-between">
+        <span>Message Template</span>
+        <span class="text-gray-400 font-normal">Personalized Copy</span>
+      </h3>
+      <div class="p-3 bg-gray-50 rounded-xl border border-gray-200 text-xs text-gray-800 font-mono whitespace-pre-wrap leading-relaxed">
+        {{ campaign.message_template }}
+      </div>
+    </div>
+
+    <!-- Targeting Criteria -->
+    <div class="bg-white rounded-2xl border border-gray-200 p-4 shadow-2xs space-y-2">
+      <h3 class="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center justify-between">
+        <span>Targeting Criteria</span>
+        <span class="text-gray-400 font-normal">Lists & Filters</span>
+      </h3>
+      <div class="space-y-2 text-xs">
+        <div>
+          <span class="text-gray-500 block mb-1">Target Contact Lists:</span>
+          <div class="flex flex-wrap gap-1.5">
+            {% for l in campaign.lists.all %}
+              <span class="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-gray-100 text-gray-700 border border-gray-200">
+                📋 {{ l.name }}
+              </span>
+            {% empty %}
+              <span class="text-gray-400 italic">All Organization Contacts</span>
+            {% endfor %}
+          </div>
+        </div>
+
+        {% if campaign.filter_criteria.stage %}
+        <div class="pt-2 border-t border-gray-100">
+          <span class="text-gray-500 block mb-1">Lead Stage Filter:</span>
+          <span class="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+            🎯 {{ campaign.filter_criteria.stage }}
+          </span>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Recipients Ledger Table -->
+  <div class="bg-white rounded-2xl border border-gray-200 shadow-2xs overflow-hidden">
+    <!-- Table Header & Filter Bar -->
+    <div class="p-4 border-b border-gray-100 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-gray-50/50">
+      
+      <!-- Status Tabs -->
+      <div class="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
+        <a
+          href="{% url 'campaigns:detail' campaign.id %}{% if q %}?q={{ q }}{% endif %}"
+          class="px-3 py-1.5 rounded-xl text-xs font-semibold transition whitespace-nowrap {% if not status_filter %}bg-slate-900 text-white shadow-2xs{% else %}bg-white text-gray-600 hover:text-gray-900 border border-gray-200{% endif %}"
+        >
+          All Recipients
+        </a>
+        {% for val, label in statuses %}
+        <a
+          href="?status={{ val }}{% if q %}&q={{ q }}{% endif %}"
+          class="px-3 py-1.5 rounded-xl text-xs font-semibold transition whitespace-nowrap {% if status_filter == val %}bg-slate-900 text-white shadow-2xs{% else %}bg-white text-gray-600 hover:text-gray-900 border border-gray-200{% endif %}"
+        >
+          {{ label }}
+        </a>
+        {% endfor %}
+      </div>
+
+      <!-- Search Input -->
+      <form method="get" class="relative max-w-xs w-full">
+        {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
+        <input
+          type="text"
+          name="q"
+          value="{{ q }}"
+          placeholder="Search by phone or name..."
+          class="w-full pl-9 pr-3.5 py-1.5 text-xs bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900"
+        />
+        <svg class="w-4 h-4 text-gray-400 absolute left-3 top-2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+        </svg>
+      </form>
+    </div>
+
+    <!-- Table -->
+    <div class="overflow-x-auto">
+      <table class="w-full text-left text-xs">
+        <thead class="bg-gray-50/70 border-b border-gray-100 text-gray-500 font-semibold uppercase tracking-wider text-[10px]">
+          <tr>
+            <th class="py-3 px-4">Contact</th>
+            <th class="py-3 px-4">Phone Number</th>
+            <th class="py-3 px-4">Delivery Status</th>
+            <th class="py-3 px-4">Personalized Message Preview</th>
+            <th class="py-3 px-4">Dispatched At</th>
+            <th class="py-3 px-4 text-right">Conversation</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100 text-gray-700">
+          {% for r in recipients_page %}
+          <tr class="hover:bg-gray-50/70 transition">
+            <td class="py-3 px-4 font-bold text-gray-900">
+              <a href="{% url 'contacts:detail' r.contact.id %}" class="hover:text-brand-600 hover:underline">
+                {% if r.contact.first_name or r.contact.last_name %}
+                  {{ r.contact.first_name }} {{ r.contact.last_name }}
+                {% else %}
+                  {{ r.contact.phone }}
+                {% endif %}
+              </a>
+            </td>
+
+            <td class="py-3 px-4 font-mono text-gray-600">
+              {{ r.contact.phone }}
+            </td>
+
+            <td class="py-3 px-4">
+              {% if r.status == 'delivered' %}
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  <span>✓</span> Delivered
+                </span>
+              {% elif r.status == 'sent' %}
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                  <span>✓</span> Sent
+                </span>
+              {% elif r.status == 'failed' %}
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-50 text-rose-700 border border-rose-200" title="{{ r.error_message }}">
+                  <span>✕</span> Failed
+                </span>
+              {% elif r.status == 'skipped' %}
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-200" title="{{ r.skip_reason }}">
+                  <span>⚠️</span> Skipped
+                </span>
+                <span class="block text-[10px] text-gray-400 mt-0.5">{{ r.skip_reason }}</span>
+              {% else %}
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-600">
+                  Pending
+                </span>
+              {% endif %}
+            </td>
+
+            <td class="py-3 px-4 max-w-xs truncate text-gray-500 text-[11px]" title="{{ r.personalized_body }}">
+              {{ r.personalized_body }}
+            </td>
+
+            <td class="py-3 px-4 text-gray-400 font-mono text-[11px]">
+              {% if r.sent_at %}{{ r.sent_at|date:"M d, h:i A" }}{% else %}—{% endif %}
+            </td>
+
+            <td class="py-3 px-4 text-right">
+              {% if r.message %}
+              <a
+                href="{% url 'messaging:conversation_detail' r.message.conversation_id %}"
+                class="inline-flex items-center gap-1 text-[11px] font-semibold text-brand-600 hover:text-brand-800 hover:underline"
+              >
+                <span>Open Chat</span>
+                <span>💬</span>
+              </a>
+              {% else %}
+              <span class="text-gray-300 text-[11px]">No chat yet</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="6" class="p-8 text-center text-gray-400 text-xs">
+              No recipients match the selected status filter.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Pagination -->
+    {% if recipients_page.has_other_pages %}
+    <div class="p-3.5 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500 bg-gray-50/40">
+      <div>
+        Showing page {{ recipients_page.number }} of {{ recipients_page.paginator.num_pages }}
+      </div>
+      <div class="flex items-center gap-1.5">
+        {% if recipients_page.has_previous %}
+        <a
+          href="?page={{ recipients_page.previous_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if q %}&q={{ q }}{% endif %}"
+          class="px-2.5 py-1 bg-white border border-gray-200 rounded-lg text-gray-700 hover:bg-gray-50 transition font-medium"
+        >
+          Previous
+        </a>
+        {% endif %}
+        {% if recipients_page.has_next %}
+        <a
+          href="?page={{ recipients_page.next_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if q %}&q={{ q }}{% endif %}"
+          class="px-2.5 py-1 bg-white border border-gray-200 rounded-lg text-gray-700 hover:bg-gray-50 transition font-medium"
+        >
+          Next
+        </a>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+
+</div>
+{% endblock %}
+

@@ -1,3 +1,4 @@
+from unittest.mock import patch, MagicMock
 from django.test import TestCase, override_settings
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
@@ -664,5 +665,156 @@ class ContactsViewAndTemplateTests(TestCase):
         resp_d = self.client.post(f"/contacts/fields/{f_id}/delete/", HTTP_X_REQUESTED_WITH="XMLHttpRequest")
         self.assertEqual(resp_d.status_code, 200)
         self.assertFalse(ContactField.objects.filter(id=f_id).exists())
+
+    def test_delete_contact_with_conversations_cascades(self):
+        from messaging.models import Conversation, PhoneNumber
+        phone_obj = PhoneNumber.objects.create(
+            organization=self.org,
+            e164="+16505550199",
+            label="Main Line",
+            is_active=True,
+        )
+        c = Contact.objects.create(
+            organization=self.org,
+            phone="+16505559876",
+            first_name="Delete",
+            last_name="Me",
+        )
+        conv = Conversation.objects.create(
+            organization=self.org,
+            contact=c,
+            phone_number=phone_obj,
+        )
+
+        resp = self.client.post(f"/contacts/{c.id}/delete/")
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(Contact.objects.filter(id=c.id).exists())
+        self.assertFalse(Conversation.objects.filter(id=conv.id).exists())
+
+    def test_lead_ingest_api_get_schema(self):
+        resp = self.client.get(f"/api/v1/leads/?api_key={self.org.api_key}")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["status"], "ok")
+        self.assertEqual(data["organization"], self.org.name)
+        self.assertIn("api_url", data)
+
+    def test_lead_ingest_api_single_lead(self):
+        import json
+        payload = {
+            "phone": "(650) 555-8833",
+            "first_name": "Sarah",
+            "last_name": "Connor",
+            "email": "sarah@cyberdyne.com",
+            "list": "Inbound Web Leads",
+            "stage": "Intake",
+            "form": "Landing Page Beta",
+            "city": "Los Angeles",
+            "consent": True,
+        }
+        resp = self.client.post(
+            f"/api/v1/leads/?api_key={self.org.api_key}",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 201)
+        data = resp.json()
+        self.assertEqual(data["status"], "success")
+        self.assertEqual(data["contact"]["phone"], "+16505558833")
+
+        contact = Contact.objects.get(organization=self.org, phone="+16505558833")
+        self.assertEqual(contact.first_name, "Sarah")
+        self.assertEqual(contact.last_name, "Connor")
+        self.assertEqual(contact.sms_status, Contact.SMSStatus.OPTED_IN)
+        self.assertEqual(contact.source, Contact.Source.API)
+        self.assertEqual(contact.custom_fields.get("stage"), "Intake")
+        self.assertEqual(contact.custom_fields.get("city"), "Los Angeles")
+
+        # List assignment
+        target_list = ContactList.objects.get(organization=self.org, name="Inbound Web Leads")
+        self.assertTrue(target_list.contacts.filter(id=contact.id).exists())
+
+        # TCPA consent event
+        from compliance.models import ConsentEvent
+        self.assertTrue(ConsentEvent.objects.filter(contact=contact, source=ConsentEvent.Source.API).exists())
+
+    def test_lead_ingest_api_batch_and_auth_headers(self):
+        import json
+        batch = [
+            {"phone": "+16505557701", "name": "Batch Alice", "email": "alice@test.com"},
+            {"phone": "+16505557702", "name": "Batch Bob", "email": "bob@test.com"},
+        ]
+        # Ingestion via path parameter and Header
+        resp = self.client.post(
+            f"/api/v1/leads/{self.org.api_key}/",
+            data=json.dumps(batch),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.org.api_key}",
+        )
+        self.assertEqual(resp.status_code, 201)
+        data = resp.json()
+        self.assertEqual(data["created_count"], 2)
+        self.assertTrue(Contact.objects.filter(organization=self.org, phone="+16505557701").exists())
+        self.assertTrue(Contact.objects.filter(organization=self.org, phone="+16505557702").exists())
+
+    def test_lead_ingest_api_invalid_key_and_missing_phone(self):
+        import json
+        # Invalid key
+        resp_401 = self.client.post(
+            "/api/v1/leads/?api_key=invalid_key_xyz",
+            data=json.dumps({"phone": "+16505551111"}),
+            content_type="application/json",
+        )
+        self.assertEqual(resp_401.status_code, 401)
+
+        # Missing phone
+        resp_400 = self.client.post(
+            f"/api/v1/leads/?api_key={self.org.api_key}",
+            data=json.dumps({"first_name": "No Phone"}),
+            content_type="application/json",
+        )
+        self.assertEqual(resp_400.status_code, 400)
+
+    @patch("requests.get")
+    def test_fetch_remote_leads_view(self, mock_get):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "leads": [
+                {"phone": "+16505559901", "first_name": "Remote", "last_name": "One"},
+                {"phone": "+16505559902", "first_name": "Remote", "last_name": "Two"},
+            ]
+        }
+        mock_resp.raise_for_status.return_value = None
+        mock_get.return_value = mock_resp
+
+        target_list = ContactList.objects.create(organization=self.org, name="Remote Leads")
+        resp = self.client.post(
+            "/contacts/api/fetch-remote/",
+            data={
+                "url": "https://api.external.com/leads.json",
+                "method": "GET",
+                "contact_list_id": target_list.id,
+                "consent_attested": "1",
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["status"], "success")
+        self.assertEqual(data["data"]["created"], 2)
+        self.assertEqual(target_list.contacts.count(), 2)
+
+    def test_regenerate_api_key_view(self):
+        old_key = self.org.api_key
+        resp = self.client.post("/contacts/api/regenerate-key/", HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["status"], "success")
+        self.assertNotEqual(data["api_key"], old_key)
+        self.org.refresh_from_db()
+        self.assertEqual(self.org.api_key, data["api_key"])
+
+
 
 

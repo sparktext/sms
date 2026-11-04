@@ -76,7 +76,11 @@ def simulate_customer_reply(request, conversation_id):
         body,
     )
 
-    if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.accepts("application/json"):
+    is_ajax = (
+        request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        or (request.headers.get("Accept") and "application/json" in request.headers.get("Accept") and "text/html" not in request.headers.get("Accept"))
+    )
+    if is_ajax:
         return JsonResponse({
             "status": "success",
             "message_sid": simulated_sid,

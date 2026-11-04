@@ -547,3 +547,78 @@ class AIAssistantTests(TestCase):
         self.assertIsNotNone(sys_msg)
         self.assertIn("took over", sys_msg.body)
 
+    def test_needs_human_smart_holding_mode_replies_to_followup(self):
+        """When in needs_human queue, AI can still reply to customer follow-up inquiries without duplicate handoff notes."""
+        self.conv_a.status = Conversation.Status.NEEDS_HUMAN
+        self.conv_a.save()
+
+        # Pre-existing system handoff note
+        Message.objects.create(
+            conversation=self.conv_a,
+            organization=self.org_a,
+            direction=Message.Direction.OUTBOUND,
+            sender_type=Message.SenderType.SYSTEM,
+            body="Conversation handed off to team member: Initial qualification complete",
+            status=Message.Status.DELIVERED,
+        )
+
+        msg = Message.objects.create(
+            conversation=self.conv_a,
+            organization=self.org_a,
+            direction=Message.Direction.INBOUND,
+            sender_type=Message.SenderType.CUSTOMER,
+            body="What are your office hours?",
+            status=Message.Status.RECEIVED,
+        )
+
+        can_run, reason = can_run_ai(self.config_a, self.conv_a, msg)
+        self.assertTrue(can_run)
+
+        FakeAIClient.push_response({
+            "reply": "Our office is open Mon-Fri 9am-6pm PST. An agent has your file and will call you shortly!",
+            "intent": "inquiry",
+            "collected": {},
+            "needs_human": True,
+            "handoff_reason": "Answered hours while in human review queue",
+        })
+
+        job = AIJob.objects.create(
+            conversation=self.conv_a,
+            trigger_message=msg,
+            status=AIJob.Status.PENDING,
+            run_after=timezone.now(),
+        )
+        reply = process_ai_job(job)
+        self.assertEqual(reply.status, AIReply.Status.HANDED_OFF)
+        self.assertIsNotNone(reply.resulting_message)
+        self.assertIn("Mon-Fri 9am-6pm", reply.resulting_message.body)
+
+        # Ensure no duplicate system handoff note was created
+        system_notes = Message.objects.filter(
+            conversation=self.conv_a,
+            sender_type=Message.SenderType.SYSTEM,
+        )
+        self.assertEqual(system_notes.count(), 1)
+
+    def test_human_send_triggers_automatic_ai_takeover(self):
+        """When staff sends an outbound message via inbox, AI is automatically paused (ai_mode='off')."""
+        self.client.login(username=self.user_a.email, password="password123")
+        self.assertEqual(self.conv_a.ai_mode, Conversation.AIMode.DEFAULT)
+
+        res = self.client.post(
+            f"/inbox/{self.conv_a.id}/send/",
+            {"body": "Hello, this is human agent arjun stepping in!"},
+        )
+        self.assertEqual(res.status_code, 302)
+
+        self.conv_a.refresh_from_db()
+        self.assertEqual(self.conv_a.ai_mode, Conversation.AIMode.OFF)
+
+        # Verify takeover note created
+        takeover_note = Message.objects.filter(
+            conversation=self.conv_a,
+            sender_type=Message.SenderType.SYSTEM,
+        ).first()
+        self.assertIsNotNone(takeover_note)
+        self.assertIn("took over", takeover_note.body)
+

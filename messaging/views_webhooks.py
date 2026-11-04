@@ -1,6 +1,9 @@
+import json
 import logging
+from datetime import timedelta
+from typing import Optional, Dict, Any
 from django.conf import settings
-from django.http import HttpResponse, HttpResponseForbidden
+from django.http import HttpResponse, HttpResponseForbidden, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 from django.db import transaction
@@ -12,7 +15,7 @@ from contacts.services import save_contact
 from contacts.utils import normalize_phone
 from compliance.models import ConsentEvent
 from compliance.services import classify_keyword, record_consent
-from .models import PhoneNumber, Conversation, Message
+from .models import PhoneNumber, Conversation, Message, AIAssistantConfig, AIJob
 from .providers import get_sms_provider
 from .utils import get_public_base_url
 
@@ -41,12 +44,23 @@ TWILIO_STATUS_MAP = {
     "received": "received",
 }
 
+TELNYX_STATUS_MAP = {
+    "message.queued": "queued",
+    "message.sending": "sending",
+    "message.sent": "sent",
+    "message.delivered": "delivered",
+    "message.undelivered": "undelivered",
+    "message.failed": "failed",
+    "queued": "queued",
+    "sending": "sending",
+    "sent": "sent",
+    "delivered": "delivered",
+    "undelivered": "undelivered",
+    "failed": "failed",
+}
 
-def _verify_webhook_signature(request) -> bool:
-    """
-    Validates Twilio X-Twilio-Signature header against the full public URL.
-    Respects PUBLIC_BASE_URL to handle ngrok / reverse proxy setups.
-    """
+
+def _verify_twilio_signature(request) -> bool:
     if not getattr(settings, "TWILIO_VALIDATE_WEBHOOKS", True):
         return True
 
@@ -64,42 +78,44 @@ def _verify_webhook_signature(request) -> bool:
         target_url = request.build_absolute_uri()
 
     provider = get_sms_provider()
-    # POST parameters as plain dictionary
     post_params = dict(request.POST.items())
     return provider.validate_signature(target_url, post_params, signature)
 
 
-@csrf_exempt
-@require_POST
-def twilio_inbound_sms(request):
-    """
-    Handles incoming customer SMS messages from Twilio:
-    POST /webhooks/twilio/sms/
-    - Validates signature.
-    - Idempotent by MessageSid.
-    - Routes to organization by To number.
-    - Auto-creates contact (source='inbound', status='unknown').
-    - Dispatches STOP/START/HELP compliance handling.
-    - Returns empty TwiML <Response></Response>.
-    """
-    if not _verify_webhook_signature(request):
-        logger.warning("Rejected Twilio inbound SMS: invalid signature.")
-        return HttpResponseForbidden("Invalid Twilio signature.")
+def _verify_telnyx_signature(request) -> bool:
+    if not getattr(settings, "TELNYX_VALIDATE_WEBHOOKS", False):
+        return True
 
-    from_phone = request.POST.get("From", "").strip()
-    to_phone = request.POST.get("To", "").strip()
-    body = request.POST.get("Body", "").strip()
-    message_sid = request.POST.get("MessageSid", "").strip()
-    num_media = int(request.POST.get("NumMedia", 0) or 0)
+    # Telnyx signature verification can be added here if public key is active
+    return True
 
+
+def _handle_inbound_sms(
+    from_phone: str,
+    to_phone: str,
+    body: str,
+    message_sid: str,
+    provider_name: str,
+    num_media: int = 0,
+) -> Optional[Message]:
+    """
+    Unified inbound SMS ingestion pipeline:
+    - Normalizes phone numbers
+    - Idempotent by message_sid
+    - Routes to organization by To number
+    - Finds or creates Contact (source='inbound')
+    - Records inbound Message in active Conversation
+    - Handles STOP / START compliance keywords
+    - Debounces and triggers AI Assistant job if enabled
+    """
     if num_media > 0:
         media_note = f" [Received {num_media} media attachment(s)]"
         body = f"{body}{media_note}".strip()
 
-    # Idempotency check: if MessageSid already processed, return 200 immediately
+    # Idempotency check: if MessageSid already processed, return immediately
     if message_sid and Message.objects.filter(provider_message_sid=message_sid).exists():
         logger.info("Ignoring duplicate inbound SMS with MessageSid %s", message_sid)
-        return HttpResponse("<Response></Response>", content_type="text/xml", status=200)
+        return Message.objects.filter(provider_message_sid=message_sid).first()
 
     try:
         normalized_to = normalize_phone(to_phone)
@@ -109,7 +125,7 @@ def twilio_inbound_sms(request):
     phone_number = PhoneNumber.objects.filter(e164=normalized_to, is_active=True).first()
     if not phone_number:
         logger.warning("Inbound SMS received for unassigned/inactive number: %s", to_phone)
-        return HttpResponse("<Response></Response>", content_type="text/xml", status=200)
+        return None
 
     org = phone_number.organization
 
@@ -143,7 +159,7 @@ def twilio_inbound_sms(request):
             sender_type=Message.SenderType.CUSTOMER,
             body=body,
             status=Message.Status.RECEIVED,
-            provider="twilio",
+            provider=provider_name,
             provider_message_sid=message_sid or None,
         )
 
@@ -155,7 +171,7 @@ def twilio_inbound_sms(request):
             conversation.status = Conversation.Status.OPEN
         conversation.save(update_fields=["last_message_at", "last_inbound_at", "unread_count", "status"])
 
-    # Compliance keyword classification (outside the message-create transaction)
+    # Compliance keyword classification (outside message transaction)
     try:
         keyword = classify_keyword(body)
         if keyword == "STOP":
@@ -163,34 +179,29 @@ def twilio_inbound_sms(request):
                 contact=contact,
                 event_type=ConsentEvent.EventType.OPT_OUT,
                 source=ConsentEvent.Source.KEYWORD,
-                proof_text=f"Inbound STOP keyword (MessageSid: {message_sid}): '{body}'",
+                proof_text=f"Inbound STOP keyword ({provider_name} SID: {message_sid}): '{body}'",
             )
         elif keyword == "START":
             record_consent(
                 contact=contact,
                 event_type=ConsentEvent.EventType.OPT_IN,
                 source=ConsentEvent.Source.KEYWORD,
-                proof_text=f"Inbound START keyword (MessageSid: {message_sid}): '{body}'",
+                proof_text=f"Inbound START keyword ({provider_name} SID: {message_sid}): '{body}'",
             )
-        # HELP / unknown / 'yes' do not alter consent ledger
     except Exception as exc:
         logger.exception("Error processing consent keyword on inbound message %s: %s", message_sid, exc)
 
     # Queue or debounce AI job if AI Assistant is configured and applicable
     try:
-        from datetime import timedelta
-        from messaging.models import AIAssistantConfig, AIJob
-
         config = getattr(org, "ai_config", None) or AIAssistantConfig.objects.filter(organization=org).first()
         keyword = classify_keyword(body)
         effective_mode = conversation.get_effective_ai_mode(config)
 
-        # Only queue if mode is not off, not a compliance keyword, contact not opted out, conv not needs_human/closed
         if (
             effective_mode != AIAssistantConfig.Mode.OFF
             and keyword not in ["STOP", "START", "HELP"]
             and contact.sms_status != Contact.SMSStatus.OPTED_OUT
-            and conversation.status not in [Conversation.Status.NEEDS_HUMAN, Conversation.Status.CLOSED]
+            and conversation.status != Conversation.Status.CLOSED
         ):
             debounce_seconds = getattr(settings, "AI_DEBOUNCE_SECONDS", 4)
             run_after = timezone.now() + timedelta(seconds=debounce_seconds)
@@ -218,46 +229,25 @@ def twilio_inbound_sms(request):
     except Exception as exc:
         logger.exception("Failed to schedule AI job for message %s: %s", message_sid, exc)
 
-    return HttpResponse("<Response></Response>", content_type="text/xml", status=200)
+    return message
 
 
-@csrf_exempt
-@require_POST
-def twilio_status_callback(request):
+def _handle_status_update(
+    message_sid: str,
+    target_status: str,
+    error_code: str = "",
+) -> bool:
     """
-    Handles Twilio message delivery status callbacks:
-    POST /webhooks/twilio/status/
-    - Validates signature.
-    - Updates message status monotonically (queued < sending < sent < delivered/failed).
-    - Never downgrades terminal statuses.
+    Monotonically advances a message's delivery status.
+    Terminal statuses (delivered, failed, undelivered) are never downgraded.
     """
-    if not _verify_webhook_signature(request):
-        logger.warning("Rejected Twilio status callback: invalid signature.")
-        return HttpResponseForbidden("Invalid Twilio signature.")
-
-    message_sid = request.POST.get("MessageSid", "").strip()
-    raw_status = request.POST.get("MessageStatus", "").strip().lower()
-    error_code = request.POST.get("ErrorCode", "").strip()
-
-    logger.info(
-        "Twilio status callback received: SID=%s, MessageStatus=%s, ErrorCode=%s",
-        message_sid,
-        raw_status,
-        error_code or "None",
-    )
-
     if not message_sid:
-        return HttpResponse("Missing MessageSid", status=200)
+        return False
 
     message = Message.objects.filter(provider_message_sid=message_sid).first()
     if not message:
-        logger.info("Twilio status callback: no local message found for SID=%s", message_sid)
-        return HttpResponse("OK", status=200)
-
-    target_status = TWILIO_STATUS_MAP.get(raw_status)
-    if not target_status:
-        logger.warning("Twilio status callback: unrecognized status '%s' for SID=%s", raw_status, message_sid)
-        return HttpResponse("OK", status=200)
+        logger.info("Status callback: no local message found for SID=%s", message_sid)
+        return False
 
     current_rank = STATUS_ORDER.get(message.status, 0)
     new_rank = STATUS_ORDER.get(target_status, 0)
@@ -284,6 +274,7 @@ def twilio_status_callback(request):
             prev_status,
             target_status,
         )
+        return True
     else:
         logger.info(
             "Ignored status downgrade for Message %s (SID: %s): current=%s, received=%s",
@@ -292,6 +283,149 @@ def twilio_status_callback(request):
             message.status,
             target_status,
         )
+        return False
+
+
+# ============================================================================
+# TWILIO WEBHOOK ENDPOINTS
+# ============================================================================
+
+@csrf_exempt
+@require_POST
+def twilio_inbound_sms(request):
+    """
+    Handles incoming customer SMS messages from Twilio:
+    POST /webhooks/twilio/sms/
+    """
+    if not _verify_twilio_signature(request):
+        logger.warning("Rejected Twilio inbound SMS: invalid signature.")
+        return HttpResponseForbidden("Invalid Twilio signature.")
+
+    from_phone = request.POST.get("From", "").strip()
+    to_phone = request.POST.get("To", "").strip()
+    body = request.POST.get("Body", "").strip()
+    message_sid = request.POST.get("MessageSid", "").strip()
+    num_media = int(request.POST.get("NumMedia", 0) or 0)
+
+    _handle_inbound_sms(
+        from_phone=from_phone,
+        to_phone=to_phone,
+        body=body,
+        message_sid=message_sid,
+        provider_name="twilio",
+        num_media=num_media,
+    )
+
+    return HttpResponse("<Response></Response>", content_type="text/xml", status=200)
+
+
+@csrf_exempt
+@require_POST
+def twilio_status_callback(request):
+    """
+    Handles Twilio message delivery status callbacks:
+    POST /webhooks/twilio/status/
+    """
+    if not _verify_twilio_signature(request):
+        logger.warning("Rejected Twilio status callback: invalid signature.")
+        return HttpResponseForbidden("Invalid Twilio signature.")
+
+    message_sid = request.POST.get("MessageSid", "").strip()
+    raw_status = request.POST.get("MessageStatus", "").strip().lower()
+    error_code = request.POST.get("ErrorCode", "").strip()
+
+    target_status = TWILIO_STATUS_MAP.get(raw_status)
+    if target_status:
+        _handle_status_update(message_sid, target_status, error_code)
 
     return HttpResponse("OK", status=200)
 
+
+# ============================================================================
+# TELNYX WEBHOOK ENDPOINTS
+# ============================================================================
+
+@csrf_exempt
+@require_POST
+def telnyx_inbound_sms(request):
+    """
+    Handles incoming customer SMS messages from Telnyx:
+    POST /webhooks/telnyx/sms/
+    Telnyx sends JSON payloads:
+    event_type: "message.received"
+    """
+    if not _verify_telnyx_signature(request):
+        logger.warning("Rejected Telnyx inbound SMS: invalid signature.")
+        return HttpResponseForbidden("Invalid Telnyx signature.")
+
+    try:
+        body_data = json.loads(request.body.decode("utf-8"))
+    except Exception as exc:
+        logger.warning("Telnyx webhook: could not parse JSON body: %s", exc)
+        return JsonResponse({"status": "error", "message": "Invalid JSON"}, status=400)
+
+    data = body_data.get("data", {})
+    event_type = data.get("event_type", "")
+    payload = data.get("payload", {})
+
+    logger.info("Telnyx webhook received: event_type=%s, id=%s", event_type, payload.get("id"))
+
+    # Inbound SMS
+    if event_type == "message.received" or payload.get("direction") == "inbound":
+        from_phone = payload.get("from", {}).get("phone_number", "")
+        to_list = payload.get("to", [])
+        to_phone = to_list[0].get("phone_number", "") if to_list else ""
+        text = payload.get("text", "")
+        message_sid = payload.get("id", "")
+        media_list = payload.get("media", [])
+
+        if from_phone and to_phone:
+            _handle_inbound_sms(
+                from_phone=from_phone,
+                to_phone=to_phone,
+                body=text,
+                message_sid=message_sid,
+                provider_name="telnyx",
+                num_media=len(media_list) if isinstance(media_list, list) else 0,
+            )
+
+    # Status delivery callbacks can also be delivered on the same webhook endpoint in Telnyx
+    elif event_type in TELNYX_STATUS_MAP:
+        message_sid = payload.get("id", "")
+        target_status = TELNYX_STATUS_MAP.get(event_type, "sent")
+        errors = payload.get("errors", [])
+        err_code = str(errors[0].get("code", "")) if errors else ""
+        _handle_status_update(message_sid, target_status, err_code)
+
+    return JsonResponse({"status": "received"}, status=200)
+
+
+@csrf_exempt
+@require_POST
+def telnyx_status_callback(request):
+    """
+    Handles Telnyx message delivery status callbacks:
+    POST /webhooks/telnyx/status/
+    """
+    if not _verify_telnyx_signature(request):
+        logger.warning("Rejected Telnyx status callback: invalid signature.")
+        return HttpResponseForbidden("Invalid Telnyx signature.")
+
+    try:
+        body_data = json.loads(request.body.decode("utf-8"))
+    except Exception:
+        return JsonResponse({"status": "error", "message": "Invalid JSON"}, status=400)
+
+    data = body_data.get("data", {})
+    event_type = data.get("event_type", "")
+    payload = data.get("payload", {})
+
+    message_sid = payload.get("id", "")
+    target_status = TELNYX_STATUS_MAP.get(event_type, "sent")
+    errors = payload.get("errors", [])
+    err_code = str(errors[0].get("code", "")) if errors else ""
+
+    if message_sid:
+        _handle_status_update(message_sid, target_status, err_code)
+
+    return JsonResponse({"status": "ok"}, status=200)

@@ -668,3 +668,234 @@ def import_contacts_csv(
         "errors": errors,
         "warning": warning,
     }
+
+
+def ingest_lead_data(
+    organization,
+    raw_dict: Dict[str, Any],
+    default_list: Optional[ContactList] = None,
+    source: str = Contact.Source.API,
+    default_consent: bool = True,
+    region: Optional[str] = None,
+) -> Tuple[Contact, bool]:
+    """
+    Ingests a single lead dictionary from external API, webhook, or remote feed.
+    Parses flexible field names (phone, phone_number, mobile, full_name, etc.),
+    auto-registers custom fields, handles list assignment, and records TCPA opt-in consent.
+    """
+    phone_keys = ["phone", "phone_number", "mobile", "cell", "tel", "contact_phone"]
+    raw_phone = ""
+    for k in phone_keys:
+        val = raw_dict.get(k)
+        if val is not None and str(val).strip():
+            raw_phone = str(val).strip()
+            break
+    if not raw_phone:
+        raise ValidationError({"phone": _("Phone number is required.")})
+
+    # First and last name extraction
+    first_name = str(raw_dict.get("first_name", "")).strip()
+    last_name = str(raw_dict.get("last_name", "")).strip()
+    if not first_name and not last_name:
+        for name_key in ["name", "full_name", "contact_name"]:
+            val = str(raw_dict.get(name_key, "")).strip()
+            if val:
+                parts = val.split()
+                first_name = parts[0]
+                if len(parts) > 1:
+                    last_name = " ".join(parts[1:])
+                break
+
+    email = str(raw_dict.get("email", "")).strip()
+    timezone = str(raw_dict.get("timezone", "")).strip()
+
+    # Custom fields collection
+    custom_fields = {}
+    if isinstance(raw_dict.get("custom_fields"), dict):
+        custom_fields.update(raw_dict["custom_fields"])
+
+    for stage_key in ["stage", "lead_stage", "crm_stage"]:
+        if raw_dict.get(stage_key):
+            custom_fields["stage"] = str(raw_dict[stage_key]).strip()
+            break
+
+    for form_key in ["form", "form_name", "source_name", "campaign_name"]:
+        if raw_dict.get(form_key):
+            custom_fields["form"] = str(raw_dict[form_key]).strip()
+            break
+
+    reserved_top_level = {
+        "phone", "phone_number", "mobile", "cell", "tel", "contact_phone",
+        "first_name", "last_name", "name", "full_name", "contact_name",
+        "email", "timezone", "list", "list_name", "list_id", "lists",
+        "consent", "opt_in", "api_key", "custom_fields", "external_ids",
+        "source", "stage", "lead_stage", "crm_stage", "form", "form_name",
+        "source_name", "campaign_name",
+    }
+    for k, v in raw_dict.items():
+        if k not in reserved_top_level and v is not None and not isinstance(v, (dict, list)):
+            clean_k = re.sub(r"[^a-zA-Z0-9_]", "_", str(k).strip().lower())
+            clean_k = re.sub(r"^[^a-zA-Z]+", "", clean_k)
+            if clean_k and clean_k not in RESERVED_FIELD_NAMES:
+                custom_fields[clean_k] = str(v).strip()
+
+    # Auto-register missing ContactField definitions
+    if custom_fields:
+        for k in custom_fields.keys():
+            if not ContactField.objects.filter(organization=organization, key=k).exists():
+                try:
+                    label = k.replace("_", " ").title()
+                    ContactField.objects.create(
+                        organization=organization,
+                        key=k,
+                        label=label,
+                    )
+                except Exception:
+                    pass
+
+    data = {
+        "phone": raw_phone,
+        "first_name": first_name,
+        "last_name": last_name,
+        "email": email,
+        "timezone": timezone,
+        "custom_fields": custom_fields,
+    }
+
+    contact, created = save_contact(
+        organization=organization,
+        data=data,
+        source=source,
+        region=region,
+    )
+
+    # Consent recording
+    raw_consent = raw_dict.get("consent") if "consent" in raw_dict else raw_dict.get("opt_in")
+    has_consent = default_consent
+    if raw_consent is not None:
+        if isinstance(raw_consent, bool):
+            has_consent = raw_consent
+        elif isinstance(raw_consent, (int, float)):
+            has_consent = bool(raw_consent)
+        elif isinstance(raw_consent, str):
+            has_consent = raw_consent.strip().lower() in ("true", "1", "yes", "opt_in", "on")
+
+    if has_consent and contact.sms_status != Contact.SMSStatus.OPTED_OUT:
+        from compliance.models import ConsentEvent
+        from compliance.services import record_consent
+        form_label = custom_fields.get("form") or "API Ingestion"
+        record_consent(
+            contact=contact,
+            event_type=ConsentEvent.EventType.OPT_IN,
+            source=ConsentEvent.Source.API,
+            proof_text=f"API submission: {form_label}",
+        )
+
+    # List assignment
+    target_list = default_list
+    list_identifier = raw_dict.get("list") or raw_dict.get("list_name") or raw_dict.get("list_id")
+    if list_identifier:
+        if str(list_identifier).isdigit():
+            found_list = ContactList.objects.filter(id=int(list_identifier), organization=organization).first()
+            if found_list:
+                target_list = found_list
+        if not target_list and isinstance(list_identifier, str) and list_identifier.strip():
+            list_name = list_identifier.strip()
+            target_list, _created_list = ContactList.objects.get_or_create(
+                organization=organization,
+                name=list_name,
+            )
+
+    if target_list:
+        target_list.contacts.add(contact)
+
+    return contact, created
+
+
+def fetch_and_import_remote_leads(
+    organization,
+    url: str,
+    method: str = "GET",
+    auth_header: str = "",
+    contact_list_id: Optional[int] = None,
+    consent_attested: bool = True,
+) -> Dict[str, Any]:
+    """
+    Fetches leads from a remote API URL (JSON) and imports them into the organization.
+    """
+    import requests
+    headers = {"User-Agent": "SparkText-Lead-Ingestion/1.0", "Accept": "application/json"}
+    if auth_header:
+        headers["Authorization"] = auth_header.strip()
+
+    method = method.upper().strip()
+    try:
+        if method == "POST":
+            resp = requests.post(url, headers=headers, json={}, timeout=15)
+        else:
+            resp = requests.get(url, headers=headers, timeout=15)
+        resp.raise_for_status()
+    except requests.RequestException as exc:
+        raise ValidationError(f"Failed to fetch data from API URL: {exc}")
+
+    try:
+        data = resp.json()
+    except Exception:
+        raise ValidationError("The remote API URL did not return valid JSON.")
+
+    leads_raw = []
+    if isinstance(data, list):
+        leads_raw = data
+    elif isinstance(data, dict):
+        for candidate_key in ["leads", "data", "results", "contacts", "items"]:
+            if isinstance(data.get(candidate_key), list):
+                leads_raw = data[candidate_key]
+                break
+        if not leads_raw and any(k in data for k in ["phone", "phone_number", "mobile", "cell"]):
+            leads_raw = [data]
+
+    if not leads_raw:
+        raise ValidationError("No contacts or leads list found in the API JSON response.")
+
+    target_list = None
+    if contact_list_id:
+        target_list = ContactList.objects.filter(id=contact_list_id, organization=organization).first()
+
+    created_count = 0
+    updated_count = 0
+    skipped_count = 0
+    errors = []
+
+    for idx, item in enumerate(leads_raw, start=1):
+        if not isinstance(item, dict):
+            skipped_count += 1
+            errors.append({"row": idx, "error": "Item is not a valid JSON object."})
+            continue
+        try:
+            c_obj, created = ingest_lead_data(
+                organization=organization,
+                raw_dict=item,
+                default_list=target_list,
+                source=Contact.Source.API,
+                default_consent=consent_attested,
+            )
+            if created:
+                created_count += 1
+            else:
+                updated_count += 1
+        except ValidationError as ve:
+            skipped_count += 1
+            err_msg = "; ".join(ve.messages) if hasattr(ve, "messages") else str(ve)
+            errors.append({"row": idx, "error": err_msg})
+        except Exception as exc:
+            skipped_count += 1
+            errors.append({"row": idx, "error": str(exc)})
+
+    return {
+        "total": len(leads_raw),
+        "created": created_count,
+        "updated": updated_count,
+        "skipped": skipped_count,
+        "errors": errors[:20],
+        "list_name": target_list.name if target_list else None,
+    }

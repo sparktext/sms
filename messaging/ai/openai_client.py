@@ -24,7 +24,18 @@ class OpenAICompatibleClient(BaseAIClient):
         max_retries: Optional[int] = None,
     ):
         self.base_url = (base_url or getattr(settings, "AI_BASE_URL", "http://localhost:1235/v1")).rstrip("/")
-        self.model = model or getattr(settings, "AI_MODEL", "google/gemma-4-e4b")
+        if not model:
+            try:
+                from pathlib import Path
+                import environ
+                env_file = Path(settings.BASE_DIR) / ".env"
+                if env_file.exists():
+                    env = environ.Env()
+                    environ.Env.read_env(env_file, overwrite=True)
+                    model = env("AI_MODEL", default=getattr(settings, "AI_MODEL", "google/gemma-4-12b-qat"))
+            except Exception:
+                pass
+        self.model = model or getattr(settings, "AI_MODEL", "google/gemma-4-12b-qat")
         self.api_key = api_key or getattr(settings, "AI_API_KEY", "")
         self.timeout = timeout or getattr(settings, "AI_TIMEOUT_SECONDS", 45)
         self.max_retries = max_retries if max_retries is not None else getattr(settings, "AI_MAX_RETRIES", 1)

@@ -17,6 +17,12 @@ urlpatterns = [
     path("inbox/<int:conversation_id>/draft-action/", views.handle_ai_draft_action, name="ai_draft_action"),
     path("inbox/<int:conversation_id>/resume-ai/", views.resume_ai_conversation, name="resume_ai"),
     path("inbox/<int:conversation_id>/ai-mode/", views.update_conversation_ai_mode, name="update_ai_mode"),
+    path("inbox/<int:conversation_id>/assign/", views.update_conversation_assigned_to, name="update_assigned_to"),
+    path("contacts/<int:contact_id>/stage/", views.update_contact_stage, name="update_contact_stage"),
+
+    # Settings & Phone Numbers
+    path("settings/phone-numbers/", views.phone_numbers_settings, name="phone_numbers_settings"),
+    path("settings/phone-numbers/<int:phone_id>/action/", views.phone_number_action, name="phone_number_action"),
 
     # Direct contact message shortcut
     path("contacts/<int:contact_id>/message/", views.contact_message_redirect, name="contact_message"),
@@ -24,6 +30,10 @@ urlpatterns = [
     # Twilio Webhooks
     path("webhooks/twilio/sms/", views_webhooks.twilio_inbound_sms, name="twilio_inbound_sms"),
     path("webhooks/twilio/status/", views_webhooks.twilio_status_callback, name="twilio_status_callback"),
+
+    # Telnyx Webhooks
+    path("webhooks/telnyx/sms/", views_webhooks.telnyx_inbound_sms, name="telnyx_inbound_sms"),
+    path("webhooks/telnyx/status/", views_webhooks.telnyx_status_callback, name="telnyx_status_callback"),
 ]
 
 # DEV ONLY SIMULATOR (can be deleted anytime)

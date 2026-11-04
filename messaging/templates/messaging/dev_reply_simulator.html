@@ -8,12 +8,12 @@
       <span>Dev Simulator: Reply as Customer ({{ conversation.contact.phone }})</span>
       <span class="text-[10px] bg-amber-200/60 text-amber-800 px-2 py-0.5 rounded-full font-mono uppercase">Dev Only</span>
     </div>
-    <span id="sim-drawer-toggle" class="text-amber-700 hover:text-amber-900 font-mono text-xs">▼ Hide</span>
+    <span id="sim-drawer-toggle" class="text-amber-700 hover:text-amber-900 font-mono text-xs">▶ Show</span>
   </div>
 
-  <div id="sim-drawer-body" class="mt-3 pt-3 border-t border-amber-200/70 space-y-2.5">
+  <div id="sim-drawer-body" class="mt-3 pt-3 border-t border-amber-200/70 space-y-2.5 hidden">
     <p class="text-[11px] text-amber-800/90">
-      Simulates a real inbound SMS via the <code>/webhooks/twilio/sms/</code> pipeline. Tests STOP/START compliance, opens the 24-hour reply window, and updates unread counts without needing a physical phone.
+      Simulates a real inbound SMS via the inbound webhook pipeline. Tests STOP/START compliance, opens the 24-hour reply window, and triggers AI assistant or staff updates without needing a physical phone.
     </p>
 
     <!-- Quick keyword chips -->

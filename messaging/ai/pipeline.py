@@ -34,8 +34,12 @@ def can_run_ai(
             return False, "AI is turned off for this chat (Human Takeover active)."
         return False, "AI Assistant mode is off."
 
-    if conversation.status in [Conversation.Status.NEEDS_HUMAN, Conversation.Status.CLOSED]:
-        return False, f"Conversation status is '{conversation.status}'."
+    if conversation.status == Conversation.Status.CLOSED:
+        return False, "Conversation is closed."
+
+    if conversation.status == Conversation.Status.NEEDS_HUMAN:
+        if conversation.ai_mode == Conversation.AIMode.OFF:
+            return False, "AI is turned off for this chat (Human Takeover active)."
 
     kw = classify_keyword(trigger_message.body)
     if kw in ["STOP", "START", "HELP"]:
@@ -83,6 +87,7 @@ def _trigger_handoff(
     error: str = "",
     latency_ms: int = 0,
     model_name: str = "",
+    sent_message: Optional[Message] = None,
 ) -> AIReply:
     """
     Marks the conversation as needs_human, posts a system explanation,
@@ -90,23 +95,27 @@ def _trigger_handoff(
     """
     logger.info("Triggering human handoff for conversation %d: %s", conversation.id, reason)
 
-    conversation.status = Conversation.Status.NEEDS_HUMAN
-    conversation.handoff_reason = reason
-    conversation.save(update_fields=["status", "handoff_reason"])
+    already_needs_human = (conversation.status == Conversation.Status.NEEDS_HUMAN)
 
-    # Create system audit message in thread
-    Message.objects.create(
-        conversation=conversation,
-        organization=conversation.organization,
-        direction=Message.Direction.OUTBOUND,
-        sender_type=Message.SenderType.SYSTEM,
-        body=f"Conversation handed off to team member: {reason}",
-        status=Message.Status.DELIVERED,
-    )
+    if not already_needs_human:
+        conversation.status = Conversation.Status.NEEDS_HUMAN
+        conversation.handoff_reason = reason
+        conversation.save(update_fields=["status", "handoff_reason"])
+
+        # Create system audit message in thread
+        Message.objects.create(
+            conversation=conversation,
+            organization=conversation.organization,
+            direction=Message.Direction.OUTBOUND,
+            sender_type=Message.SenderType.SYSTEM,
+            body=f"Conversation handed off to team member: {reason}",
+            status=Message.Status.DELIVERED,
+        )
 
     return AIReply.objects.create(
         conversation=conversation,
         trigger_message=trigger_message,
+        resulting_message=sent_message,
         job=job,
         status=AIReply.Status.HANDED_OFF,
         skip_reason=reason,
@@ -261,25 +270,7 @@ def process_ai_job(job: AIJob) -> Optional[AIReply]:
         job.save(update_fields=["status", "finished_at"])
         return reply_obj
 
-    # Step 5: Check if model determined needs_human
-    if parsed_data.get("needs_human"):
-        handoff_reason = parsed_data.get("handoff_reason") or "Customer inquiry requires human assistance."
-        reply_obj = _trigger_handoff(
-            conversation=conversation,
-            trigger_message=trigger_message,
-            job=job,
-            reason=handoff_reason,
-            raw_output=raw_text,
-            parsed_output=parsed_data,
-            latency_ms=latency_ms,
-            model_name=model_name,
-        )
-        job.status = AIJob.Status.DONE
-        job.finished_at = timezone.now()
-        job.save(update_fields=["status", "finished_at"])
-        return reply_obj
-
-    # Step 6: Save collected answers & update Stage if complete
+    # Step 5: Save collected answers & update Stage (do this first so data is never lost on handoff)
     raw_collected = parsed_data.get("collected", {})
     valid_collected = filter_collected_answers(raw_collected, config)
 
@@ -290,7 +281,50 @@ def process_ai_job(job: AIJob) -> Optional[AIReply]:
         conversation.save(update_fields=["qualification_answers"])
         _check_and_update_stage(conversation, config)
 
-    reply_body = parsed_data["reply"].strip()
+    reply_body = (parsed_data.get("reply") or "").strip()
+
+    # Step 6: Check if model determined needs_human
+    if parsed_data.get("needs_human"):
+        handoff_reason = parsed_data.get("handoff_reason") or "Customer inquiry requires human assistance."
+        effective_mode = conversation.get_effective_ai_mode(config)
+        resulting_msg: Optional[Message] = None
+
+        # Deliver closing message to customer before handoff (e.g. "a licensed agent is reviewing your details")
+        closing_text = reply_body or "Thank you! A member of our team is reviewing your details and will follow up with you shortly."
+        if effective_mode == AIAssistantConfig.Mode.AUTO:
+            can_send, block_reason = can_send_manual(conversation.contact, conversation)
+            if can_send:
+                try:
+                    resulting_msg = send_message(
+                        conversation=conversation,
+                        body=closing_text,
+                        user=None,
+                        sender_type=Message.SenderType.AI,
+                    )
+                    logger.info("Sent handoff closing message (msg %d) for conv %d: %s", resulting_msg.id, conversation.id, closing_text)
+                except Exception as exc:
+                    logger.exception("Failed to send handoff closing message: %s", exc)
+            else:
+                logger.warning("Auto handoff closing message blocked by compliance for conv %d: %s", conversation.id, block_reason)
+        elif effective_mode == AIAssistantConfig.Mode.SUGGEST:
+            conversation.ai_draft_reply = closing_text
+            conversation.save(update_fields=["ai_draft_reply"])
+
+        reply_obj = _trigger_handoff(
+            conversation=conversation,
+            trigger_message=trigger_message,
+            job=job,
+            reason=handoff_reason,
+            raw_output=raw_text,
+            parsed_output=parsed_data,
+            latency_ms=latency_ms,
+            model_name=model_name,
+            sent_message=resulting_msg,
+        )
+        job.status = AIJob.Status.DONE
+        job.finished_at = timezone.now()
+        job.save(update_fields=["status", "finished_at"])
+        return reply_obj
 
     # Step 7: Dispatch by Mode (SUGGEST vs AUTO)
     resulting_msg: Optional[Message] = None

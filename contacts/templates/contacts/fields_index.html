@@ -28,6 +28,12 @@
   <a href="{% url 'contacts:fields' %}" class="px-3.5 py-1.5 text-xs font-semibold text-brand-700 bg-brand-50 rounded-lg border border-brand-200">
     Custom Fields ({{ total_fields }})
   </a>
+  <a href="{% url 'contacts:list' %}?open_api=1" class="px-3.5 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-900 rounded-lg hover:bg-gray-100 transition flex items-center gap-1.5">
+    <svg class="w-3.5 h-3.5 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+    </svg>
+    API & Webhooks
+  </a>
 </div>
 
 <!-- Fields Table -->

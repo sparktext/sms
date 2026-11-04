@@ -32,10 +32,14 @@ class PhoneNumber(models.Model):
         help_text=_("Descriptive label (e.g. 'Main Support', 'Sales')"),
     )
     is_active = models.BooleanField(default=True)
+    is_default = models.BooleanField(
+        default=False,
+        help_text=_("Primary default sending line for this organization"),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ["-created_at"]
+        ordering = ["-is_default", "-created_at"]
         verbose_name = _("Phone Number")
         verbose_name_plural = _("Phone Numbers")
 
@@ -47,11 +51,25 @@ class PhoneNumber(models.Model):
 
     def save(self, *args, **kwargs):
         self.clean()
+        if self.is_default and self.organization_id:
+            PhoneNumber.objects.filter(
+                organization_id=self.organization_id,
+                is_default=True,
+            ).exclude(pk=self.pk).update(is_default=False)
         super().save(*args, **kwargs)
+
+    @classmethod
+    def get_default_for_org(cls, organization):
+        """Returns the primary default active phone number, falling back to the first active number."""
+        return (
+            cls.objects.filter(organization=organization, is_active=True, is_default=True).first()
+            or cls.objects.filter(organization=organization, is_active=True).order_by("-id").first()
+        )
 
     def __str__(self):
         label_part = f" ({self.label})" if self.label else ""
-        return f"{self.e164}{label_part} - {self.organization.name}"
+        default_part = " [Default]" if self.is_default else ""
+        return f"{self.e164}{label_part}{default_part} - {self.organization.name}"
 
 
 class Conversation(models.Model):
@@ -77,7 +95,7 @@ class Conversation(models.Model):
     )
     contact = models.ForeignKey(
         "contacts.Contact",
-        on_delete=models.PROTECT,
+        on_delete=models.CASCADE,
         related_name="conversations",
     )
     phone_number = models.ForeignKey(
@@ -164,6 +182,7 @@ class Message(models.Model):
         AI = "ai", _("AI")
         HUMAN = "human", _("Human")
         SYSTEM = "system", _("System")
+        CAMPAIGN = "campaign", _("Campaign")
 
     class Status(models.TextChoices):
         QUEUED = "queued", _("Queued")
