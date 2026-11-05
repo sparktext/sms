@@ -1,0 +1,24 @@
+{% extends "core/base_auth.html" %}
+
+{% block title %}Invitation Invalid · SparkText{% endblock %}
+
+{% block content %}
+<div style="text-align:center; padding:12px 0;">
+  <span style="font-size:36px; display:block; margin-bottom:12px;">⌛</span>
+  <h1 style="font-size:22px; margin-bottom:8px;">Invitation No Longer Valid</h1>
+  <p class="sub" style="margin-bottom:24px;">
+    {% if invite.status == 'accepted' %}
+      This invitation has already been accepted. You can log in using your email and password.
+    {% elif invite.status == 'revoked' %}
+      This invitation has been revoked by the organization administrator.
+    {% else %}
+      This invitation has expired. Please ask your administrator to send a new invitation link.
+    {% endif %}
+  </p>
+
+  <a href="{% url 'login' %}" class="btn" style="display:inline-block; text-decoration:none; text-align:center;">
+    Go to Sign In
+  </a>
+</div>
+{% endblock %}
+

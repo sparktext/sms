@@ -246,9 +246,8 @@ class AIAssistantTests(TestCase):
         self.assertIn("AI formatting/service error", self.conv_a.handoff_reason)
 
         # System message was added
-        sys_msg = self.conv_a.messages.filter(sender_type=Message.SenderType.SYSTEM).last()
-        self.assertIsNotNone(sys_msg)
-        self.assertIn("handed off to team member", sys_msg.body)
+        sys_msgs = self.conv_a.messages.filter(sender_type=Message.SenderType.SYSTEM)
+        self.assertTrue(sys_msgs.filter(body__icontains="handed off to team member").exists())
 
     def test_reply_with_price_or_never_say_phrase_is_blocked(self):
         """Safety checks block replies mentioning prices or phrases in never_say and hand off."""

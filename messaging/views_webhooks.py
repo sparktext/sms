@@ -171,6 +171,26 @@ def _handle_inbound_sms(
             conversation.status = Conversation.Status.OPEN
         conversation.save(update_fields=["last_message_at", "last_inbound_at", "unread_count", "status"])
 
+    # Real-time WebSocket broadcast to open conversation windows
+    try:
+        from .ws_broadcast import broadcast_chat_event
+        broadcast_chat_event(
+            conversation.id,
+            {
+                "event": "new_message",
+                "message": {
+                    "id": message.id,
+                    "body": message.body,
+                    "direction": message.direction,
+                    "sender_type": message.sender_type,
+                    "created_at": message.created_at.strftime("%I:%M %p"),
+                    "status": message.status,
+                },
+            },
+        )
+    except Exception as exc:
+        logger.warning("Failed to broadcast inbound message %s: %s", message.id, exc)
+
     # Compliance keyword classification (outside message transaction)
     try:
         keyword = classify_keyword(body)
@@ -274,6 +294,21 @@ def _handle_status_update(
             prev_status,
             target_status,
         )
+
+        if message.conversation_id:
+            try:
+                from .ws_broadcast import broadcast_chat_event
+                broadcast_chat_event(
+                    message.conversation_id,
+                    {
+                        "event": "status_update",
+                        "message_id": message.id,
+                        "status": target_status,
+                    },
+                )
+            except Exception as exc:
+                logger.warning("Failed to broadcast status update %s: %s", message.id, exc)
+
         return True
     else:
         logger.info(

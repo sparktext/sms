@@ -11,6 +11,7 @@ from contacts.models import Contact
 from compliance.services import classify_keyword
 from messaging.models import AIAssistantConfig, Conversation, Message, AIJob, AIReply
 from messaging.services import send_message, can_send_manual
+from messaging.routing import assign_qualified_lead
 from . import get_ai_client
 from .prompt import build_system_prompt, build_conversation_messages, AI_RESPONSE_SCHEMA
 from .validator import parse_ai_output, validate_reply_content, filter_collected_answers
@@ -99,18 +100,30 @@ def _trigger_handoff(
 
     if not already_needs_human:
         conversation.status = Conversation.Status.NEEDS_HUMAN
-        conversation.handoff_reason = reason
+        conversation.handoff_reason = reason or ""
         conversation.save(update_fields=["status", "handoff_reason"])
 
-        # Create system audit message in thread
+        # Create clean, readable system audit message in thread
+        display_reason = reason or "Human review requested."
+        if "HTTPConnectionPool" in display_reason or "WinError 10061" in display_reason or "Connection to LLM" in display_reason:
+            display_reason = "AI Assistant offline / connection refused."
+        elif len(display_reason) > 160:
+            display_reason = display_reason[:157] + "..."
+
         Message.objects.create(
             conversation=conversation,
             organization=conversation.organization,
             direction=Message.Direction.OUTBOUND,
             sender_type=Message.SenderType.SYSTEM,
-            body=f"Conversation handed off to team member: {reason}",
+            body=f"Conversation handed off to team member: {display_reason}",
             status=Message.Status.DELIVERED,
         )
+
+        # Attempt automated sales rep routing if configured
+        try:
+            assign_qualified_lead(conversation, trigger_reason=f"Human handoff: {reason}")
+        except Exception as exc:
+            logger.exception("Error during auto lead assignment on handoff: %s", exc)
 
     return AIReply.objects.create(
         conversation=conversation,
@@ -149,6 +162,12 @@ def _check_and_update_stage(conversation: Conversation, config: AIAssistantConfi
             contact.custom_fields["stage"] = "Qualified"
             contact.save(update_fields=["custom_fields"])
             logger.info("Contact %d updated to Stage 'Qualified'", contact.id)
+
+        # Trigger automatic sales rep assignment for the newly qualified lead
+        try:
+            assign_qualified_lead(conversation, trigger_reason="Lead qualification complete")
+        except Exception as exc:
+            logger.exception("Error during auto lead assignment on qualification: %s", exc)
 
 
 def process_ai_job(job: AIJob) -> Optional[AIReply]:
@@ -337,6 +356,17 @@ def process_ai_job(job: AIJob) -> Optional[AIReply]:
         conversation.save(update_fields=["ai_draft_reply"])
         final_status = AIReply.Status.DRAFT
         logger.info("Stored AI draft for conversation %d: %s", conversation.id, reply_body)
+        try:
+            from messaging.ws_broadcast import broadcast_chat_event
+            broadcast_chat_event(
+                conversation.id,
+                {
+                    "event": "ai_draft",
+                    "draft": reply_body,
+                },
+            )
+        except Exception as exc:
+            logger.warning("Failed to broadcast AI draft: %s", exc)
 
     elif effective_mode == AIAssistantConfig.Mode.AUTO:
         # Check compliance policy before auto-sending

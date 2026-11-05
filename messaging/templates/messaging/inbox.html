@@ -29,33 +29,50 @@
         <div class="relative flex-1 min-w-0">
           <input
             type="text"
+            name="q"
             id="chat-search-input"
-            onkeyup="filterChatList(this.value)"
-            placeholder="Search name or phone..."
-            class="w-full pl-8 pr-2.5 py-1.5 text-xs bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition text-gray-800 placeholder:text-gray-400"
+            value="{{ q }}"
+            oninput="handleLiveSearch(this.value)"
+            placeholder="Search name, phone, message history..."
+            class="w-full pl-8 pr-7 py-1.5 text-xs bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition text-gray-800 placeholder:text-gray-400"
           />
           <svg class="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-2.5 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
           </svg>
+          <div id="search-loading-spinner" class="hidden absolute right-2.5 top-2 pointer-events-none">
+            <svg class="animate-spin w-3.5 h-3.5 text-brand-600" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+          </div>
+          <button
+            type="button"
+            id="search-clear-btn"
+            onclick="clearLiveSearch()"
+            class="{% if not q %}hidden{% endif %} absolute right-2 top-1.5 text-gray-400 hover:text-gray-700 text-xs font-bold cursor-pointer p-0.5"
+            title="Clear search"
+          >✕</button>
         </div>
 
-        <!-- Filter Dropdown (All / Replied / Unread) -->
-        <select id="inbox-subfilter-select" onchange="setSubFilter(this.value)" class="text-[11px] font-semibold px-2 py-1.5 rounded-xl border border-gray-200 bg-white text-gray-700 hover:border-gray-300 focus:outline-none focus:ring-1 focus:ring-brand-500 cursor-pointer shadow-2xs shrink-0" title="Filter conversations by reply status">
-          <option value="all">All</option>
-          <option value="replied">💬 Replied</option>
-          <option value="unread">🔴 Unread</option>
+        <!-- Filter Dropdown (All / Assigned to Me / Unassigned / Replied / Unread) -->
+        <select id="inbox-subfilter-select" onchange="setSubFilter(this.value)" class="text-[11px] font-semibold px-2 py-1.5 rounded-xl border border-gray-200 bg-white text-gray-700 hover:border-gray-300 focus:outline-none focus:ring-1 focus:ring-brand-500 cursor-pointer shadow-2xs shrink-0" title="Filter conversations">
+          <option value="all" {% if not assigned_filter or assigned_filter == 'all' %}selected{% endif %}>All</option>
+          <option value="mine" {% if assigned_filter == 'mine' %}selected{% endif %}>👤 Assigned to Me</option>
+          <option value="unassigned" {% if assigned_filter == 'unassigned' %}selected{% endif %}>⏳ Unassigned</option>
+          <option value="replied" {% if assigned_filter == 'replied' %}selected{% endif %}>💬 Replied</option>
+          <option value="unread" {% if assigned_filter == 'unread' %}selected{% endif %}>🔴 Unread</option>
         </select>
       </div>
 
       <!-- Main Status Tabs (Clean 3-column equal grid, no text clipping) -->
       <div class="grid grid-cols-3 gap-1 pt-0.5 select-none">
-        <a href="?status=open" class="text-center py-1.5 px-1 rounded-lg text-[11px] font-semibold transition whitespace-nowrap {% if status_filter == 'open' %}bg-slate-900 text-white shadow-2xs{% else %}bg-white border border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-100{% endif %}">
+        <a href="?status=open{% if assigned_filter %}&assigned={{ assigned_filter }}{% endif %}{% if q %}&q={{ q }}{% endif %}" class="text-center py-1.5 px-1 rounded-lg text-[11px] font-semibold transition whitespace-nowrap {% if status_filter == 'open' %}bg-slate-900 text-white shadow-2xs{% else %}bg-white border border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-100{% endif %}">
           Open ({{ counts.open }})
         </a>
-        <a href="?status=needs_human" class="text-center py-1.5 px-1 rounded-lg text-[11px] font-semibold transition truncate {% if status_filter == 'needs_human' %}bg-amber-600 text-white shadow-2xs{% else %}bg-white border border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-100{% endif %}" title="Needs Human Attention ({{ counts.needs_human }})">
+        <a href="?status=needs_human{% if assigned_filter %}&assigned={{ assigned_filter }}{% endif %}{% if q %}&q={{ q }}{% endif %}" class="text-center py-1.5 px-1 rounded-lg text-[11px] font-semibold transition truncate {% if status_filter == 'needs_human' %}bg-amber-600 text-white shadow-2xs{% else %}bg-white border border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-100{% endif %}" title="Needs Human Attention ({{ counts.needs_human }})">
           Needs Human ({{ counts.needs_human }})
         </a>
-        <a href="?status=closed" class="text-center py-1.5 px-1 rounded-lg text-[11px] font-semibold transition whitespace-nowrap {% if status_filter == 'closed' %}bg-slate-900 text-white shadow-2xs{% else %}bg-white border border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-100{% endif %}">
+        <a href="?status=closed{% if assigned_filter %}&assigned={{ assigned_filter }}{% endif %}{% if q %}&q={{ q }}{% endif %}" class="text-center py-1.5 px-1 rounded-lg text-[11px] font-semibold transition whitespace-nowrap {% if status_filter == 'closed' %}bg-slate-900 text-white shadow-2xs{% else %}bg-white border border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-100{% endif %}">
           Closed ({{ counts.closed }})
         </a>
       </div>
@@ -64,91 +81,16 @@
     <!-- Active number warning if unassigned -->
     {% if not has_active_number %}
     <div class="p-3 bg-amber-50 border-b border-amber-200 text-amber-900 text-[11px] shrink-0">
-      <strong>No phone number configured.</strong> Add an active number in <a href="/admin/messaging/phonenumber/add/" class="underline font-bold">Admin</a> to text.
+      <strong>No phone number configured.</strong> Add an active number in <a href="{% url 'messaging:phone_numbers_settings' %}" class="underline font-bold hover:text-amber-950">Settings</a> to text.
     </div>
     {% endif %}
 
     <!-- Scrollable Conversations List -->
     <div id="conversations-list-container" class="flex-1 overflow-y-auto divide-y divide-gray-100">
-      {% for conv in conversations %}
-      <a href="{% url 'messaging:conversation_detail' conv.id %}{% if status_filter %}?status={{ status_filter }}{% endif %}"
-         data-search-text="{{ conv.contact.first_name }} {{ conv.contact.last_name }} {{ conv.contact.phone }}"
-         data-has-reply="{% if conv.last_inbound_at %}true{% else %}false{% endif %}"
-         data-unread-count="{{ conv.unread_count }}"
-         class="chat-list-item flex items-center justify-between p-3.5 transition group select-none
-         {% if conversation and conversation.id == conv.id %}
-           bg-brand-50/70 border-l-4 border-l-brand-600
-         {% else %}
-           hover:bg-slate-50/80 border-l-4 border-l-transparent {% if conv.unread_count > 0 %}bg-slate-50/50{% endif %}
-         {% endif %}">
-        
-        <div class="flex items-center gap-3 min-w-0 flex-1">
-          <!-- Avatar with status dot -->
-          <div class="relative shrink-0">
-            <div class="w-10 h-10 rounded-2xl bg-brand-100/70 text-brand-700 font-bold text-xs flex items-center justify-center border border-brand-200/60 shadow-2xs">
-              {% if conv.contact.first_name %}{{ conv.contact.first_name|slice:":1"|upper }}{% elif conv.contact.last_name %}{{ conv.contact.last_name|slice:":1"|upper }}{% else %}#FF{% endif %}
-            </div>
-            {% if conv.contact.sms_status == "opted_in" %}
-              <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white absolute -bottom-0.5 -right-0.5" title="Opted In"></span>
-            {% elif conv.contact.sms_status == "opted_out" %}
-              <span class="w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-white absolute -bottom-0.5 -right-0.5" title="Opted Out (STOP)"></span>
-            {% endif %}
-          </div>
-
-          <div class="min-w-0 flex-1">
-            <div class="flex items-center justify-between gap-1 mb-0.5">
-              <span class="font-bold text-xs text-gray-900 truncate {% if conversation and conversation.id == conv.id %}text-brand-900{% endif %}">
-                {% if conv.contact.first_name or conv.contact.last_name %}
-                  {{ conv.contact.first_name }} {{ conv.contact.last_name }}
-                {% else %}
-                  {{ conv.contact.phone }}
-                {% endif %}
-              </span>
-              <span class="text-[10px] text-gray-400 shrink-0 font-medium">
-                {{ conv.last_message_at|timesince }} ago
-              </span>
-            </div>
-
-            <!-- Snippet & unread badge -->
-            <div class="flex items-center justify-between gap-1">
-              <p class="text-[11px] text-gray-500 truncate max-w-[170px] sm:max-w-[200px]">
-                {% with last_msg=conv.messages.last %}
-                  {% if last_msg %}
-                    {% if last_msg.direction == 'outbound' %}<span class="text-gray-400">You:</span> {% endif %}{{ last_msg.body }}
-                  {% else %}
-                    <span class="text-gray-400 italic">No messages yet</span>
-                  {% endif %}
-                {% endwith %}
-              </p>
-
-              {% if conv.unread_count > 0 %}
-              <span class="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-brand-600 text-white shrink-0">
-                {{ conv.unread_count }}
-              </span>
-              {% endif %}
-            </div>
-
-            <!-- Lead Qualification Tag Pill (if collected) -->
-            {% if conv.qualification_answers and conv.qualification_answers.coverage_type %}
-            <div class="mt-1">
-              <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-brand-50 text-brand-700 border border-brand-200/80">
-                <span>🚗 {{ conv.qualification_answers.coverage_type }}</span>
-                {% if conv.qualification_answers.zip_code %}
-                  <span class="text-gray-400">·</span>
-                  <span>{{ conv.qualification_answers.zip_code }}</span>
-                {% endif %}
-              </span>
-            </div>
-            {% endif %}
-          </div>
-        </div>
-
-      </a>
-      {% empty %}
-      <div class="p-8 text-center">
-        <p class="text-xs text-gray-400">No {{ status_filter }} conversations</p>
+      {% include "messaging/inbox_conversation_items.html" %}
+      <div id="inbox-no-matches-msg" class="p-8 text-center hidden">
+        <p class="text-xs text-gray-400">No conversations match your filter</p>
       </div>
-      {% endfor %}
     </div>
 
   </div>
@@ -234,6 +176,12 @@
             </select>
           </form>
 
+          <!-- Live WebSocket Status Badge -->
+          <span id="ws-status-badge" class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[11px] font-semibold bg-gray-50 text-gray-500 border border-gray-200 transition-all select-none" title="Live WebSocket connection status">
+            <span id="ws-status-dot" class="w-1.5 h-1.5 rounded-full bg-gray-400"></span>
+            <span id="ws-status-text" class="hidden sm:inline">Connecting</span>
+          </span>
+
           <!-- Notification Sound Toggle -->
           <button type="button" id="btn-sound-toggle" onclick="toggleSound()" class="p-1.5 text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition cursor-pointer" title="Notification chime (enabled)">
             <span>🔔</span>
@@ -299,8 +247,8 @@
 
       <!-- Messages Thread Area -->
       <div id="chat-window" class="flex-1 overflow-y-auto p-4 sm:p-6 space-y-3 bg-[#f8fafc]/90">
-        {% if messages %}
-          {% for msg in messages %}
+        {% if chat_messages %}
+          {% for msg in chat_messages %}
           {% if msg.sender_type == 'system' %}
             <!-- System audit notification (Clean timeline pill) -->
             <div id="msg-{{ msg.id }}" data-msg-id="{{ msg.id }}" class="w-full flex flex-col items-center my-2 select-none">
@@ -472,7 +420,7 @@
 
             <div class="flex items-center justify-between">
               <div id="char-counter" class="text-[11px] text-gray-400 font-mono">
-                0 / 1600 characters · 1 segment
+                0 / 160 characters · 1 segment
               </div>
 
               <button
@@ -487,11 +435,6 @@
               </button>
             </div>
           </form>
-        {% endif %}
-
-        <!-- DEV SIMULATOR DRAWER (isolated in separate template) -->
-        {% if is_debug %}
-          {% include "messaging/dev_reply_simulator.html" %}
         {% endif %}
       </div>
 
@@ -578,7 +521,7 @@
             <span class="font-semibold text-gray-900">{{ conversation.qualification_answers.coverage_type|default:"—" }}</span>
           </div>
           <div class="flex items-center justify-between py-1 border-b border-gray-100/80">
-            <span class="text-gray-500 text-[11px]">California ZIP:</span>
+            <span class="text-gray-500 text-[11px]">Postal ZIP Code:</span>
             <span class="font-semibold text-gray-900 font-mono">{{ conversation.qualification_answers.zip_code|default:"—" }}</span>
           </div>
           <div class="flex items-center justify-between py-1 border-b border-gray-100/80">
@@ -834,7 +777,7 @@
         </div>
         <div>
           <h3 class="text-sm font-bold text-gray-900 leading-tight">Quick Reply Templates</h3>
-          <p class="text-[11px] text-gray-400">Create, edit, or customize fast 1-click canned replies</p>
+          <p class="text-[11px] text-gray-400">Canned 1-click replies synced organization-wide across all team members</p>
         </div>
       </div>
       <button type="button" onclick="closeSnippetsModal()" class="w-7 h-7 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 flex items-center justify-center transition cursor-pointer" title="Close">
@@ -855,7 +798,7 @@
           </button>
         </div>
 
-        <input type="hidden" id="edit-snippet-index" value="-1" />
+        <input type="hidden" id="edit-snippet-index" value="" />
 
         <div>
           <label class="block text-[11px] font-semibold text-gray-600 mb-1">Chip Label (Emoji + Short Title)</label>
@@ -1145,28 +1088,137 @@
     });
   }
 
-  // Live Client-side search for contacts in the left pane
-  function filterChatList(query) {
-    const term = (query || "").toLowerCase().trim();
+  // Live Client-side & Full Historical Database Message Search
+  const currentUserId = "{{ request.user.id }}";
+  let searchDebounceTimer = null;
+  let initialListHtml = null;
+
+  function handleLiveSearch(query) {
+    const term = (query || "").trim();
+    const clearBtn = document.getElementById("search-clear-btn");
+    const spinner = document.getElementById("search-loading-spinner");
+    const container = document.getElementById("conversations-list-container");
+
+    if (clearBtn) {
+      if (term) clearBtn.classList.remove("hidden");
+      else clearBtn.classList.add("hidden");
+    }
+
+    if (initialListHtml === null && container && !term) {
+      initialListHtml = container.innerHTML;
+    }
+
+    clearTimeout(searchDebounceTimer);
+
+    if (!term) {
+      if (initialListHtml && container) {
+        container.innerHTML = initialListHtml;
+        applySubFilterOnly();
+      }
+      return;
+    }
+
+    // 1. Immediate local DOM filter for 0ms visual feedback
+    applyClientFilter(term);
+
+    // 2. Debounced live historical message search across entire database
+    if (spinner) spinner.classList.remove("hidden");
+    searchDebounceTimer = setTimeout(async () => {
+      try {
+        const activeId = "{{ conversation.id|default:'' }}";
+        const status = "{{ status_filter|default:'open' }}";
+        const assigned = (typeof currentSubFilter !== 'undefined') ? currentSubFilter : "";
+        const url = `{% url 'messaging:inbox_search' %}?q=${encodeURIComponent(term)}&status=${encodeURIComponent(status)}&assigned=${encodeURIComponent(assigned)}&active_id=${encodeURIComponent(activeId)}`;
+        const resp = await fetch(url, {
+          headers: { "X-Requested-With": "XMLHttpRequest" }
+        });
+        if (resp.ok && container) {
+          const html = await resp.text();
+          // Ensure query hasn't changed or been cleared while fetch was running
+          const currentVal = (document.getElementById("chat-search-input") || {}).value || "";
+          if (currentVal.trim() === term) {
+            container.innerHTML = html;
+            applySubFilterOnly();
+          }
+        }
+      } catch (err) {
+        console.error("Live historical search error:", err);
+      } finally {
+        if (spinner) spinner.classList.add("hidden");
+      }
+    }, 280);
+  }
+
+  function applyClientFilter(term) {
+    const lowerTerm = term.toLowerCase();
     const items = document.querySelectorAll(".chat-list-item");
+    let visibleCount = 0;
     items.forEach(el => {
       const text = (el.getAttribute("data-search-text") || "").toLowerCase();
       const hasReply = el.getAttribute("data-has-reply") === "true";
       const unreadCount = parseInt(el.getAttribute("data-unread-count")) || 0;
+      const assignedTo = el.getAttribute("data-assigned-to") || "";
 
-      let matchesSearch = !term || text.includes(term);
+      let matchesSearch = !lowerTerm || text.includes(lowerTerm);
       let matchesSub = true;
       if (typeof currentSubFilter !== 'undefined') {
-        if (currentSubFilter === "replied") matchesSub = hasReply;
+        if (currentSubFilter === "mine") matchesSub = (assignedTo === currentUserId);
+        else if (currentSubFilter === "unassigned") matchesSub = !assignedTo;
+        else if (currentSubFilter === "replied") matchesSub = hasReply;
         else if (currentSubFilter === "unread") matchesSub = unreadCount > 0;
       }
 
-      el.style.display = (matchesSearch && matchesSub) ? "flex" : "none";
+      const isVisible = matchesSearch && matchesSub;
+      el.style.display = isVisible ? "flex" : "none";
+      if (isVisible) visibleCount++;
     });
+
+    const noMatchesEl = document.getElementById("inbox-no-matches-msg");
+    if (noMatchesEl) {
+      noMatchesEl.style.display = (visibleCount === 0 && items.length > 0) ? "block" : "none";
+    }
   }
 
-  // --- INBOX SUB-FILTER (All / Replied / Unread) ---
-  let currentSubFilter = "all";
+  function applySubFilterOnly() {
+    const items = document.querySelectorAll(".chat-list-item");
+    let visibleCount = 0;
+    items.forEach(el => {
+      const hasReply = el.getAttribute("data-has-reply") === "true";
+      const unreadCount = parseInt(el.getAttribute("data-unread-count")) || 0;
+      const assignedTo = el.getAttribute("data-assigned-to") || "";
+
+      let matchesSub = true;
+      if (typeof currentSubFilter !== 'undefined') {
+        if (currentSubFilter === "mine") matchesSub = (assignedTo === currentUserId);
+        else if (currentSubFilter === "unassigned") matchesSub = !assignedTo;
+        else if (currentSubFilter === "replied") matchesSub = hasReply;
+        else if (currentSubFilter === "unread") matchesSub = unreadCount > 0;
+      }
+
+      el.style.display = matchesSub ? "flex" : "none";
+      if (matchesSub) visibleCount++;
+    });
+    const noMatchesEl = document.getElementById("inbox-no-matches-msg");
+    if (noMatchesEl) {
+      noMatchesEl.style.display = (visibleCount === 0 && items.length > 0) ? "block" : "none";
+    }
+  }
+
+  function clearLiveSearch() {
+    const input = document.getElementById("chat-search-input");
+    if (input) {
+      input.value = "";
+      handleLiveSearch("");
+      input.focus();
+    }
+  }
+
+  function filterChatList(query) {
+    handleLiveSearch(query);
+  }
+
+  // --- INBOX SUB-FILTER (All / Mine / Unassigned / Replied / Unread) ---
+  let currentSubFilter = "{{ assigned_filter|default:'all' }}";
 
   function setSubFilter(type) {
     currentSubFilter = type;
@@ -1176,37 +1228,56 @@
     }
 
     const searchInput = document.getElementById("chat-search-input");
-    filterChatList(searchInput ? searchInput.value : "");
+    const qVal = searchInput ? searchInput.value : "";
+    if (qVal) {
+      handleLiveSearch(qVal);
+    } else {
+      applySubFilterOnly();
+    }
   }
 
-  // --- QUICK SNIPPETS MANAGEMENT (CRUD + LocalStorage) ---
-  const DEFAULT_SNIPPETS = [
-    { label: "⏰ Hours", text: "Our office hours are Monday through Friday: 9:00 AM – 6:00 PM PST. We are closed on Saturday and Sunday." },
-    { label: "📋 Quote In Progress", text: "A licensed agent from our Millbrae office is reviewing your information to prepare customized quotes and will follow up with you shortly." },
-    { label: "📍 Location", text: "We are located at 400 Rollins Rd, Millbrae, CA 94030. You are welcome to visit our office anytime during business hours!" },
-    { label: "📞 Call Request", text: "Would you prefer a quick 5-minute phone call to go over the policy options and rates together? Let us know what time works best!" }
-  ];
+  document.addEventListener("DOMContentLoaded", () => {
+    const container = document.getElementById("conversations-list-container");
+    if (container) {
+      initialListHtml = container.innerHTML;
+    }
+    if (currentSubFilter && currentSubFilter !== "all") {
+      setSubFilter(currentSubFilter);
+    }
+  });
+
+  // --- QUICK SNIPPETS CLOUD SYNC (CampaignTemplate category='quick_reply') ---
+  let quickSnippets = [];
+  try {
+    quickSnippets = {{ quick_replies_json|default:"[]"|safe }};
+  } catch (e) {
+    quickSnippets = [];
+  }
 
   function getSnippets() {
-    try {
-      const stored = localStorage.getItem("sparktext_custom_snippets");
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch (e) {
-      console.warn("Could not parse saved snippets:", e);
-    }
-    return DEFAULT_SNIPPETS;
+    return quickSnippets;
   }
 
-  function saveSnippetsList(list) {
+  async function reloadSnippetsFromCloud() {
     try {
-      localStorage.setItem("sparktext_custom_snippets", JSON.stringify(list));
+      const resp = await fetch("/campaigns/templates/api/list/?category=quick_reply", {
+        headers: { "Accept": "application/json" }
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.status === "success" && Array.isArray(data.templates)) {
+          quickSnippets = data.templates.map(t => ({
+            id: t.id,
+            label: t.name,
+            text: t.body,
+          }));
+          renderSnippets();
+          renderModalSnippetsList();
+        }
+      }
     } catch (e) {
-      console.warn("Could not save snippets:", e);
+      console.warn("Could not reload quick replies from cloud:", e);
     }
-    renderSnippets();
   }
 
   function renderSnippets() {
@@ -1215,7 +1286,12 @@
     const snippets = getSnippets();
     container.innerHTML = "";
 
-    snippets.forEach((s, idx) => {
+    if (snippets.length === 0) {
+      container.innerHTML = `<span class="text-[11px] text-gray-400 italic">No quick replies yet</span>`;
+      return;
+    }
+
+    snippets.forEach((s) => {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "px-2 py-0.5 rounded-lg bg-gray-50 hover:bg-brand-50 hover:text-brand-700 hover:border-brand-300 border border-gray-200 text-[11px] font-medium text-gray-700 shrink-0 transition cursor-pointer shadow-2xs max-w-[150px] truncate";
@@ -1229,7 +1305,29 @@
   function insertSnippet(text) {
     const textarea = document.getElementById("message-body");
     if (!textarea) return;
-    textarea.value = text;
+
+    // Personalize merge tags if currently inside an active conversation
+    const firstName = "{{ conversation.contact.first_name|default:''|escapejs }}";
+    const lastName = "{{ conversation.contact.last_name|default:''|escapejs }}";
+    const phone = "{{ conversation.contact.phone|default:''|escapejs }}";
+    const businessName = "{{ org.name|default:'SparkText'|escapejs }}";
+
+    let personalized = text;
+    if (firstName) {
+      personalized = personalized.replace(/\{\{\s*first_name\s*\}\}/gi, firstName);
+    } else {
+      personalized = personalized.replace(/Hi\s+\{\{\s*first_name\s*\}\},?\s*/gi, "Hi, ");
+      personalized = personalized.replace(/\{\{\s*first_name\s*\}\}/gi, "there");
+    }
+    if (lastName) {
+      personalized = personalized.replace(/\{\{\s*last_name\s*\}\}/gi, lastName);
+    } else {
+      personalized = personalized.replace(/\{\{\s*last_name\s*\}\}/gi, "");
+    }
+    personalized = personalized.replace(/\{\{\s*business_name\s*\}\}/gi, businessName);
+    personalized = personalized.replace(/\{\{\s*phone\s*\}\}/gi, phone);
+
+    textarea.value = personalized;
     textarea.dispatchEvent(new Event("input"));
     textarea.focus();
   }
@@ -1258,7 +1356,7 @@
     const cancelBtn = document.getElementById("snippet-form-cancel");
     const saveBtn = document.getElementById("btn-save-snippet");
 
-    if (idxInput) idxInput.value = "-1";
+    if (idxInput) idxInput.value = "";
     if (labelInput) labelInput.value = "";
     if (textInput) textInput.value = "";
     if (titleEl) titleEl.innerHTML = "<span>➕</span> Add New Quick Reply";
@@ -1277,7 +1375,7 @@
       return;
     }
 
-    snippets.forEach((s, idx) => {
+    snippets.forEach((s) => {
       const card = document.createElement("div");
       card.className = "p-2.5 rounded-xl border border-gray-200 bg-white hover:border-gray-300 transition flex items-start justify-between gap-2 text-xs shadow-2xs";
 
@@ -1295,13 +1393,13 @@
       editBtn.type = "button";
       editBtn.className = "px-2 py-1 text-[11px] font-semibold text-brand-600 hover:text-brand-800 hover:bg-brand-50 rounded-lg transition cursor-pointer";
       editBtn.textContent = "Edit";
-      editBtn.onclick = () => editSnippet(idx);
+      editBtn.onclick = () => editSnippet(s.id);
 
       const delBtn = document.createElement("button");
       delBtn.type = "button";
       delBtn.className = "px-2 py-1 text-[11px] font-semibold text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded-lg transition cursor-pointer";
       delBtn.textContent = "Delete";
-      delBtn.onclick = () => deleteSnippet(idx);
+      delBtn.onclick = () => deleteSnippet(s.id);
 
       actions.appendChild(editBtn);
       actions.appendChild(delBtn);
@@ -1312,10 +1410,9 @@
     });
   }
 
-  function editSnippet(index) {
-    const snippets = getSnippets();
-    if (!snippets[index]) return;
-    const s = snippets[index];
+  function editSnippet(templateId) {
+    const s = quickSnippets.find(item => item.id === templateId);
+    if (!s) return;
 
     const idxInput = document.getElementById("edit-snippet-index");
     const labelInput = document.getElementById("snippet-label-input");
@@ -1324,7 +1421,7 @@
     const cancelBtn = document.getElementById("snippet-form-cancel");
     const saveBtn = document.getElementById("btn-save-snippet");
 
-    if (idxInput) idxInput.value = index;
+    if (idxInput) idxInput.value = s.id;
     if (labelInput) labelInput.value = s.label;
     if (textInput) textInput.value = s.text;
     if (titleEl) titleEl.innerHTML = "<span>✏️</span> Edit Quick Reply";
@@ -1334,24 +1431,46 @@
     labelInput?.focus();
   }
 
-  function deleteSnippet(index) {
-    const snippets = getSnippets();
-    if (index >= 0 && index < snippets.length) {
-      snippets.splice(index, 1);
-      saveSnippetsList(snippets);
-      renderModalSnippetsList();
-      resetSnippetForm();
+  async function deleteSnippet(templateId) {
+    if (!confirm("Are you sure you want to delete this quick reply? It will be removed for all team members.")) {
+      return;
+    }
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '{{ csrf_token }}';
+    const formData = new FormData();
+    formData.append("csrfmiddlewaretoken", csrfToken);
+
+    try {
+      const resp = await fetch(`/campaigns/templates/${templateId}/delete/`, {
+        method: "POST",
+        headers: {
+          "X-Requested-With": "XMLHttpRequest",
+          "X-CSRFToken": csrfToken,
+        },
+        body: formData,
+      });
+      if (resp.ok) {
+        quickSnippets = quickSnippets.filter(item => item.id !== templateId);
+        renderSnippets();
+        renderModalSnippetsList();
+        resetSnippetForm();
+      } else {
+        alert("Failed to delete quick reply.");
+      }
+    } catch (e) {
+      console.error("Error deleting quick reply:", e);
+      alert("Network error deleting quick reply.");
     }
   }
 
-  function saveSnippetFromModal() {
+  async function saveSnippetFromModal() {
     const idxInput = document.getElementById("edit-snippet-index");
     const labelInput = document.getElementById("snippet-label-input");
     const textInput = document.getElementById("snippet-text-input");
+    const saveBtn = document.getElementById("btn-save-snippet");
 
     const label = (labelInput?.value || "").trim();
     const text = (textInput?.value || "").trim();
-    const editIndex = parseInt(idxInput?.value || "-1", 10);
+    const editId = (idxInput?.value || "").trim();
 
     if (!label) {
       alert("Please enter a short chip label (e.g., ⏰ Hours).");
@@ -1364,23 +1483,92 @@
       return;
     }
 
-    const snippets = getSnippets().slice();
-    if (editIndex >= 0 && editIndex < snippets.length) {
-      snippets[editIndex] = { label, text };
-    } else {
-      snippets.push({ label, text });
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '{{ csrf_token }}';
+    const formData = new FormData();
+    formData.append("csrfmiddlewaretoken", csrfToken);
+    formData.append("name", label);
+    formData.append("body", text);
+    formData.append("category", "quick_reply");
+
+    const origBtnText = saveBtn ? saveBtn.textContent : "Save";
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.textContent = "Saving...";
     }
 
-    saveSnippetsList(snippets);
-    renderModalSnippetsList();
-    resetSnippetForm();
+    const url = editId ? `/campaigns/templates/${editId}/edit/` : "/campaigns/templates/new/";
+
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: {
+          "X-Requested-With": "XMLHttpRequest",
+          "X-CSRFToken": csrfToken,
+        },
+        body: formData,
+      });
+
+      const resJson = await resp.json();
+      if (resp.ok && resJson.status === "success") {
+        if (editId) {
+          const item = quickSnippets.find(i => String(i.id) === String(editId));
+          if (item) {
+            item.label = label;
+            item.text = text;
+          }
+        } else if (resJson.template) {
+          quickSnippets.push({
+            id: resJson.template.id,
+            label: resJson.template.name,
+            text: resJson.template.body,
+          });
+        } else {
+          await reloadSnippetsFromCloud();
+        }
+        renderSnippets();
+        renderModalSnippetsList();
+        resetSnippetForm();
+      } else {
+        alert(resJson.message || "Failed to save quick reply.");
+      }
+    } catch (e) {
+      console.error("Error saving quick reply:", e);
+      alert("Network error saving quick reply.");
+    } finally {
+      if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = origBtnText;
+      }
+    }
   }
 
-  function resetDefaultSnippets() {
-    if (confirm("Reset quick replies back to the standard defaults? Any custom quick replies will be replaced.")) {
-      saveSnippetsList(DEFAULT_SNIPPETS);
-      renderModalSnippetsList();
-      resetSnippetForm();
+  async function resetDefaultSnippets() {
+    if (!confirm("Reset quick replies back to organization defaults? Any custom quick replies in this category will be reset.")) {
+      return;
+    }
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '{{ csrf_token }}';
+    const formData = new FormData();
+    formData.append("csrfmiddlewaretoken", csrfToken);
+    formData.append("category", "quick_reply");
+
+    try {
+      const resp = await fetch("/campaigns/templates/reset-defaults/", {
+        method: "POST",
+        headers: {
+          "X-Requested-With": "XMLHttpRequest",
+          "X-CSRFToken": csrfToken,
+        },
+        body: formData,
+      });
+      if (resp.ok) {
+        await reloadSnippetsFromCloud();
+        resetSnippetForm();
+      } else {
+        alert("Failed to reset defaults.");
+      }
+    } catch (e) {
+      console.error("Error resetting quick reply defaults:", e);
+      alert("Network error resetting defaults.");
     }
   }
 
@@ -1624,39 +1812,16 @@
             textarea.value = "";
             if (charCounter) charCounter.textContent = "0 / 1600 characters · 1 segment";
 
-            // Add the new message bubble to chat window immediately
-            const emptyPlaceholder = document.getElementById("empty-chat-placeholder");
-            if (emptyPlaceholder) emptyPlaceholder.remove();
+            appendChatMessage({
+              id: result.data.message_id,
+              body: result.data.body,
+              direction: "outbound",
+              status: result.data.delivery_status,
+              created_at: result.data.sent_at,
+            });
 
-            const m = result.data;
-            if (!document.getElementById("msg-" + m.message_id)) {
-              const wrapper = document.createElement("div");
-              wrapper.id = "msg-" + m.message_id;
-              wrapper.setAttribute("data-msg-id", m.message_id);
-              wrapper.className = "flex flex-col items-end";
-
-              const bubble = document.createElement("div");
-              bubble.className = "max-w-md sm:max-w-lg rounded-2xl px-4 py-2.5 text-xs sm:text-sm shadow-2xs leading-relaxed bg-brand-600 text-white rounded-br-xs";
-
-              const p = document.createElement("p");
-              p.className = "whitespace-pre-wrap break-words";
-              p.textContent = m.body;
-              bubble.appendChild(p);
-              wrapper.appendChild(bubble);
-
-              const meta = document.createElement("div");
-              meta.className = "flex items-center gap-1.5 text-[10px] text-gray-400 mt-1 px-1";
-              meta.innerHTML = `<span>${m.sent_at}</span><span>·</span><span>✓ ${m.delivery_status}</span>`;
-              wrapper.appendChild(meta);
-
-              chatWindow.appendChild(wrapper);
-              chatWindow.scrollTop = chatWindow.scrollHeight;
-              if (typeof lastMsgId !== 'undefined') {
-                lastMsgId = Math.max(lastMsgId, m.message_id);
-              }
-              if (m.ai_mode_changed) {
-                setTimeout(() => window.location.reload(), 300);
-              }
+            if (result.data.ai_mode_changed) {
+              setTimeout(() => window.location.reload(), 300);
             }
           } else {
             alert(result.data.message || "Failed to send message.");
@@ -1670,59 +1835,288 @@
       });
     }
 
+    function formatStatus(status) {
+      if (status === "delivered") return "✓✓ delivered";
+      if (status === "sent") return "✓ sent";
+      if (status === "failed" || status === "undelivered") return "✕ failed";
+      if (status === "queued" || status === "sending") return "⏳ queued";
+      return status ? ("✓ " + status) : "";
+    }
+
+    function appendChatMessage(m) {
+      if (!chatWindow) return;
+      const msgId = m.id || m.message_id;
+      if (!msgId) return;
+
+      const existingEl = document.getElementById("msg-" + msgId);
+      if (existingEl) {
+        if (m.status) updateMessageStatus(msgId, m.status);
+        return;
+      }
+
+      const emptyPlaceholder = document.getElementById("empty-chat-placeholder");
+      if (emptyPlaceholder) emptyPlaceholder.remove();
+
+      const isOutbound = m.direction === "outbound";
+      const wrapper = document.createElement("div");
+      wrapper.id = "msg-" + msgId;
+      wrapper.setAttribute("data-msg-id", msgId);
+      wrapper.className = "flex flex-col " + (isOutbound ? "items-end" : "items-start");
+
+      const bubble = document.createElement("div");
+      bubble.className = "max-w-md sm:max-w-lg rounded-2xl px-4 py-2.5 text-xs sm:text-sm shadow-2xs leading-relaxed " +
+        (isOutbound
+          ? "bg-brand-600 text-white rounded-br-xs"
+          : "bg-white text-gray-900 border border-gray-200/90 rounded-bl-xs");
+
+      const p = document.createElement("p");
+      p.className = "whitespace-pre-wrap break-words";
+      p.textContent = m.body;
+      bubble.appendChild(p);
+      wrapper.appendChild(bubble);
+
+      const meta = document.createElement("div");
+      meta.id = "msg-status-" + msgId;
+      meta.className = "flex items-center gap-1.5 text-[10px] text-gray-400 mt-1 px-1";
+
+      const timeSpan = document.createElement("span");
+      timeSpan.textContent = m.created_at || m.sent_at || "";
+      meta.appendChild(timeSpan);
+
+      if (isOutbound && m.status) {
+        const dotSpan = document.createElement("span");
+        dotSpan.textContent = "·";
+        meta.appendChild(dotSpan);
+
+        const statusSpan = document.createElement("span");
+        statusSpan.className = "msg-status-text";
+        statusSpan.textContent = formatStatus(m.status);
+        meta.appendChild(statusSpan);
+      }
+      wrapper.appendChild(meta);
+
+      chatWindow.appendChild(wrapper);
+      chatWindow.scrollTop = chatWindow.scrollHeight;
+
+      if (typeof lastMsgId !== 'undefined') {
+        lastMsgId = Math.max(lastMsgId, msgId);
+      }
+
+      if (!isOutbound) {
+        playNotificationChime();
+      }
+    }
+
+    function updateMessageStatus(msgId, status) {
+      const metaEl = document.getElementById("msg-status-" + msgId);
+      if (!metaEl) return;
+      let statusSpan = metaEl.querySelector(".msg-status-text");
+      if (!statusSpan) {
+        const dotSpan = document.createElement("span");
+        dotSpan.textContent = "·";
+        metaEl.appendChild(dotSpan);
+        statusSpan = document.createElement("span");
+        statusSpan.className = "msg-status-text";
+        metaEl.appendChild(statusSpan);
+      }
+      statusSpan.textContent = formatStatus(status);
+    }
+
+    function handleAiDraftUpdate(draftText) {
+      if (!draftText) return;
+      const draftTextEl = document.getElementById("ai-draft-text");
+      const draftCard = document.getElementById("ai-draft-card");
+      if (draftTextEl && draftCard) {
+        draftTextEl.textContent = draftText;
+        draftCard.classList.remove("hidden");
+        draftCard.classList.add("animate-pulse");
+        setTimeout(() => draftCard.classList.remove("animate-pulse"), 1000);
+      }
+    }
+
     {% if conversation %}
-    // Live Polling for incoming messages in active conversation
     let lastMsgId = 0;
     const msgEls = document.querySelectorAll("[data-msg-id]");
     if (msgEls.length > 0) {
       lastMsgId = parseInt(msgEls[msgEls.length - 1].getAttribute("data-msg-id")) || 0;
     }
 
+    // ─────────────────────────────────────────────────
+    // Chat-window WebSocket (instant inbound SMS delivery)
+    // ─────────────────────────────────────────────────
+    const convId = {{ conversation.id }};
+    const wsScheme = window.location.protocol === "https:" ? "wss://" : "ws://";
+    const wsUrl = `${wsScheme}${window.location.host}/ws/chat/${convId}/`;
+
+    const statusBadge = document.getElementById("ws-status-badge");
+    const statusDot   = document.getElementById("ws-status-dot");
+    const statusText  = document.getElementById("ws-status-text");
+
+    let chatSocket = null;
+    let reconnectAttempts = 0;
+    let reconnectTimer = null;
+    let isSocketOpen = false;
+
+    function setBadgeState(state) {
+      if (!statusBadge || !statusDot || !statusText) return;
+      if (state === "live") {
+        statusBadge.className = "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 transition-all select-none";
+        statusDot.className   = "w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse";
+        statusText.textContent = "Live";
+        statusBadge.title = "WebSocket connected — instant delivery active";
+      } else if (state === "connecting" || state === "reconnecting") {
+        statusBadge.className = "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 transition-all select-none";
+        statusDot.className   = "w-1.5 h-1.5 rounded-full bg-amber-500";
+        statusText.textContent = state === "reconnecting" ? "Reconnecting" : "Connecting";
+        statusBadge.title = "Connecting to live channel...";
+      } else {
+        statusBadge.className = "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[11px] font-semibold bg-gray-50 text-gray-500 border border-gray-200 transition-all select-none";
+        statusDot.className   = "w-1.5 h-1.5 rounded-full bg-gray-400";
+        statusText.textContent = "Polling";
+        statusBadge.title = "WebSocket disconnected — polling fallback active";
+      }
+    }
+
+    function initWebSocket() {
+      if (chatSocket && (chatSocket.readyState === WebSocket.OPEN || chatSocket.readyState === WebSocket.CONNECTING)) return;
+      setBadgeState(reconnectAttempts > 0 ? "reconnecting" : "connecting");
+
+      try {
+        chatSocket = new WebSocket(wsUrl);
+
+        chatSocket.onopen = function() {
+          isSocketOpen = true;
+          reconnectAttempts = 0;
+          setBadgeState("live");
+        };
+
+        chatSocket.onmessage = function(e) {
+          try {
+            const data = JSON.parse(e.data);
+            if (data.event === "new_message" && data.message) {
+              appendChatMessage(data.message);
+            } else if (data.event === "status_update" && data.message_id) {
+              updateMessageStatus(data.message_id, data.status);
+            } else if (data.event === "ai_draft" && data.draft) {
+              handleAiDraftUpdate(data.draft);
+            }
+          } catch (err) {
+            console.debug("WS message parse error:", err);
+          }
+        };
+
+        chatSocket.onclose = function() {
+          isSocketOpen = false;
+          setBadgeState("reconnecting");
+          const delay = Math.min(1000 * Math.pow(1.5, reconnectAttempts), 10000);
+          reconnectAttempts++;
+          clearTimeout(reconnectTimer);
+          reconnectTimer = setTimeout(initWebSocket, delay);
+        };
+
+        chatSocket.onerror = function() { chatSocket.close(); };
+      } catch (err) {
+        console.debug("WS exception:", err);
+        setBadgeState("fallback");
+      }
+    }
+
+    // ─────────────────────────────────────────────────
+    // Chat-window POLLING — always runs alongside WebSocket.
+    //
+    // WHY: The AI worker and campaign worker are separate
+    // OS processes. InMemoryChannelLayer is per-process, so
+    // AI replies broadcast there don't reach the web server's
+    // WebSocket consumers. Polling ensures those messages
+    // always appear. appendChatMessage() deduplicates by ID,
+    // so there are never duplicate bubbles.
+    // ─────────────────────────────────────────────────
     setInterval(function() {
       fetch("{% url 'messaging:poll_messages' conversation.id %}?after_id=" + lastMsgId)
         .then(res => res.json())
         .then(data => {
           if (data.messages && data.messages.length > 0) {
-            const emptyPlaceholder = document.getElementById("empty-chat-placeholder");
-            if (emptyPlaceholder) emptyPlaceholder.remove();
-
-            data.messages.forEach(m => {
-              if (document.getElementById("msg-" + m.id)) return;
-              lastMsgId = Math.max(lastMsgId, m.id);
-
-              const wrapper = document.createElement("div");
-              wrapper.id = "msg-" + m.id;
-              wrapper.setAttribute("data-msg-id", m.id);
-              wrapper.className = "flex flex-col " + (m.direction === "outbound" ? "items-end" : "items-start");
-
-              const bubble = document.createElement("div");
-              bubble.className = "max-w-md sm:max-w-lg rounded-2xl px-4 py-2.5 text-xs sm:text-sm shadow-2xs leading-relaxed " +
-                (m.direction === "outbound"
-                  ? "bg-brand-600 text-white rounded-br-xs"
-                  : "bg-white text-gray-900 border border-gray-200/90 rounded-bl-xs");
-
-              const p = document.createElement("p");
-              p.className = "whitespace-pre-wrap break-words";
-              p.textContent = m.body;
-              bubble.appendChild(p);
-              wrapper.appendChild(bubble);
-
-              const meta = document.createElement("div");
-              meta.className = "flex items-center gap-1.5 text-[10px] text-gray-400 mt-1 px-1";
-              meta.innerHTML = `<span>${m.created_at}</span>` +
-                (m.direction === "outbound" ? `<span>·</span><span>${m.status}</span>` : "");
-              wrapper.appendChild(meta);
-
-              chatWindow.appendChild(wrapper);
-            });
-
-            chatWindow.scrollTop = chatWindow.scrollHeight;
-            playNotificationChime();
+            data.messages.forEach(m => appendChatMessage(m));
           }
         })
-        .catch(err => console.debug("Polling error:", err));
-    }, 4000);
+        .catch(err => console.debug("Chat poll error:", err));
+    }, 5000);
+
+    // Connect WebSocket on page load
+    initWebSocket();
     {% endif %}
+
+    // ─────────────────────────────────────────────────
+    // Sidebar Inbox Live-Feed Polling
+    //
+    // Polls /inbox/live-feed/ every 5 seconds for
+    // conversations updated in the last 60s and updates
+    // the left-pane conversation cards without a page reload.
+    // Works regardless of which conversation is open.
+    // ─────────────────────────────────────────────────
+    const currentConvId = {% if conversation %}{{ conversation.id }}{% else %}null{% endif %};
+
+    function updateSidebarCard(conv) {
+      const link = document.querySelector(`a[href*="/inbox/${conv.id}/"]`);
+      if (!link) return; // Conversation not in current list view — skip
+
+      // Update snippet text
+      const snippetEl = link.querySelector("p.text-\\[11px\\]");
+      if (snippetEl) {
+        const prefix = conv.direction === "outbound"
+          ? "<span class='text-gray-400'>You:</span> "
+          : "";
+        snippetEl.innerHTML = prefix + escapeHtml(conv.last_body);
+      }
+
+      // Update timestamp
+      const timeEl = link.querySelector("span.text-\\[10px\\].text-gray-400");
+      if (timeEl) timeEl.textContent = conv.last_message_at_display;
+
+      // Update or add unread badge
+      const badgeContainer = link.querySelector(".flex.items-center.justify-between.gap-1");
+      if (badgeContainer) {
+        let badge = badgeContainer.querySelector(".rounded-full.bg-brand-600.text-white");
+        if (conv.unread_count > 0) {
+          if (!badge) {
+            badge = document.createElement("span");
+            badge.className = "px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-brand-600 text-white shrink-0";
+            badgeContainer.appendChild(badge);
+          }
+          badge.textContent = conv.unread_count;
+        } else if (badge) {
+          badge.remove();
+        }
+      }
+
+      // If this conv is not currently open, add unread highlight
+      if (conv.id !== currentConvId && conv.unread_count > 0) {
+        link.classList.add("bg-slate-50/50");
+      }
+
+      // Move to top of the list (most recent activity)
+      const list = document.getElementById("conversations-list-container");
+      if (list && link.parentNode === list && list.firstChild !== link) {
+        list.insertBefore(link, list.firstChild);
+      }
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement("div");
+      div.appendChild(document.createTextNode(text));
+      return div.innerHTML;
+    }
+
+    setInterval(function() {
+      fetch("{% url 'messaging:inbox_live_feed' %}")
+        .then(res => res.json())
+        .then(data => {
+          if (data.conversations && data.conversations.length > 0) {
+            data.conversations.forEach(updateSidebarCard);
+          }
+        })
+        .catch(err => console.debug("Inbox feed poll error:", err));
+    }, 5000);
   })();
 </script>
 {% endblock %}

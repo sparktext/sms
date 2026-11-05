@@ -186,7 +186,12 @@
                 d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
               />
             </svg>
-            Inbox
+            <span class="flex-1">Inbox</span>
+            {% if nav_unread_count and nav_unread_count > 0 %}
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500 text-white shadow-xs">
+              {{ nav_unread_count }}
+            </span>
+            {% endif %}
           </a>
 
           <a
@@ -239,9 +244,9 @@
 
           <a
             href="{% url 'campaigns:list' %}"
-            {% if current == "campaigns:list" or current == "campaigns:create" or current == "campaigns:detail" %} aria-current="page" {% endif %}
+            {% if current == "campaigns:list" or current == "campaigns:create" or current == "campaigns:detail" or "campaigns" in request.path or "templates" in request.path %} aria-current="page" {% endif %}
             class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition 
-            {% if current == 'campaigns:list' or current == 'campaigns:create' or current == 'campaigns:detail' %} 
+            {% if current == 'campaigns:list' or current == 'campaigns:create' or current == 'campaigns:detail' or 'campaigns' in request.path or 'templates' in request.path %} 
             {{ active }} 
             {% else %} 
             {{ idle }} 
@@ -261,32 +266,6 @@
               />
             </svg>
             Campaigns
-          </a>
-
-          <a
-            href="{% url 'templates:index' %}"
-            {% if current == "templates:index" or "templates" in request.path %} aria-current="page" {% endif %}
-            class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition 
-            {% if current == 'templates:index' or 'templates' in request.path %} 
-            {{ active }} 
-            {% else %} 
-            {{ idle }} 
-            {% endif %}"
-          >
-            <svg
-              class="w-5 h-5 opacity-70"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-              />
-            </svg>
-            Templates
           </a>
 
           <a
@@ -316,9 +295,9 @@
           </a>
 
           <a
-            href="{% url 'messaging:phone_numbers_settings' %}"
-            {% if current == "messaging:phone_numbers_settings" %} aria-current="page" {% endif %}
-            class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition {% if current == 'messaging:phone_numbers_settings' %} {{ active }} {% else %} {{ idle }} {% endif %}"
+            href="{% url 'company_profile' %}"
+            {% if "settings" in request.path %} aria-current="page" {% endif %}
+            class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition {% if "settings" in request.path %} {{ active }} {% else %} {{ idle }} {% endif %}"
           >
             <svg
               class="w-5 h-5 opacity-70"
@@ -419,11 +398,55 @@
           </div>
         </div>
         <div class="flex items-center gap-3">
+          {% if request.user.is_authenticated and request.user.organization %}
+          <button
+            type="button"
+            id="nav-availability-btn"
+            onclick="toggleMyGlobalAvailability()"
+            class="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition cursor-pointer shadow-2xs {% if request.user.is_available_for_leads %}bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100/80{% else %}bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100{% endif %}"
+            title="Click to toggle your availability for lead assignment"
+          >
+            <span class="w-2 h-2 rounded-full {% if request.user.is_available_for_leads %}bg-emerald-500 animate-pulse{% else %}bg-gray-400{% endif %}"></span>
+            <span id="nav-availability-text">{% if request.user.is_available_for_leads %}Available for Leads{% else %}Away / Paused{% endif %}</span>
+          </button>
+          {% endif %}
           {% block header_actions %}{% endblock %}
         </div>
       </header>
 
       <main class="p-6 sm:p-8 space-y-6 max-w-7xl w-full mx-auto">
+        <!-- Global Flash Messages / Toasts -->
+        {% if messages and not conversation %}
+        <div id="flash-messages-container" class="space-y-2 mb-4">
+          {% for message in messages %}
+          {% if message.tags %}
+          <div class="flex items-center justify-between p-3.5 rounded-xl border text-xs shadow-2xs transition-all duration-300
+            {% if message.tags == 'error' %}bg-rose-50 border-rose-200 text-rose-800
+            {% elif message.tags == 'warning' %}bg-amber-50 border-amber-200 text-amber-800
+            {% else %}bg-emerald-50 border-emerald-200 text-emerald-800{% endif %}">
+            <div class="flex items-center gap-2">
+              <span>
+                {% if message.tags == 'error' %}⚠️{% elif message.tags == 'warning' %}⚠️{% else %}✅{% endif %}
+              </span>
+              <span class="font-medium">{{ message }}</span>
+            </div>
+            <button type="button" onclick="this.parentElement.remove()" class="text-gray-400 hover:text-gray-700 text-xs cursor-pointer ml-3">✕</button>
+          </div>
+          {% endif %}
+          {% endfor %}
+        </div>
+        <script>
+          setTimeout(() => {
+            const el = document.getElementById("flash-messages-container");
+            if (el) {
+              el.style.opacity = "0";
+              el.style.transition = "opacity 0.4s ease";
+              setTimeout(() => el.remove(), 400);
+            }
+          }, 4500);
+        </script>
+        {% endif %}
+
         {% block content %}{% endblock %}
       </main>
     </div>
@@ -434,6 +457,44 @@
           .getElementById("sidebar")
           .classList.toggle("-translate-x-full");
         document.getElementById("mobile-overlay").classList.toggle("hidden");
+      }
+
+      function getCsrfToken() {
+        const input = document.querySelector('[name=csrfmiddlewaretoken]');
+        if (input && input.value) return input.value;
+        const match = document.cookie.match(/(^|;)\s*csrftoken=([^;]+)/);
+        return match ? decodeURIComponent(match[2]) : '';
+      }
+
+      async function toggleMyGlobalAvailability() {
+        const btn = document.getElementById("nav-availability-btn");
+        const textEl = document.getElementById("nav-availability-text");
+        if (!btn) return;
+        try {
+          const csrf = getCsrfToken();
+          const resp = await fetch("{% url 'toggle_my_availability' %}", {
+            method: "POST",
+            headers: {
+              "X-CSRFToken": csrf,
+              "X-Requested-With": "XMLHttpRequest",
+            }
+          });
+          const data = await resp.json();
+          if (data.status === "success") {
+            const dot = btn.querySelector("span:first-child");
+            if (data.is_available) {
+              btn.className = "hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition cursor-pointer shadow-2xs bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100/80";
+              if (dot) dot.className = "w-2 h-2 rounded-full bg-emerald-500 animate-pulse";
+              if (textEl) textEl.innerText = "Available for Leads";
+            } else {
+              btn.className = "hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition cursor-pointer shadow-2xs bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100";
+              if (dot) dot.className = "w-2 h-2 rounded-full bg-gray-400";
+              if (textEl) textEl.innerText = "Away / Paused";
+            }
+          }
+        } catch (e) {
+          console.error("Failed to toggle availability:", e);
+        }
       }
     </script>
     {% block extra_js %}{% endblock %}

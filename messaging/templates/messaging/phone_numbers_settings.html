@@ -7,6 +7,34 @@
 {% block content %}
 <div class="max-w-5xl mx-auto space-y-6 pb-12">
 
+  <!-- Settings Sub-navigation Tabs -->
+  <div class="flex items-center gap-2 border-b border-gray-200 pb-3">
+    <a
+      href="{% url 'company_profile' %}"
+      class="px-3.5 py-1.5 text-xs font-semibold rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition"
+    >
+      🏢 Company Profile
+    </a>
+    <a
+      href="{% url 'team_members' %}"
+      class="px-3.5 py-1.5 text-xs font-semibold rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition whitespace-nowrap"
+    >
+      👥 Team Members
+    </a>
+    <a
+      href="{% url 'lead_routing_settings' %}"
+      class="px-3.5 py-1.5 text-xs font-semibold rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition whitespace-nowrap"
+    >
+      🎯 Lead Routing
+    </a>
+    <a
+      href="{% url 'messaging:phone_numbers_settings' %}"
+      class="px-3.5 py-1.5 text-xs font-semibold rounded-lg text-brand-700 bg-brand-50 border border-brand-200 whitespace-nowrap"
+    >
+      📞 Phone Numbers & Routing
+    </a>
+  </div>
+
   <!-- Provider Status & Routing Banner -->
   <div class="p-5 rounded-2xl border bg-white border-gray-200 shadow-2xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
     <div class="flex items-center gap-3.5">

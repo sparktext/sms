@@ -120,7 +120,7 @@ class Conversation(models.Model):
     unread_count = models.PositiveIntegerField(default=0)
     qualification_answers = models.JSONField(default=dict, blank=True)
     ai_draft_reply = models.TextField(blank=True, default="")
-    handoff_reason = models.CharField(max_length=255, blank=True, default="")
+    handoff_reason = models.TextField(blank=True, default="")
     ai_mode = models.CharField(
         max_length=15,
         choices=AIMode.choices,
@@ -416,7 +416,7 @@ class AIReply(models.Model):
         choices=Status.choices,
         default=Status.DRAFT,
     )
-    skip_reason = models.CharField(max_length=255, blank=True, default="")
+    skip_reason = models.TextField(blank=True, default="")
     model_name = models.CharField(max_length=100, blank=True, default="")
     input_tokens = models.PositiveIntegerField(default=0)
     output_tokens = models.PositiveIntegerField(default=0)

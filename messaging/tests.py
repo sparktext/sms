@@ -384,49 +384,6 @@ class MessagingTests(TestCase):
         self.assertEqual(msg_a.organization, self.org_a)
         self.assertEqual(msg_b.organization, self.org_b)
 
-    @override_settings(DEBUG=True)
-    def test_dev_simulator_customer_reply(self):
-        """Simulate customer reply endpoint executes full inbound pipeline and records message."""
-        contact = Contact.objects.create(
-            organization=self.org_a,
-            phone="+16502537788",
-            sms_status=Contact.SMSStatus.UNKNOWN,
-        )
-        conv = Conversation.objects.create(
-            organization=self.org_a,
-            contact=contact,
-            phone_number=self.phone_a,
-        )
-
-        self.client.force_login(self.user_a)
-        res = self.client.post(
-            f"/inbox/{conv.id}/simulate-reply/",
-            {"body": "Simulated reply from customer"},
-            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
-        )
-        self.assertEqual(res.status_code, 200)
-
-        # Inbound message exists
-        sim_msg = Message.objects.filter(conversation=conv, direction=Message.Direction.INBOUND).first()
-        self.assertIsNotNone(sim_msg)
-        self.assertEqual(sim_msg.body, "Simulated reply from customer")
-        self.assertEqual(sim_msg.sender_type, Message.SenderType.CUSTOMER)
-
-        # Conversation updated
-        conv.refresh_from_db()
-        self.assertIsNotNone(conv.last_inbound_at)
-        self.assertEqual(conv.unread_count, 1)
-
-        # Test STOP via simulator
-        res_stop = self.client.post(
-            f"/inbox/{conv.id}/simulate-reply/",
-            {"body": "STOP"},
-            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
-        )
-        self.assertEqual(res_stop.status_code, 200)
-        contact.refresh_from_db()
-        self.assertEqual(contact.sms_status, Contact.SMSStatus.OPTED_OUT)
-
     def test_start_new_chat_with_existing_contact(self):
         """Starting chat from modal with existing contact returns JSON conversation redirect."""
         contact = Contact.objects.create(
@@ -503,3 +460,117 @@ class MessagingTests(TestCase):
         )
         self.assertEqual(res.status_code, 400)
         self.assertIn("active phone number", res.json()["message"])
+
+    def test_inbox_assigned_filter(self):
+        """Testing server-side filtering for 'assigned=mine' and 'assigned=unassigned'."""
+        contact_1 = Contact.objects.create(
+            organization=self.org_a,
+            phone="+16505550001",
+            first_name="AssignedToUserA",
+            sms_status=Contact.SMSStatus.OPTED_IN,
+        )
+        contact_2 = Contact.objects.create(
+            organization=self.org_a,
+            phone="+16505550002",
+            first_name="UnassignedLead",
+            sms_status=Contact.SMSStatus.OPTED_IN,
+        )
+        conv_1 = Conversation.objects.create(
+            organization=self.org_a,
+            contact=contact_1,
+            phone_number=self.phone_a,
+            assigned_to=self.user_a,
+        )
+        conv_2 = Conversation.objects.create(
+            organization=self.org_a,
+            contact=contact_2,
+            phone_number=self.phone_a,
+            assigned_to=None,
+        )
+
+        self.client.force_login(self.user_a)
+
+        # 1. Filter assigned=mine
+        res = self.client.get("/inbox/?assigned=mine")
+        self.assertEqual(res.status_code, 200)
+        conv_ids = [c.id for c in res.context["conversations"]]
+        self.assertIn(conv_1.id, conv_ids)
+        self.assertNotIn(conv_2.id, conv_ids)
+
+        # 2. Filter assigned=unassigned
+        res_unassigned = self.client.get("/inbox/?assigned=unassigned")
+        self.assertEqual(res_unassigned.status_code, 200)
+        conv_unassigned_ids = [c.id for c in res_unassigned.context["conversations"]]
+        self.assertNotIn(conv_1.id, conv_unassigned_ids)
+        self.assertIn(conv_2.id, conv_unassigned_ids)
+
+    def test_inbox_search_match_snippet_clarification(self):
+        """When searching for text present in message history, matching snippet is attached to conversation."""
+        contact = Contact.objects.create(
+            organization=self.org_a,
+            phone="+16505550009",
+            first_name="Sam",
+            last_name="Taylor",
+            sms_status=Contact.SMSStatus.OPTED_IN,
+        )
+        conv = Conversation.objects.create(
+            organization=self.org_a,
+            contact=contact,
+            phone_number=self.phone_a,
+        )
+        # Message with search keyword
+        Message.objects.create(
+            organization=self.org_a,
+            conversation=conv,
+            direction=Message.Direction.INBOUND,
+            body="I need a commercial fleet policy discount",
+        )
+        # Later message without search keyword
+        Message.objects.create(
+            organization=self.org_a,
+            conversation=conv,
+            direction=Message.Direction.OUTBOUND,
+            body="Sounds good, let me check that for you.",
+        )
+
+        self.client.force_login(self.user_a)
+        res = self.client.get("/inbox/?q=commercial")
+        self.assertEqual(res.status_code, 200)
+        convs = res.context["conversations"]
+        self.assertEqual(len(convs), 1)
+        found_conv = convs[0]
+        self.assertEqual(found_conv.id, conv.id)
+        self.assertEqual(getattr(found_conv, "search_match_type", None), "message")
+        self.assertIn("commercial fleet policy discount", getattr(found_conv, "search_match_snippet", ""))
+        self.assertContains(res, "commercial fleet policy discount")
+
+    def test_inbox_search_live_endpoint(self):
+        """Testing the live asynchronous search endpoint /inbox/search/."""
+        contact = Contact.objects.create(
+            organization=self.org_a,
+            phone="+16505559988",
+            first_name="Marcus",
+            last_name="Brody",
+            sms_status=Contact.SMSStatus.OPTED_IN,
+        )
+        conv = Conversation.objects.create(
+            organization=self.org_a,
+            contact=contact,
+            phone_number=self.phone_a,
+        )
+        Message.objects.create(
+            organization=self.org_a,
+            conversation=conv,
+            direction=Message.Direction.INBOUND,
+            body="Can you quote comprehensive deductible 500",
+        )
+
+        self.client.force_login(self.user_a)
+        res = self.client.get(
+            "/inbox/search/?q=deductible",
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertContains(res, "Marcus")
+        self.assertContains(res, "comprehensive deductible 500")
+        self.assertContains(res, "🔍 Match:")

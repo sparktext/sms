@@ -1,8 +1,10 @@
+import json
 from datetime import timedelta
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError, PermissionDenied
-from django.http import JsonResponse, Http404
+from django.db.models import Q, Count, Prefetch
+from django.http import JsonResponse, Http404, HttpResponse
 from django.shortcuts import render, get_object_or_404, redirect
 from django.urls import reverse
 from django.views.decorators.http import require_POST
@@ -11,6 +13,8 @@ from django.contrib import messages
 
 from contacts.models import Contact
 from core.models import User
+from campaigns.models import CampaignTemplate
+from campaigns.services import ensure_default_campaign_templates
 from .models import PhoneNumber, Conversation, Message
 from .services import can_send_manual, send_message
 
@@ -20,13 +24,18 @@ def _setup_steps(org):
     reg_status = getattr(org, "registration_status", "")
     has_contacts = Contact.objects.filter(organization=org).exists() if org else False
     has_sent = Message.objects.filter(organization=org, direction=Message.Direction.OUTBOUND).exists() if org else False
+    has_ai = False
+    if org:
+        ai_cfg = getattr(org, "ai_config", None)
+        if ai_cfg and (ai_cfg.mode != "off" or ai_cfg.knowledge.strip()):
+            has_ai = True
 
     return [
         {"title": "Create your account", "desc": "Your company and login are ready.", "done": True, "url": ""},
-        {"title": "Add business details", "desc": "Legal name, EIN, address and website. Carriers check these.", "done": bool(getattr(org, "ein", "")), "url": "#"},
-        {"title": "Register with carriers", "desc": "Submit your brand and campaign so your texts can be delivered.", "done": reg_status == "approved", "url": "#"},
+        {"title": "Add business details", "desc": "Legal name, EIN, address and website. Carriers check these.", "done": bool(getattr(org, "ein", "")), "url": "/settings/profile/"},
+        {"title": "Register with carriers", "desc": "Submit your brand and campaign so your texts can be delivered.", "done": reg_status == "approved", "url": "/compliance/"},
         {"title": "Import your contacts", "desc": "Upload a CSV and record how each person agreed to receive texts.", "done": has_contacts, "url": "/contacts/"},
-        {"title": "Set up the AI Assistant", "desc": "Tell it about your business so it can answer customers.", "done": False, "url": "#"},
+        {"title": "Set up the AI Assistant", "desc": "Tell it about your business so it can answer customers.", "done": has_ai, "url": "/ai-assistant/"},
         {"title": "Send a test message", "desc": "Text your own phone to see the full flow.", "done": has_sent, "url": "/inbox/"},
     ]
 
@@ -46,6 +55,24 @@ def dashboard(request):
         "opt_outs": Contact.objects.filter(organization=org, sms_status=Contact.SMSStatus.OPTED_OUT).count() if org else 0,
     }
 
+    recent_conversations = []
+    if org:
+        from django.db.models import Prefetch
+        recent_conversations = list(
+            Conversation.objects.filter(organization=org)
+            .select_related("contact", "phone_number")
+            .prefetch_related(
+                Prefetch(
+                    "messages",
+                    queryset=Message.objects.order_by("-created_at"),
+                    to_attr="recent_messages",
+                )
+            )
+            .order_by("-last_message_at")[:6]
+        )
+        for c in recent_conversations:
+            c.last_msg = c.recent_messages[0] if getattr(c, "recent_messages", None) else None
+
     context = {
         "steps": steps,
         "steps_done": done,
@@ -53,20 +80,25 @@ def dashboard(request):
         "percent": int(done / len(steps) * 100) if steps else 0,
         "setup_complete": done == len(steps),
         "stats": stats,
+        "recent_conversations": recent_conversations,
     }
     return render(request, "messaging/dashboard.html", context)
 
 
-def _get_inbox_data(org, status_filter="open", q=""):
+def _get_inbox_data(org, status_filter="open", q="", user=None, assigned_filter=""):
     """Helper to fetch conversations, counts, and active phone numbers for the two-pane inbox."""
     valid_statuses = [Conversation.Status.OPEN, Conversation.Status.NEEDS_HUMAN, Conversation.Status.CLOSED]
-    conversations_qs = Conversation.objects.filter(organization=org).select_related("contact", "phone_number")
+    conversations_qs = Conversation.objects.filter(organization=org).select_related("contact", "phone_number", "assigned_to")
     
     if status_filter in valid_statuses:
         conversations_qs = conversations_qs.filter(status=status_filter)
 
+    if assigned_filter == "mine" and user:
+        conversations_qs = conversations_qs.filter(assigned_to=user)
+    elif assigned_filter == "unassigned":
+        conversations_qs = conversations_qs.filter(assigned_to__isnull=True)
+
     if q:
-        from django.db.models import Q
         conversations_qs = conversations_qs.filter(
             Q(contact__phone__icontains=q) |
             Q(contact__first_name__icontains=q) |
@@ -74,12 +106,47 @@ def _get_inbox_data(org, status_filter="open", q=""):
             Q(messages__body__icontains=q)
         ).distinct()
 
-    conversations = list(conversations_qs.order_by("-last_message_at"))
+    conversations_qs = conversations_qs.prefetch_related(
+        Prefetch(
+            "messages",
+            queryset=Message.objects.order_by("-created_at"),
+            to_attr="recent_messages",
+        )
+    )
 
+    conversations = list(conversations_qs.order_by("-last_message_at"))
+    for conv in conversations:
+        conv.cached_last_msg = conv.recent_messages[0] if getattr(conv, "recent_messages", None) else None
+
+        # Search match identification (Issue #5)
+        if q:
+            contact_text = f"{conv.contact.first_name} {conv.contact.last_name} {conv.contact.phone}".lower()
+            if q.lower() in contact_text:
+                conv.search_match_type = "contact"
+                conv.search_match_snippet = ""
+            else:
+                matching_msg = None
+                for m in getattr(conv, "recent_messages", []):
+                    if q.lower() in (m.body or "").lower():
+                        matching_msg = m
+                        break
+                if not matching_msg:
+                    matching_msg = Message.objects.filter(conversation=conv, body__icontains=q).order_by("-created_at").first()
+                if matching_msg:
+                    conv.search_match_type = "message"
+                    conv.search_match_snippet = matching_msg.body
+
+    # Group counts in 1 single SQL query instead of 3
+    status_counts_map = dict(
+        Conversation.objects.filter(organization=org)
+        .values("status")
+        .annotate(c=Count("id"))
+        .values_list("status", "c")
+    )
     counts = {
-        "open": Conversation.objects.filter(organization=org, status=Conversation.Status.OPEN).count(),
-        "needs_human": Conversation.objects.filter(organization=org, status=Conversation.Status.NEEDS_HUMAN).count(),
-        "closed": Conversation.objects.filter(organization=org, status=Conversation.Status.CLOSED).count(),
+        "open": status_counts_map.get(Conversation.Status.OPEN, 0),
+        "needs_human": status_counts_map.get(Conversation.Status.NEEDS_HUMAN, 0),
+        "closed": status_counts_map.get(Conversation.Status.CLOSED, 0),
     }
     active_phone_numbers = list(
         PhoneNumber.objects.filter(organization=org, is_active=True).order_by("-is_default", "label", "e164")
@@ -87,7 +154,22 @@ def _get_inbox_data(org, status_filter="open", q=""):
     has_active_number = len(active_phone_numbers) > 0
     all_contacts = list(Contact.objects.filter(organization=org).order_by("first_name", "last_name", "phone")[:100])
 
-    return conversations, counts, has_active_number, all_contacts, active_phone_numbers
+    ensure_default_campaign_templates(org)
+    quick_replies_qs = CampaignTemplate.objects.filter(
+        organization=org,
+        category=CampaignTemplate.Category.QUICK_REPLY,
+    ).order_by("id")
+    quick_replies_data = [
+        {
+            "id": qr.id,
+            "label": qr.name,
+            "text": qr.body,
+        }
+        for qr in quick_replies_qs
+    ]
+    quick_replies_json = json.dumps(quick_replies_data)
+
+    return conversations, counts, has_active_number, all_contacts, active_phone_numbers, quick_replies_json
 
 
 @login_required
@@ -101,22 +183,65 @@ def inbox(request):
         raise PermissionDenied("User is not associated with an organization.")
 
     status_filter = request.GET.get("status", "open").strip().lower()
+    assigned_filter = request.GET.get("assigned", "").strip().lower()
     q = request.GET.get("q", "").strip()
-    conversations, counts, has_active_number, all_contacts, active_phone_numbers = _get_inbox_data(org, status_filter, q)
+    conversations, counts, has_active_number, all_contacts, active_phone_numbers, quick_replies_json = _get_inbox_data(
+        org, status_filter, q, user=request.user, assigned_filter=assigned_filter
+    )
 
     context = {
         "conversations": conversations,
         "conversation": None,
-        "messages": [],
+        "chat_messages": [],
         "status_filter": status_filter,
+        "assigned_filter": assigned_filter,
         "q": q,
         "counts": counts,
         "has_active_number": has_active_number,
         "active_phone_numbers": active_phone_numbers,
         "all_contacts": all_contacts,
+        "quick_replies_json": quick_replies_json,
         "is_debug": getattr(settings, "DEBUG", False),
     }
     return render(request, "messaging/inbox.html", context)
+
+
+@login_required
+def inbox_search(request):
+    """
+    Live asynchronous search endpoint:
+    Searches contact names, phones, and full historical message content across the organization.
+    Returns rendered HTML conversation item rows for instant replacement in the left pane.
+    """
+    org = request.user.organization
+    if not org:
+        return HttpResponse("")
+
+    status_filter = request.GET.get("status", "open").strip().lower()
+    assigned_filter = request.GET.get("assigned", "").strip().lower()
+    q = request.GET.get("q", "").strip()
+
+    conversations, _, _, _, _, _ = _get_inbox_data(
+        org, status_filter=status_filter, q=q, user=request.user, assigned_filter=assigned_filter
+    )
+
+    active_id = request.GET.get("active_id")
+    active_conv = None
+    if active_id:
+        try:
+            active_conv = Conversation.objects.filter(id=int(active_id), organization=org).first()
+        except (ValueError, TypeError):
+            pass
+
+    context = {
+        "conversations": conversations,
+        "conversation": active_conv,
+        "status_filter": status_filter,
+        "assigned_filter": assigned_filter,
+        "q": q,
+        "request": request,
+    }
+    return render(request, "messaging/inbox_conversation_items.html", context)
 
 
 @login_required
@@ -142,6 +267,7 @@ def conversation_detail(request, conversation_id):
         conversation.save(update_fields=["unread_count"])
 
     status_filter = request.GET.get("status", "").strip().lower()
+    assigned_filter = request.GET.get("assigned", "").strip().lower()
     q = request.GET.get("q", "").strip()
     valid_statuses = [Conversation.Status.OPEN, Conversation.Status.NEEDS_HUMAN, Conversation.Status.CLOSED]
 
@@ -150,16 +276,25 @@ def conversation_detail(request, conversation_id):
         matching_conv = Conversation.objects.filter(
             organization=org,
             status=status_filter,
-        ).order_by("-last_message_at", "-created_at").first()
+        )
+        if assigned_filter == "mine":
+            matching_conv = matching_conv.filter(assigned_to=request.user)
+        elif assigned_filter == "unassigned":
+            matching_conv = matching_conv.filter(assigned_to__isnull=True)
+
+        matching_conv = matching_conv.order_by("-last_message_at", "-created_at").first()
+        assign_query = f"&assigned={assigned_filter}" if assigned_filter else ""
         if matching_conv:
-            return redirect(f"{reverse('messaging:conversation_detail', kwargs={'conversation_id': matching_conv.id})}?status={status_filter}")
+            return redirect(f"{reverse('messaging:conversation_detail', kwargs={'conversation_id': matching_conv.id})}?status={status_filter}{assign_query}")
         else:
-            return redirect(f"{reverse('messaging:inbox')}?status={status_filter}")
+            return redirect(f"{reverse('messaging:inbox')}?status={status_filter}{assign_query}")
 
     if status_filter not in valid_statuses:
         status_filter = conversation.status
 
-    conversations, counts, has_active_number, all_contacts, active_phone_numbers = _get_inbox_data(org, status_filter, q)
+    conversations, counts, has_active_number, all_contacts, active_phone_numbers, quick_replies_json = _get_inbox_data(
+        org, status_filter, q, user=request.user, assigned_filter=assigned_filter
+    )
 
     messages_qs = conversation.messages.select_related("sent_by").order_by("created_at")
     message_list = list(messages_qs)
@@ -171,16 +306,18 @@ def conversation_detail(request, conversation_id):
     context = {
         "conversations": conversations,
         "conversation": conversation,
-        "messages": message_list,
+        "chat_messages": message_list,
         "can_send": can_send,
         "block_reason": block_reason,
         "status_filter": status_filter,
+        "assigned_filter": assigned_filter,
         "q": q,
         "counts": counts,
         "has_active_number": has_active_number,
         "active_phone_numbers": active_phone_numbers,
         "all_contacts": all_contacts,
         "org_members": org_members,
+        "quick_replies_json": quick_replies_json,
         "is_debug": getattr(settings, "DEBUG", False),
     }
     return render(request, "messaging/inbox.html", context)
@@ -421,6 +558,33 @@ def start_new_chat(request):
 
     return redirect("messaging:conversation_detail", conversation_id=conversation.id)
 
+
+
+@login_required
+def ai_assistant_ping(request):
+    """
+    Lightweight health check endpoint to verify whether the configured LLM backend
+    (e.g., LM Studio at localhost:1235) is reachable.
+    """
+    import requests
+    base_url = getattr(settings, "AI_BASE_URL", "http://localhost:1235/v1").rstrip("/")
+    model = getattr(settings, "AI_MODEL", "google/gemma-4-12b-qat")
+    try:
+        resp = requests.get(f"{base_url}/models", timeout=1.5)
+        if resp.status_code == 200:
+            return JsonResponse({
+                "status": "online",
+                "base_url": base_url,
+                "model": model,
+            })
+    except Exception as exc:
+        return JsonResponse({
+            "status": "offline",
+            "base_url": base_url,
+            "model": model,
+            "error": str(exc),
+        })
+    return JsonResponse({"status": "offline", "base_url": base_url, "model": model})
 
 
 @login_required
@@ -790,3 +954,70 @@ def update_conversation_assigned_to(request, conversation_id):
         "assigned_to": assigned_name,
         "conversation_id": conversation.id,
     })
+
+
+@login_required
+def inbox_live_feed(request):
+    """
+    Lightweight polling endpoint: returns recent conversation activity for the
+    left-sidebar list. The browser polls this every 5 seconds and updates
+    conversation cards without a full page reload.
+
+    Returns up to 30 conversations updated in the last 60 seconds as JSON,
+    ordered newest-first.
+    """
+    org = request.user.organization
+    if not org:
+        return JsonResponse({"conversations": []})
+
+    since = timezone.now() - timedelta(seconds=60)
+    convs = (
+        Conversation.objects
+        .filter(organization=org, last_message_at__gte=since)
+        .select_related("contact")
+        .order_by("-last_message_at")[:30]
+    )
+
+    result = []
+    for c in convs:
+        contact = c.contact
+        first = (contact.first_name or "").strip()
+        last = (contact.last_name or "").strip()
+        contact_name = f"{first} {last}".strip() or contact.phone
+
+        initials = (first[:1] or last[:1] or "#").upper()
+
+        last_msg = c.messages.order_by("-created_at").first()
+        last_body = ""
+        direction = ""
+        if last_msg:
+            last_body = last_msg.body or ""
+            direction = last_msg.direction or ""
+
+        result.append({
+            "id": c.id,
+            "contact_name": contact_name,
+            "contact_initials": initials,
+            "last_body": last_body[:120],
+            "direction": direction,
+            "last_message_at_epoch": int(c.last_message_at.timestamp()) if c.last_message_at else 0,
+            "last_message_at_display": _timesince_short(c.last_message_at),
+            "unread_count": c.unread_count or 0,
+        })
+
+    return JsonResponse({"conversations": result})
+
+
+def _timesince_short(dt):
+    """Returns a compact timesince string like '2m ago' or 'just now'."""
+    if not dt:
+        return ""
+    delta = timezone.now() - dt
+    total_seconds = int(delta.total_seconds())
+    if total_seconds < 60:
+        return "just now"
+    if total_seconds < 3600:
+        return f"{total_seconds // 60}m ago"
+    if total_seconds < 86400:
+        return f"{total_seconds // 3600}h ago"
+    return f"{total_seconds // 86400}d ago"

@@ -154,5 +154,25 @@ def send_message(
     conversation.last_message_at = timezone.now()
     conversation.save(update_fields=["last_message_at"])
 
+    # Real-time WebSocket broadcast to open conversation windows
+    try:
+        from .ws_broadcast import broadcast_chat_event
+        broadcast_chat_event(
+            conversation.id,
+            {
+                "event": "new_message",
+                "message": {
+                    "id": message.id,
+                    "body": message.body,
+                    "direction": message.direction,
+                    "sender_type": message.sender_type,
+                    "created_at": (message.sent_at or timezone.now()).strftime("%I:%M %p"),
+                    "status": message.status,
+                },
+            },
+        )
+    except Exception as exc:
+        logger.warning("Failed to broadcast outbound message %s: %s", message.id, exc)
+
     return message
 

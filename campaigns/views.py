@@ -2,21 +2,19 @@ import json
 from datetime import datetime
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
-from django.views.decorators.http import require_POST, require_http_methods
+from django.views.decorators.http import require_POST, require_GET, require_http_methods
 from django.http import JsonResponse, Http404
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
 from django.utils import timezone
 from django.contrib import messages
-from django.db.models import Count, Q
+from django.db.models import Count, Q, Sum
 
 from core.models import Organization
 from contacts.models import Contact, ContactList, ContactField
 from compliance.services import can_send_marketing
 from messaging.models import PhoneNumber
-from templates_app.models import MessageTemplate
-from templates_app.defaults import ensure_default_templates
-from .models import Campaign, CampaignRecipient
+from .models import Campaign, CampaignRecipient, CampaignTemplate, MessageTemplate
 from .services import (
     render_campaign_message,
     resolve_campaign_contacts,
@@ -24,6 +22,9 @@ from .services import (
     process_campaign_batch,
     cancel_campaign,
     check_and_dispatch_due_campaigns,
+    ensure_default_campaign_templates,
+    ensure_default_templates,
+    DEFAULT_CAMPAIGN_TEMPLATES,
 )
 
 
@@ -57,13 +58,20 @@ def campaign_list(request):
     # Summary metrics
     all_campaigns = Campaign.objects.filter(organization=org)
     total_campaigns = all_campaigns.count()
-    total_sent = sum(c.sent_count for c in all_campaigns)
-    total_delivered = sum(c.delivered_count for c in all_campaigns)
+    aggregates = all_campaigns.aggregate(
+        total_sent=Sum("sent_count"),
+        total_delivered=Sum("delivered_count"),
+    )
+    total_sent = aggregates["total_sent"] or 0
+    total_delivered = aggregates["total_delivered"] or 0
     overall_delivery_rate = int((total_delivered / total_sent * 100)) if total_sent > 0 else 100
 
     paginator = Paginator(campaigns_qs, 15)
     page_number = request.GET.get("page", 1)
     page_obj = paginator.get_page(page_number)
+
+    ensure_default_campaign_templates(org)
+    templates_count = CampaignTemplate.objects.filter(organization=org).count()
 
     context = {
         "page_obj": page_obj,
@@ -73,6 +81,7 @@ def campaign_list(request):
         "total_sent": total_sent,
         "total_delivered": total_delivered,
         "overall_delivery_rate": overall_delivery_rate,
+        "templates_count": templates_count,
         "statuses": Campaign.Status.choices,
     }
     return render(request, "campaigns/campaign_list.html", context)
@@ -337,4 +346,257 @@ def audience_preview_ajax(request):
         "will_send": opted_in,
         "will_skip": total - opted_in,
     })
+
+
+# =========================================================================
+# CAMPAIGN TEMPLATES MANAGEMENT
+# =========================================================================
+
+def _is_ajax(request) -> bool:
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return True
+    accept = request.headers.get("Accept", "")
+    if "application/json" in accept and "text/html" not in accept:
+        return True
+    return False
+
+
+@login_required
+def templates_index(request):
+    """
+    Templates dashboard inside Campaigns.
+    """
+    org = request.user.organization
+    if not org:
+        messages.error(request, "No organization associated with this account.")
+        return redirect("messaging:dashboard")
+
+    ensure_default_campaign_templates(org)
+
+    templates_qs = CampaignTemplate.objects.filter(organization=org)
+
+    total_count = templates_qs.count()
+    marketing_count = templates_qs.filter(category=CampaignTemplate.Category.MARKETING).count()
+    quick_reply_count = templates_qs.filter(category=CampaignTemplate.Category.QUICK_REPLY).count()
+    follow_up_count = templates_qs.filter(category=CampaignTemplate.Category.FOLLOW_UP).count()
+    transactional_count = templates_qs.filter(category=CampaignTemplate.Category.TRANSACTIONAL).count()
+
+    selected_category = request.GET.get("category", "").strip()
+    if selected_category and selected_category != "all":
+        templates_qs = templates_qs.filter(category=selected_category)
+
+    q = request.GET.get("q", "").strip()
+    if q:
+        templates_qs = templates_qs.filter(
+            Q(name__icontains=q) | Q(body__icontains=q)
+        )
+
+    context = {
+        "org": org,
+        "templates": templates_qs,
+        "selected_category": selected_category or "all",
+        "q": q,
+        "counts": {
+            "all": total_count,
+            "marketing": marketing_count,
+            "quick_reply": quick_reply_count,
+            "follow_up": follow_up_count,
+            "transactional": transactional_count,
+        },
+        "category_choices": CampaignTemplate.Category.choices,
+    }
+    return render(request, "campaigns/templates_index.html", context)
+
+
+@login_required
+@require_POST
+def template_create(request):
+    org = request.user.organization
+    if not org:
+        return JsonResponse({"status": "error", "message": "No organization."}, status=400)
+
+    name = request.POST.get("name", "").strip()
+    category = request.POST.get("category", CampaignTemplate.Category.MARKETING).strip()
+    body = request.POST.get("body", "").strip()
+
+    if not name:
+        return JsonResponse({"status": "error", "message": "Template name is required."}, status=400)
+    if not body:
+        return JsonResponse({"status": "error", "message": "Template message body is required."}, status=400)
+
+    valid_cats = [c[0] for c in CampaignTemplate.Category.choices]
+    if category not in valid_cats:
+        category = CampaignTemplate.Category.MARKETING
+
+    template = CampaignTemplate.objects.create(
+        organization=org,
+        name=name,
+        category=category,
+        body=body,
+        created_by=request.user,
+    )
+
+    if _is_ajax(request):
+        return JsonResponse({
+            "status": "success",
+            "message": f"Template '{template.name}' created.",
+            "template": {
+                "id": template.id,
+                "name": template.name,
+                "category": template.category,
+                "body": template.body,
+                "char_count": template.character_count,
+                "segment_count": template.segment_count,
+            }
+        }, status=201)
+
+    messages.success(request, f"Template '{template.name}' created.")
+    return redirect("campaigns:templates")
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def template_edit(request, template_id):
+    org = request.user.organization
+    if not org:
+        return JsonResponse({"status": "error", "message": "No organization."}, status=400)
+
+    template = get_object_or_404(CampaignTemplate, id=template_id, organization=org)
+
+    if request.method == "GET":
+        return JsonResponse({
+            "status": "success",
+            "template": {
+                "id": template.id,
+                "name": template.name,
+                "category": template.category,
+                "body": template.body,
+                "char_count": template.character_count,
+                "segment_count": template.segment_count,
+            }
+        })
+
+    name = request.POST.get("name", "").strip()
+    category = request.POST.get("category", template.category).strip()
+    body = request.POST.get("body", "").strip()
+
+    if not name:
+        return JsonResponse({"status": "error", "message": "Template name is required."}, status=400)
+    if not body:
+        return JsonResponse({"status": "error", "message": "Template message body is required."}, status=400)
+
+    valid_cats = [c[0] for c in CampaignTemplate.Category.choices]
+    if category not in valid_cats:
+        category = CampaignTemplate.Category.MARKETING
+
+    template.name = name
+    template.category = category
+    template.body = body
+    template.save()
+
+    if _is_ajax(request):
+        return JsonResponse({
+            "status": "success",
+            "message": f"Template '{template.name}' updated.",
+            "template": {
+                "id": template.id,
+                "name": template.name,
+                "category": template.category,
+                "body": template.body,
+                "char_count": template.character_count,
+                "segment_count": template.segment_count,
+            }
+        })
+
+    messages.success(request, f"Template '{template.name}' updated.")
+    return redirect("campaigns:templates")
+
+
+@login_required
+@require_POST
+def template_delete(request, template_id):
+    org = request.user.organization
+    if not org:
+        return JsonResponse({"status": "error", "message": "No organization."}, status=400)
+
+    template = get_object_or_404(CampaignTemplate, id=template_id, organization=org)
+    name = template.name
+    template.delete()
+
+    if _is_ajax(request):
+        return JsonResponse({"status": "success", "message": f"Template '{name}' deleted."})
+
+    messages.success(request, f"Template '{name}' deleted.")
+    return redirect("campaigns:templates")
+
+
+@login_required
+@require_GET
+def templates_api_list(request):
+    """
+    JSON API for loading templates in Campaign Creator or Inbox Quick Replies.
+    """
+    org = request.user.organization
+    if not org:
+        return JsonResponse({"status": "error", "message": "No organization."}, status=400)
+
+    ensure_default_campaign_templates(org)
+
+    category = request.GET.get("category", "").strip()
+    qs = CampaignTemplate.objects.filter(organization=org)
+    if category:
+        qs = qs.filter(category=category)
+
+    data = [
+        {
+            "id": t.id,
+            "name": t.name,
+            "category": t.category,
+            "category_label": t.get_category_display(),
+            "body": t.body,
+            "character_count": t.character_count,
+            "segment_count": t.segment_count,
+            "merge_tags": t.merge_tags,
+        }
+        for t in qs
+    ]
+    return JsonResponse({"status": "success", "templates": data})
+
+
+@login_required
+@require_POST
+def templates_reset_defaults(request):
+    """
+    Restore default starter templates for the organization.
+    If 'category' is specified in POST, only templates in that category are reset.
+    """
+    org = request.user.organization
+    if not org:
+        return JsonResponse({"status": "error", "message": "No organization."}, status=400)
+
+    category = request.POST.get("category", "").strip()
+    if category:
+        CampaignTemplate.objects.filter(organization=org, category=category).delete()
+        to_create = [
+            CampaignTemplate(
+                organization=org,
+                name=item["name"],
+                category=item["category"],
+                body=item["body"],
+                is_default=True,
+            )
+            for item in DEFAULT_CAMPAIGN_TEMPLATES
+            if item["category"] == category
+        ]
+        CampaignTemplate.objects.bulk_create(to_create)
+    else:
+        CampaignTemplate.objects.filter(organization=org).delete()
+        ensure_default_campaign_templates(org)
+
+    return JsonResponse({
+        "status": "success",
+        "message": f"Default templates restored{' for ' + category if category else ''}."
+    })
+
+
 

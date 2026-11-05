@@ -1,0 +1,52 @@
+{% extends "core/base_auth.html" %}
+
+{% block title %}Accept Invitation · SparkText{% endblock %}
+
+{% block content %}
+<h1>Join {{ invite.organization.name }}</h1>
+<p class="sub">You've been invited by {% if invite.invited_by %}{{ invite.invited_by.first_name|default:invite.invited_by.email }}{% else %}your team{% endif %} to join as an <strong>{{ invite.get_role_display }}</strong>.</p>
+
+{% if error %}
+  <div class="alert" role="alert">{{ error }}</div>
+{% endif %}
+
+<form method="post" autocomplete="off" novalidate>
+  {% csrf_token %}
+
+  <div class="field">
+    <label>Email Address</label>
+    <input type="email" value="{{ invite.email }}" disabled style="background:#f8fafc; color:#64748b; cursor:not-allowed;">
+  </div>
+
+  <div class="row">
+    <div class="field">
+      <label for="first_name">First Name *</label>
+      <input type="text" id="first_name" name="first_name" value="{{ first_name|default:'' }}" required autocomplete="off" placeholder="First name">
+    </div>
+    <div class="field">
+      <label for="last_name">Last Name</label>
+      <input type="text" id="last_name" name="last_name" value="{{ last_name|default:'' }}" autocomplete="off" placeholder="Last name">
+    </div>
+  </div>
+
+  <div class="field">
+    <label for="password">Create Password (at least 8 chars) *</label>
+    <input type="password" id="password" name="password" required placeholder="••••••••">
+  </div>
+
+  <div class="field">
+    <label for="confirm_password">Confirm Password *</label>
+    <input type="password" id="confirm_password" name="confirm_password" required placeholder="••••••••">
+  </div>
+
+  <div class="field check" style="margin-top:16px; margin-bottom:20px;">
+    <input type="checkbox" id="terms" required checked>
+    <label for="terms">I agree to SparkText's Terms of Service and Privacy Policy</label>
+  </div>
+
+  <button class="btn" type="submit">Accept Invitation &amp; Join Team</button>
+</form>
+
+<p class="alt">Already have an active login? <a href="{% url 'login' %}">Sign in here</a></p>
+{% endblock %}
+

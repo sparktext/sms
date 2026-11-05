@@ -1,0 +1,283 @@
+{% extends "messaging/base_app.html" %}
+
+{% block title %}Company Profile · Settings · SparkText{% endblock %}
+
+{% block header_title %}Settings{% endblock %}
+{% block header_subtitle %}Manage your legal business entity, physical address, sending timezone, and notification contacts{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto space-y-6 pb-12">
+
+  <!-- Settings Sub-navigation Tabs -->
+  <div class="flex items-center gap-2 border-b border-gray-200 pb-3">
+    <a
+      href="{% url 'company_profile' %}"
+      class="px-3.5 py-1.5 text-xs font-semibold rounded-lg text-brand-700 bg-brand-50 border border-brand-200"
+    >
+      🏢 Company Profile
+    </a>
+    <a
+      href="{% url 'team_members' %}"
+      class="px-3.5 py-1.5 text-xs font-semibold rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition whitespace-nowrap"
+    >
+      👥 Team Members
+    </a>
+    <a
+      href="{% url 'lead_routing_settings' %}"
+      class="px-3.5 py-1.5 text-xs font-semibold rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition whitespace-nowrap"
+    >
+      🎯 Lead Routing
+    </a>
+    <a
+      href="{% url 'messaging:phone_numbers_settings' %}"
+      class="px-3.5 py-1.5 text-xs font-semibold rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition whitespace-nowrap"
+    >
+      📞 Phone Numbers & Routing
+    </a>
+  </div>
+
+  {% if not is_admin %}
+  <div class="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs flex items-center gap-2.5">
+    <span>🔒</span>
+    <span>You have read-only access to Company Profile. Only Organization Owners and Admins can update these settings.</span>
+  </div>
+  {% endif %}
+
+  <!-- Main Profile Form -->
+  <form method="post" action="{% url 'company_profile' %}" class="space-y-6">
+    {% csrf_token %}
+
+    <!-- Entity & Brand Info -->
+    <div class="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-2xs">
+      <div class="p-5 border-b border-gray-100">
+        <h3 class="text-sm font-bold text-gray-900 flex items-center gap-2">
+          <span>🏢</span> Business Entity Details
+        </h3>
+        <p class="text-xs text-gray-500 mt-0.5">Legal business name, tax identification, and corporate web address.</p>
+      </div>
+
+      <div class="p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs font-bold text-gray-700 mb-1">Company Legal Name *</label>
+          <input
+            type="text"
+            name="name"
+            value="{{ org.name }}"
+            required
+            {% if not is_admin %}disabled{% endif %}
+            class="w-full px-3 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900 font-medium disabled:bg-gray-50 disabled:text-gray-500"
+          />
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-gray-700 mb-1">Website URL</label>
+          <input
+            type="url"
+            name="website"
+            value="{{ org.website }}"
+            placeholder="https://example.com"
+            {% if not is_admin %}disabled{% endif %}
+            class="w-full px-3 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900 disabled:bg-gray-50 disabled:text-gray-500"
+          />
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-gray-700 mb-1">Employer Identification Number (EIN / Tax ID)</label>
+          <input
+            type="text"
+            name="ein"
+            value="{{ org.ein }}"
+            placeholder="XX-XXXXXXX"
+            {% if not is_admin %}disabled{% endif %}
+            class="w-full px-3 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900 font-mono disabled:bg-gray-50 disabled:text-gray-500"
+          />
+          <p class="text-[11px] text-gray-400 mt-1">Required for 10DLC Tier-1 carrier vetting (AT&T, Verizon, T-Mobile).</p>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-gray-700 mb-1">Support / Contact Phone</label>
+          <input
+            type="text"
+            name="support_phone"
+            value="{{ org.support_phone }}"
+            placeholder="+1 (800) 555-0199"
+            {% if not is_admin %}disabled{% endif %}
+            class="w-full px-3 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900 disabled:bg-gray-50 disabled:text-gray-500"
+          />
+        </div>
+      </div>
+    </div>
+
+    <!-- Physical Mailing Address -->
+    <div class="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-2xs">
+      <div class="p-5 border-b border-gray-100">
+        <h3 class="text-sm font-bold text-gray-900 flex items-center gap-2">
+          <span>📍</span> Physical Business Address
+        </h3>
+        <p class="text-xs text-gray-500 mt-0.5">Used on required carrier registrations and customer opt-out notices.</p>
+      </div>
+
+      <div class="p-5 space-y-3.5">
+        <div>
+          <label class="block text-xs font-bold text-gray-700 mb-1">Street Address</label>
+          <input
+            type="text"
+            name="address_street"
+            value="{{ org.address_street }}"
+            placeholder="e.g. 475 El Camino Real, Suite 301"
+            {% if not is_admin %}disabled{% endif %}
+            class="w-full px-3 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900 disabled:bg-gray-50 disabled:text-gray-500"
+          />
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label class="block text-xs font-bold text-gray-700 mb-1">City</label>
+            <input
+              type="text"
+              name="address_city"
+              value="{{ org.address_city }}"
+              placeholder="e.g. Millbrae"
+              {% if not is_admin %}disabled{% endif %}
+              class="w-full px-3 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900 disabled:bg-gray-50 disabled:text-gray-500"
+            />
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold text-gray-700 mb-1">State / Province</label>
+            <input
+              type="text"
+              name="address_state"
+              value="{{ org.address_state }}"
+              placeholder="e.g. CA"
+              {% if not is_admin %}disabled{% endif %}
+              class="w-full px-3 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900 disabled:bg-gray-50 disabled:text-gray-500"
+            />
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold text-gray-700 mb-1">ZIP / Postal Code</label>
+            <input
+              type="text"
+              name="address_postal_code"
+              value="{{ org.address_postal_code }}"
+              placeholder="e.g. 94030"
+              {% if not is_admin %}disabled{% endif %}
+              class="w-full px-3 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900 font-mono disabled:bg-gray-50 disabled:text-gray-500"
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Timezone & Quiet Hours -->
+    <div class="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-2xs">
+      <div class="p-5 border-b border-gray-100">
+        <h3 class="text-sm font-bold text-gray-900 flex items-center gap-2">
+          <span>⏰</span> Sending Timezone & Quiet Hours
+        </h3>
+        <p class="text-xs text-gray-500 mt-0.5">Automates TCPA compliance rules for broadcast campaigns.</p>
+      </div>
+
+      <div class="p-5 space-y-4">
+        <div>
+          <label class="block text-xs font-bold text-gray-700 mb-1">Default Business Timezone *</label>
+          <select
+            name="timezone"
+            {% if not is_admin %}disabled{% endif %}
+            class="w-full px-3 py-2 text-xs bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900 font-medium disabled:bg-gray-50 disabled:text-gray-500"
+          >
+            {% for code, label in timezones %}
+            <option value="{{ code }}" {% if org.timezone == code %}selected{% endif %}>
+              {{ label }}
+            </option>
+            {% endfor %}
+          </select>
+          <p class="text-[11px] text-gray-400 mt-1">
+            Current server time in this zone: <span class="font-mono text-gray-600 font-semibold">{% now "g:i A, T" %}</span>
+          </p>
+        </div>
+
+        <div class="p-3.5 rounded-xl bg-brand-50/70 border border-brand-100 text-brand-900 text-xs flex items-start gap-2.5">
+          <span class="text-base mt-0.5">🛡️</span>
+          <div>
+            <strong class="font-bold">Automated TCPA Quiet Hours Guard:</strong>
+            <p class="text-brand-800 text-[11px] mt-0.5 leading-relaxed">
+              Federal telemarketing regulations forbid non-emergency automated marketing text messages before 8:00 AM or after 9:00 PM local recipient time. Scheduled campaigns automatically queue safely within active hours.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Notifications -->
+    <div class="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-2xs">
+      <div class="p-5 border-b border-gray-100">
+        <h3 class="text-sm font-bold text-gray-900 flex items-center gap-2">
+          <span>📬</span> Alerts & Notifications
+        </h3>
+        <p class="text-xs text-gray-500 mt-0.5">Centralized email address for incoming lead alerts, customer replies, and compliance reports.</p>
+      </div>
+
+      <div class="p-5">
+        <label class="block text-xs font-bold text-gray-700 mb-1">Notification Email</label>
+        <input
+          type="email"
+          name="notification_email"
+          value="{{ org.notification_email }}"
+          placeholder="alerts@yourcompany.com"
+          {% if not is_admin %}disabled{% endif %}
+          class="w-full max-w-md px-3 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900 disabled:bg-gray-50 disabled:text-gray-500"
+        />
+      </div>
+    </div>
+
+    <!-- Carrier Registration Trust Status (10DLC) -->
+    <div class="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-2xs">
+      <div class="p-5 border-b border-gray-100 flex items-center justify-between">
+        <div>
+          <h3 class="text-sm font-bold text-gray-900 flex items-center gap-2">
+            <span>📡</span> Carrier 10DLC Trust Status
+          </h3>
+          <p class="text-xs text-gray-500 mt-0.5">The Campaign Registry (TCR) brand and messaging campaign IDs.</p>
+        </div>
+        <a href="{% url 'compliance:dashboard' %}" class="text-xs font-semibold text-brand-600 hover:text-brand-800">
+          Open Compliance →
+        </a>
+      </div>
+
+      <div class="p-5 grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+        <div class="p-3 bg-gray-50 rounded-xl border border-gray-100">
+          <span class="text-gray-400 block text-[11px] mb-1">Registration Status</span>
+          <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider {% if org.registration_status == 'approved' %}bg-emerald-50 text-emerald-700 border border-emerald-200{% elif org.registration_status == 'in_review' %}bg-amber-50 text-amber-700 border border-amber-200{% else %}bg-gray-100 text-gray-600{% endif %}">
+            {{ org.get_registration_status_display }}
+          </span>
+        </div>
+
+        <div class="p-3 bg-gray-50 rounded-xl border border-gray-100">
+          <span class="text-gray-400 block text-[11px] mb-1">TCR Brand SID</span>
+          <span class="font-mono text-gray-700 font-medium">{{ org.brand_sid|default:"Pending submission" }}</span>
+        </div>
+
+        <div class="p-3 bg-gray-50 rounded-xl border border-gray-100">
+          <span class="text-gray-400 block text-[11px] mb-1">10DLC Campaign SID</span>
+          <span class="font-mono text-gray-700 font-medium">{{ org.campaign_sid|default:"Pending submission" }}</span>
+        </div>
+      </div>
+    </div>
+
+    {% if is_admin %}
+    <div class="flex items-center justify-end gap-3 pt-2">
+      <button
+        type="submit"
+        class="px-5 py-2.5 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-2xs cursor-pointer flex items-center gap-2"
+      >
+        <span>💾</span>
+        <span>Save Company Profile</span>
+      </button>
+    </div>
+    {% endif %}
+  </form>
+</div>
+{% endblock %}
+

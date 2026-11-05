@@ -1,0 +1,328 @@
+{% extends "messaging/base_app.html" %}
+
+{% block title %}Lead Routing & Distribution · SparkText{% endblock %}
+
+{% block page_title %}Settings{% endblock %}
+{% block page_subtitle %}Organization configuration and sales lead distribution{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto space-y-6 pb-12">
+
+  <!-- Settings Sub-navigation Tabs -->
+  <div class="flex items-center gap-2 border-b border-gray-200 pb-3 overflow-x-auto">
+    <a
+      href="{% url 'company_profile' %}"
+      class="px-3.5 py-1.5 text-xs font-semibold rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition whitespace-nowrap"
+    >
+      🏢 Company Profile
+    </a>
+    <a
+      href="{% url 'team_members' %}"
+      class="px-3.5 py-1.5 text-xs font-semibold rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition whitespace-nowrap"
+    >
+      👥 Team Members
+    </a>
+    <a
+      href="{% url 'lead_routing_settings' %}"
+      class="px-3.5 py-1.5 text-xs font-semibold rounded-lg text-brand-700 bg-brand-50 border border-brand-200 whitespace-nowrap"
+    >
+      🎯 Lead Routing
+    </a>
+    <a
+      href="{% url 'messaging:phone_numbers_settings' %}"
+      class="px-3.5 py-1.5 text-xs font-semibold rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition whitespace-nowrap"
+    >
+      📞 Phone Numbers & Routing
+    </a>
+  </div>
+
+  <form method="post" id="routingSettingsForm" class="space-y-6">
+    {% csrf_token %}
+
+    <!-- Strategy Selection Card -->
+    <div class="bg-white rounded-2xl border border-gray-200 shadow-2xs overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-gray-50/60 to-white">
+        <div>
+          <h2 class="text-sm font-bold text-gray-900 flex items-center gap-2">
+            <span>🎯</span> Lead Distribution Strategy
+          </h2>
+          <p class="text-xs text-gray-500">How should inbound qualified leads and AI handoffs be assigned to sales reps?</p>
+        </div>
+        <span class="text-[11px] font-semibold text-gray-400">Step 1 of 2</span>
+      </div>
+
+      <div class="p-6 space-y-4">
+        <!-- Option 1: Workload-Balanced -->
+        <label class="relative flex items-start gap-4 p-4 rounded-xl border transition cursor-pointer {% if org.lead_routing_strategy == 'workload_balanced' %}border-brand-500 bg-brand-50/20 ring-1 ring-brand-500/20{% else %}border-gray-200 hover:border-gray-300 hover:bg-gray-50/50{% endif %}">
+          <input
+            type="radio"
+            name="lead_routing_strategy"
+            value="workload_balanced"
+            class="mt-1 text-brand-600 focus:ring-brand-500"
+            {% if org.lead_routing_strategy == 'workload_balanced' %}checked{% endif %}
+            {% if not is_admin %}disabled{% endif %}
+          >
+          <div class="flex-1 space-y-1">
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-bold text-gray-900">Workload-Balanced (Least Busy Rep)</span>
+              <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">Recommended</span>
+            </div>
+            <p class="text-xs text-gray-600 leading-relaxed">
+              Assigns new qualified leads to whichever available sales rep currently has the <strong>fewest open conversations</strong>. Ties are broken fairly by who has waited longest since their last lead.
+            </p>
+            <div class="flex items-center gap-4 pt-1 text-[11px] text-gray-500">
+              <span class="flex items-center gap-1">⚡ Fastest response speed</span>
+              <span class="flex items-center gap-1">🛡️ Prevents rep burnout</span>
+            </div>
+          </div>
+        </label>
+
+        <!-- Option 2: Round-Robin Rotation -->
+        <label class="relative flex items-start gap-4 p-4 rounded-xl border transition cursor-pointer {% if org.lead_routing_strategy == 'round_robin' %}border-brand-500 bg-brand-50/20 ring-1 ring-brand-500/20{% else %}border-gray-200 hover:border-gray-300 hover:bg-gray-50/50{% endif %}">
+          <input
+            type="radio"
+            name="lead_routing_strategy"
+            value="round_robin"
+            class="mt-1 text-brand-600 focus:ring-brand-500"
+            {% if org.lead_routing_strategy == 'round_robin' %}checked{% endif %}
+            {% if not is_admin %}disabled{% endif %}
+          >
+          <div class="flex-1 space-y-1">
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-bold text-gray-900">Round-Robin Rotation</span>
+              <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">Strict Equality</span>
+            </div>
+            <p class="text-xs text-gray-600 leading-relaxed">
+              Evenly rotates each new lead to the next sales rep in circular sequence: <strong>Rep A &rarr; Rep B &rarr; Rep C &rarr; Rep A</strong>. Ensures exact commission and opportunity balance.
+            </p>
+            <div class="flex items-center gap-4 pt-1 text-[11px] text-gray-500">
+              <span class="flex items-center gap-1">⚖️ 100% equal opportunity</span>
+              <span class="flex items-center gap-1">🔄 Deterministic cycle</span>
+            </div>
+          </div>
+        </label>
+
+        <!-- Option 3: Manual Team Queue -->
+        <label class="relative flex items-start gap-4 p-4 rounded-xl border transition cursor-pointer {% if org.lead_routing_strategy == 'disabled' %}border-brand-500 bg-brand-50/20 ring-1 ring-brand-500/20{% else %}border-gray-200 hover:border-gray-300 hover:bg-gray-50/50{% endif %}">
+          <input
+            type="radio"
+            name="lead_routing_strategy"
+            value="disabled"
+            class="mt-1 text-brand-600 focus:ring-brand-500"
+            {% if org.lead_routing_strategy == 'disabled' %}checked{% endif %}
+            {% if not is_admin %}disabled{% endif %}
+          >
+          <div class="flex-1 space-y-1">
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-bold text-gray-900">Manual Claim Queue (Off)</span>
+              <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 border border-gray-200">Manual Claiming</span>
+            </div>
+            <p class="text-xs text-gray-600 leading-relaxed">
+              No automatic assignment. Leads land in the unassigned <strong>Needs Human</strong> inbox queue where sales reps or managers manually claim or assign them.
+            </p>
+          </div>
+        </label>
+      </div>
+    </div>
+
+    <!-- Capacity & Availability Guardrails -->
+    <div class="bg-white rounded-2xl border border-gray-200 shadow-2xs overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-gray-50/60 to-white">
+        <div>
+          <h2 class="text-sm font-bold text-gray-900 flex items-center gap-2">
+            <span>🛡️</span> Safety &amp; Capacity Guardrails
+          </h2>
+          <p class="text-xs text-gray-500">Prevent agent overloading and skip team members who are away</p>
+        </div>
+        <span class="text-[11px] font-semibold text-gray-400">Step 2 of 2</span>
+      </div>
+
+      <div class="p-6 space-y-5">
+        <!-- Concurrency Cap -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
+          <div class="sm:col-span-2">
+            <label for="max_leads_per_agent" class="text-xs font-bold text-gray-900 block mb-0.5">
+              Maximum Active Leads Per Rep (Capacity Cap)
+            </label>
+            <p class="text-[11px] text-gray-500">
+              When a sales rep reaches this number of open/needs_human chats, new leads will automatically bypass them to other reps until they resolve an active conversation. Set to <strong>0</strong> for unlimited.
+            </p>
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <input
+                type="number"
+                min="0"
+                max="50"
+                id="max_leads_per_agent"
+                name="max_leads_per_agent"
+                value="{{ org.max_leads_per_agent }}"
+                class="w-24 text-center font-bold px-3 py-2 text-sm bg-white border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
+                {% if not is_admin %}disabled{% endif %}
+              >
+              <span class="text-xs font-medium text-gray-600">simultaneous chats</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="border-t border-gray-100 pt-4">
+          <!-- Availability Toggle Requirement -->
+          <label class="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              name="route_only_available"
+              value="1"
+              class="mt-1 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+              {% if org.route_only_available %}checked{% endif %}
+              {% if not is_admin %}disabled{% endif %}
+            >
+            <div>
+              <span class="text-xs font-bold text-gray-900 block">Respect "Available for Leads" Status</span>
+              <p class="text-[11px] text-gray-500">
+                Only route to team members currently toggled <strong>🟢 Available</strong>. Agents who are on lunch break, in client meetings, or offline (<strong>☕ Away</strong>) are automatically bypassed.
+              </p>
+            </div>
+          </label>
+        </div>
+
+        <!-- Safe Fallback Callout -->
+        <div class="p-3.5 rounded-xl bg-amber-50/70 border border-amber-200 text-amber-900 text-xs flex items-start gap-2.5">
+          <span class="text-base flex-shrink-0">💡</span>
+          <p class="leading-relaxed">
+            <strong>Safe Fallback Protection:</strong> If all sales reps reach their maximum cap or are marked Away, incoming qualified leads are safely held in the unassigned <strong>Needs Human</strong> queue so no customer is ever neglected or dropped.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Active Team Members Live Workload & Availability Table -->
+    <div class="bg-white rounded-2xl border border-gray-200 shadow-2xs overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+        <div>
+          <h2 class="text-sm font-bold text-gray-900 flex items-center gap-2">
+            <span>👥</span> Sales Team Live Workload &amp; Availability
+          </h2>
+          <p class="text-xs text-gray-500">Live view of current chat loads and on-duty availability</p>
+        </div>
+        <span class="text-xs font-semibold px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700">
+          {{ members|length }} Active Member{{ members|length|pluralize }}
+        </span>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs">
+          <thead class="bg-gray-50/70 text-gray-500 font-semibold uppercase text-[10px] tracking-wider border-b border-gray-100">
+            <tr>
+              <th class="px-6 py-3">Team Member</th>
+              <th class="px-4 py-3">Role</th>
+              <th class="px-4 py-3">Current Active Load</th>
+              <th class="px-4 py-3">Routing Availability</th>
+              <th class="px-6 py-3 text-right">Quick Action</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-100">
+            {% for m in members %}
+            <tr class="hover:bg-gray-50/50 transition">
+              <td class="px-6 py-3.5">
+                <div class="flex items-center gap-2.5">
+                  <div class="w-7 h-7 rounded-full bg-brand-100 text-brand-700 font-bold flex items-center justify-center text-xs">
+                    {{ m.first_name|default:m.email|slice:":1"|upper }}
+                  </div>
+                  <div>
+                    <span class="font-bold text-gray-900 block">{{ m.first_name|default:m.email }} {{ m.last_name|default:"" }}</span>
+                    <span class="text-[11px] text-gray-400 font-mono">{{ m.email }}</span>
+                  </div>
+                </div>
+              </td>
+              <td class="px-4 py-3.5">
+                <span class="text-[11px] font-semibold px-2 py-0.5 rounded-full border
+                  {% if m.role == 'owner' %}bg-purple-50 text-purple-700 border-purple-200
+                  {% elif m.role == 'admin' %}bg-blue-50 text-blue-700 border-blue-200
+                  {% else %}bg-emerald-50 text-emerald-700 border-emerald-200{% endif %}">
+                  {{ m.get_role_display }}
+                </span>
+              </td>
+              <td class="px-4 py-3.5">
+                <div class="flex items-center gap-2">
+                  <span class="font-mono font-bold text-xs {% if m.is_capped %}text-rose-600{% elif m.active_leads_count > 0 %}text-brand-700{% else %}text-gray-500{% endif %}">
+                    {{ m.active_leads_count }}
+                  </span>
+                  <span class="text-gray-500 text-[11px]">active chat{{ m.active_leads_count|pluralize }}</span>
+                  {% if m.is_capped %}
+                    <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200">At Cap</span>
+                  {% endif %}
+                </div>
+              </td>
+              <td class="px-4 py-3.5">
+                <div class="flex items-center gap-1.5" id="avail-pill-{{ m.id }}">
+                  {% if m.is_available_for_leads %}
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span class="font-semibold text-emerald-700">Available</span>
+                  {% else %}
+                    <span class="w-2 h-2 rounded-full bg-gray-400"></span>
+                    <span class="font-semibold text-gray-500">Away / Paused</span>
+                  {% endif %}
+                </div>
+              </td>
+              <td class="px-6 py-3.5 text-right">
+                {% if is_admin or m.id == request.user.id %}
+                  <button
+                    type="button"
+                    onclick="toggleUserAvailability({{ m.id }})"
+                    class="px-2.5 py-1 text-[11px] font-semibold rounded-lg border border-gray-200 bg-white hover:bg-gray-100 text-gray-700 transition cursor-pointer shadow-2xs"
+                  >
+                    {% if m.is_available_for_leads %}Set Away{% else %}Set Available{% endif %}
+                  </button>
+                {% else %}
+                  <span class="text-gray-400 text-[11px]">—</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Save Button -->
+    {% if is_admin %}
+    <div class="flex items-center justify-end gap-3 pt-2">
+      <button
+        type="submit"
+        class="px-5 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-semibold text-xs transition shadow-xs cursor-pointer flex items-center gap-2"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+        </svg>
+        <span>Save Routing Configuration</span>
+      </button>
+    </div>
+    {% endif %}
+  </form>
+
+</div>
+
+<script>
+  async function toggleUserAvailability(userId) {
+    try {
+      const csrf = document.querySelector('[name=csrfmiddlewaretoken]').value;
+      const resp = await fetch(`/settings/team/members/${userId}/availability/`, {
+        method: "POST",
+        headers: {
+          "X-CSRFToken": csrf,
+          "X-Requested-With": "XMLHttpRequest",
+        }
+      });
+      const data = await resp.json();
+      if (data.status === "success") {
+        window.location.reload();
+      } else {
+        alert(data.message || "Failed to update availability.");
+      }
+    } catch (e) {
+      alert("Error: " + e.message);
+    }
+  }
+</script>
+{% endblock %}
+

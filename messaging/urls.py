@@ -8,7 +8,10 @@ urlpatterns = [
     # Dashboard & Inbox
     path("dashboard/", views.dashboard, name="dashboard"),
     path("ai-assistant/", views.ai_assistant_settings, name="ai_assistant_settings"),
+    path("ai-assistant/ping/", views.ai_assistant_ping, name="ai_assistant_ping"),
     path("inbox/", views.inbox, name="inbox"),
+    path("inbox/search/", views.inbox_search, name="inbox_search"),
+    path("inbox/live-feed/", views.inbox_live_feed, name="inbox_live_feed"),
     path("inbox/new/", views.start_new_chat, name="start_new_chat"),
     path("inbox/<int:conversation_id>/", views.conversation_detail, name="conversation_detail"),
     path("inbox/<int:conversation_id>/send/", views.send_conversation_message, name="send_message"),
@@ -34,10 +37,4 @@ urlpatterns = [
     # Telnyx Webhooks
     path("webhooks/telnyx/sms/", views_webhooks.telnyx_inbound_sms, name="telnyx_inbound_sms"),
     path("webhooks/telnyx/status/", views_webhooks.telnyx_status_callback, name="telnyx_status_callback"),
-]
-
-# DEV ONLY SIMULATOR (can be deleted anytime)
-from . import views_dev
-urlpatterns += [
-    path("inbox/<int:conversation_id>/simulate-reply/", views_dev.simulate_customer_reply, name="simulate_reply"),
 ]

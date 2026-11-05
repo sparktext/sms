@@ -59,19 +59,21 @@ USE_X_FORWARDED_PORT = True
 # Application definition
 
 INSTALLED_APPS = [
+    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    # Channels
+    'channels',
     # Local apps
     'rest_framework',
     'messaging',
     'contacts',
     'compliance',
     'campaigns',
-    'templates_app',
     'core',
     'website',
 ]
@@ -104,12 +106,20 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'messaging.context_processors.unread_inbox_count',
             ],
         },
     },
 ]
 
 WSGI_APPLICATION = 'sparktext.wsgi.application'
+ASGI_APPLICATION = 'sparktext.asgi.application'
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer"
+    }
+}
 
 
 # Database

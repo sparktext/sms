@@ -5,7 +5,7 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db.models import Q, Count, ProtectedError
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST, require_GET, require_http_methods
@@ -79,19 +79,29 @@ def contacts_list(request):
         except (ContactList.DoesNotExist, ValueError):
             pass
 
-    # Status counts for filter pills
+    # Status counts for filter pills (aggregated in 1 single query)
+    status_group = dict(
+        Contact.objects.filter(organization=org)
+        .values("sms_status")
+        .annotate(c=Count("id"))
+        .values_list("sms_status", "c")
+    )
     status_counts = {
-        "all": Contact.objects.filter(organization=org).count(),
-        "opted_in": Contact.objects.filter(organization=org, sms_status=Contact.SMSStatus.OPTED_IN).count(),
-        "opted_out": Contact.objects.filter(organization=org, sms_status=Contact.SMSStatus.OPTED_OUT).count(),
-        "unknown": Contact.objects.filter(organization=org, sms_status=Contact.SMSStatus.UNKNOWN).count(),
+        "all": sum(status_group.values()),
+        "opted_in": status_group.get(Contact.SMSStatus.OPTED_IN, 0),
+        "opted_out": status_group.get(Contact.SMSStatus.OPTED_OUT, 0),
+        "unknown": status_group.get(Contact.SMSStatus.UNKNOWN, 0),
     }
 
     paginator = Paginator(contacts_qs, 25)
     page_number = request.GET.get("page", 1)
     page_obj = paginator.get_page(page_number)
 
-    contact_lists = ContactList.objects.filter(organization=org).order_by("name")
+    contact_lists = (
+        ContactList.objects.filter(organization=org)
+        .annotate(contact_count=Count("contacts"))
+        .order_by("name")
+    )
     approved_fields = list(ContactField.objects.filter(organization=org).order_by("label"))
 
     # Discover any custom field keys present in page contacts that might not be in ContactField
@@ -823,6 +833,13 @@ def delete_field(request, field_id):
 # LEAD INGESTION REST / WEBHOOK API & REMOTE URL IMPORT
 # =========================================================================
 
+def _add_cors(resp):
+    resp["Access-Control-Allow-Origin"] = "*"
+    resp["Access-Control-Allow-Methods"] = "POST, GET, OPTIONS"
+    resp["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-API-Key, ngrok-skip-browser-warning, X-CSRFToken"
+    return resp
+
+
 @csrf_exempt
 def lead_ingest_api(request, api_key=None):
     """
@@ -833,6 +850,9 @@ def lead_ingest_api(request, api_key=None):
     - Headers: Authorization: Bearer <api_key> OR X-API-Key: <api_key>
     - Active session fallback (for dashboard testing)
     """
+    if request.method == "OPTIONS":
+        return _add_cors(HttpResponse(status=200))
+
     token = api_key or request.GET.get("api_key") or request.POST.get("api_key")
     if not token:
         auth_header = request.headers.get("Authorization", "")
@@ -850,15 +870,15 @@ def lead_ingest_api(request, api_key=None):
         org = request.user.organization
 
     if not org:
-        return JsonResponse({
+        return _add_cors(JsonResponse({
             "status": "error",
             "message": "Unauthorized. A valid organization API key is required via ?api_key=, header 'X-API-Key', or Bearer token."
-        }, status=401)
+        }, status=401))
 
     # If GET: return schema, documentation, and sample payload
     if request.method == "GET":
         base_url = f"{request.scheme}://{request.get_host()}"
-        return JsonResponse({
+        return _add_cors(JsonResponse({
             "status": "ok",
             "service": "SparkText Lead Ingestion API v1",
             "organization": org.name,
@@ -880,10 +900,10 @@ def lead_ingest_api(request, api_key=None):
                 "form": "Contact Us Form",
                 "consent": True,
             }
-        })
+        }))
 
     if request.method != "POST":
-        return JsonResponse({"status": "error", "message": "Method not allowed. Use POST to upload leads."}, status=405)
+        return _add_cors(JsonResponse({"status": "error", "message": "Method not allowed. Use POST to upload leads."}, status=405))
 
     # Parse body
     payload = None
@@ -892,12 +912,12 @@ def lead_ingest_api(request, api_key=None):
         try:
             payload = json.loads(request.body.decode("utf-8"))
         except Exception as e:
-            return JsonResponse({"status": "error", "message": f"Malformed JSON: {e}"}, status=400)
+            return _add_cors(JsonResponse({"status": "error", "message": f"Malformed JSON: {e}"}, status=400))
     else:
         payload = request.POST.dict()
 
     if not payload:
-        return JsonResponse({"status": "error", "message": "No lead data received in request."}, status=400)
+        return _add_cors(JsonResponse({"status": "error", "message": "No lead data received in request."}, status=400))
 
     # Check if batch list
     leads_list = []
@@ -943,7 +963,7 @@ def lead_ingest_api(request, api_key=None):
                 failed_count += 1
                 errors.append({"index": idx, "error": str(exc)})
 
-        return JsonResponse({
+        return _add_cors(JsonResponse({
             "status": "success",
             "message": f"Processed {len(leads_list)} lead(s): {created_count} created, {updated_count} updated, {failed_count} failed.",
             "total": len(leads_list),
@@ -952,15 +972,15 @@ def lead_ingest_api(request, api_key=None):
             "failed_count": failed_count,
             "contacts": results,
             "errors": errors[:50],
-        }, status=201 if created_count > 0 else 200)
+        }, status=201 if created_count > 0 else 200))
 
     # Single lead dict
     if not isinstance(payload, dict):
-        return JsonResponse({"status": "error", "message": "Expected JSON object or array."}, status=400)
+        return _add_cors(JsonResponse({"status": "error", "message": "Expected JSON object or array."}, status=400))
 
     try:
         contact, created = ingest_lead_data(organization=org, raw_dict=payload, source=Contact.Source.API)
-        return JsonResponse({
+        return _add_cors(JsonResponse({
             "status": "success",
             "message": f"Lead {contact.phone} {'created' if created else 'updated'} successfully.",
             "contact": {
@@ -972,13 +992,13 @@ def lead_ingest_api(request, api_key=None):
                 "sms_status": contact.sms_status,
                 "created": created,
             }
-        }, status=201 if created else 200)
+        }, status=201 if created else 200))
     except ValidationError as ve:
         msg = "; ".join(ve.messages) if hasattr(ve, "messages") else str(ve)
-        return JsonResponse({"status": "error", "message": msg}, status=400)
+        return _add_cors(JsonResponse({"status": "error", "message": msg}, status=400))
     except Exception as exc:
         logger.exception("Lead ingestion error")
-        return JsonResponse({"status": "error", "message": str(exc)}, status=500)
+        return _add_cors(JsonResponse({"status": "error", "message": str(exc)}, status=500))
 
 
 @login_required

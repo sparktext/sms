@@ -35,10 +35,10 @@
     All Contacts ({{ status_counts.all }})
   </a>
   <a href="{% url 'contacts:lists' %}" class="px-3.5 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-900 rounded-lg hover:bg-gray-100 transition">
-    Contact Lists ({{ contact_lists.count }})
+    Contact Lists ({{ contact_lists|length }})
   </a>
   <a href="{% url 'contacts:fields' %}" class="px-3.5 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-900 rounded-lg hover:bg-gray-100 transition">
-    Custom Fields ({{ contact_fields.count }})
+    Custom Fields ({{ contact_fields|length }})
   </a>
   <button type="button" onclick="openApiModal()" class="px-3.5 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-900 rounded-lg hover:bg-gray-100 transition flex items-center gap-1.5 cursor-pointer">
     <svg class="w-3.5 h-3.5 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -135,7 +135,7 @@
           <option value="">All Contact Lists</option>
           {% for cl in contact_lists %}
           <option value="{{ cl.id }}" {% if selected_list and selected_list.id == cl.id %}selected{% endif %}>
-            {{ cl.name }} ({{ cl.contacts.count }})
+            {{ cl.name }} ({{ cl.contact_count }})
           </option>
           {% endfor %}
         </select>
@@ -821,7 +821,7 @@
                 type="text"
                 readonly
                 id="apiFullEndpointUrl"
-                value="{{ request.scheme }}://{{ request.get_host }}/api/v1/leads/?api_key={{ org.api_key }}"
+                value="{% if 'ngrok' in request.get_host %}https{% else %}{{ request.scheme }}{% endif %}://{{ request.get_host }}/api/v1/leads/?api_key={{ org.api_key }}"
                 class="w-full bg-white px-3.5 py-2.5 text-xs font-mono font-medium text-gray-800 border border-gray-300 rounded-xl focus:outline-none"
               >
             </div>
@@ -841,7 +841,7 @@
           <div class="pt-2 border-t border-brand-100/60 flex items-center justify-between text-[11px] text-gray-600">
             <span>Clean Webhook URL format (Zapier/Make/Webflow):</span>
             <code id="apiCleanWebhookUrl" class="font-mono text-[10px] bg-white px-2 py-0.5 rounded border border-gray-200 text-gray-700 select-all">
-              {{ request.scheme }}://{{ request.get_host }}/api/v1/leads/{{ org.api_key }}/
+              {% if 'ngrok' in request.get_host %}https{% else %}{{ request.scheme }}{% endif %}://{{ request.get_host }}/api/v1/leads/{{ org.api_key }}/
             </code>
           </div>
         </div>
@@ -1490,16 +1490,19 @@
 
   // --- LEAD API & WEBHOOK MODAL LOGIC ---
   function refreshApiUrls() {
-    const origin = window.location.origin;
+    let origin = window.location.origin;
+    if (window.location.hostname.includes('ngrok') && origin.startsWith('http:')) {
+      origin = origin.replace('http:', 'https:');
+    }
     const keyEl = document.getElementById('apiOrgKeyValue');
     if (!keyEl) return;
     const key = keyEl.value;
     const fullUrlInput = document.getElementById('apiFullEndpointUrl');
     const cleanWebhookEl = document.getElementById('apiCleanWebhookUrl');
-    if (fullUrlInput) {
+    if (fullUrlInput && key) {
       fullUrlInput.value = `${origin}/api/v1/leads/?api_key=${key}`;
     }
-    if (cleanWebhookEl) {
+    if (cleanWebhookEl && key) {
       cleanWebhookEl.innerText = `${origin}/api/v1/leads/${key}/`;
     }
   }
@@ -1690,13 +1693,17 @@ print(res.json())`;
 
       const key = document.getElementById('apiOrgKeyValue').value;
       const endpoint = `/api/v1/leads/?api_key=${encodeURIComponent(key)}`;
+      const headers = {
+        "Content-Type": "application/json",
+        "ngrok-skip-browser-warning": "true",
+      };
+      const csrf = getCsrfToken();
+      if (csrf) {
+        headers["X-CSRFToken"] = csrf;
+      }
       const resp = await fetch(endpoint, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRFToken": getCsrfToken(),
-          "ngrok-skip-browser-warning": "true",
-        },
+        headers: headers,
         body: JSON.stringify(parsed)
       });
 

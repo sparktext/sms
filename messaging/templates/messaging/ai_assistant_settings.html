@@ -33,6 +33,12 @@
         </p>
       </div>
     </div>
+
+    <!-- Live Engine Status Badge -->
+    <div id="ai-engine-status" class="shrink-0 flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white border border-gray-200/90 shadow-2xs text-xs self-start sm:self-auto">
+      <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse" id="engine-dot"></span>
+      <span id="engine-text" class="text-gray-600 font-medium">Checking LM Studio...</span>
+    </div>
   </div>
 
   <form method="post" id="ai-settings-form" class="space-y-6">
@@ -347,6 +353,33 @@
 
   // Initial render
   renderQuestions();
+
+  // Engine Status Check
+  async function checkEngineStatus() {
+    const dot = document.getElementById("engine-dot");
+    const text = document.getElementById("engine-text");
+    if (!dot || !text) return;
+    try {
+      const res = await fetch("{% url 'messaging:ai_assistant_ping' %}", {
+        headers: { "X-Requested-With": "XMLHttpRequest" }
+      });
+      const data = await res.json();
+      if (data.status === "online") {
+        dot.className = "w-2 h-2 rounded-full bg-emerald-500";
+        text.className = "text-emerald-700 font-semibold";
+        text.innerText = "LM Studio Online (" + (data.model || "Connected") + ")";
+      } else {
+        dot.className = "w-2 h-2 rounded-full bg-rose-500";
+        text.className = "text-rose-700 font-medium";
+        text.innerText = "LM Studio Offline (Port 1235)";
+      }
+    } catch (e) {
+      dot.className = "w-2 h-2 rounded-full bg-rose-500";
+      text.className = "text-rose-700 font-medium";
+      text.innerText = "Engine Unreachable";
+    }
+  }
+  checkEngineStatus();
 </script>
 {% endblock %}
 

@@ -1,0 +1,588 @@
+{% extends "messaging/base_app.html" %}
+
+{% block title %}Team Members · Settings · SparkText{% endblock %}
+
+{% block header_title %}Settings{% endblock %}
+{% block header_subtitle %}Manage team member access, roles, and invite new staff to your organization{% endblock %}
+
+{% block header_actions %}
+{% if is_admin %}
+<button
+  type="button"
+  onclick="openInviteModal()"
+  class="inline-flex items-center gap-2 px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs cursor-pointer"
+>
+  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+  </svg>
+  <span>Invite Team Member</span>
+</button>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto space-y-6 pb-12">
+
+  <!-- Settings Sub-navigation Tabs -->
+  <div class="flex items-center gap-2 border-b border-gray-200 pb-3">
+    <a
+      href="{% url 'company_profile' %}"
+      class="px-3.5 py-1.5 text-xs font-semibold rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition"
+    >
+      🏢 Company Profile
+    </a>
+    <a
+      href="{% url 'team_members' %}"
+      class="px-3.5 py-1.5 text-xs font-semibold rounded-lg text-brand-700 bg-brand-50 border border-brand-200 whitespace-nowrap"
+    >
+      👥 Team Members
+    </a>
+    <a
+      href="{% url 'lead_routing_settings' %}"
+      class="px-3.5 py-1.5 text-xs font-semibold rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition whitespace-nowrap"
+    >
+      🎯 Lead Routing
+    </a>
+    <a
+      href="{% url 'messaging:phone_numbers_settings' %}"
+      class="px-3.5 py-1.5 text-xs font-semibold rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition whitespace-nowrap"
+    >
+      📞 Phone Numbers & Routing
+    </a>
+  </div>
+
+  <!-- Role Hierarchy Cards -->
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+    <div class="p-3.5 rounded-xl border border-gray-200 bg-white shadow-2xs">
+      <div class="flex items-center gap-2 mb-1">
+        <span class="w-5 h-5 rounded-md bg-purple-50 text-purple-700 flex items-center justify-center text-xs font-bold">👑</span>
+        <span class="text-xs font-bold text-gray-900">Owner</span>
+      </div>
+      <p class="text-[11px] text-gray-500 leading-relaxed">Full administrative control, billing, profile settings, and team role management.</p>
+    </div>
+
+    <div class="p-3.5 rounded-xl border border-gray-200 bg-white shadow-2xs">
+      <div class="flex items-center gap-2 mb-1">
+        <span class="w-5 h-5 rounded-md bg-blue-50 text-blue-700 flex items-center justify-center text-xs font-bold">🛡️</span>
+        <span class="text-xs font-bold text-gray-900">Admin</span>
+      </div>
+      <p class="text-[11px] text-gray-500 leading-relaxed">Can launch campaigns, configure phone numbers, import contacts, and invite staff.</p>
+    </div>
+
+    <div class="p-3.5 rounded-xl border border-gray-200 bg-white shadow-2xs">
+      <div class="flex items-center gap-2 mb-1">
+        <span class="w-5 h-5 rounded-md bg-emerald-50 text-emerald-700 flex items-center justify-center text-xs font-bold">💬</span>
+        <span class="text-xs font-bold text-gray-900">Agent</span>
+      </div>
+      <p class="text-[11px] text-gray-500 leading-relaxed">Frontline two-way SMS messaging, customer qualification, and lead management.</p>
+    </div>
+  </div>
+
+  <!-- Active Members Card -->
+  <div class="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-2xs">
+    <div class="p-5 border-b border-gray-100 flex items-center justify-between">
+      <div>
+        <h3 class="text-sm font-bold text-gray-900 flex items-center gap-2">
+          <span>👥</span> Active Members ({{ members|length }})
+        </h3>
+        <p class="text-xs text-gray-500 mt-0.5">Staff members with access to your {{ org.name }} workspace.</p>
+      </div>
+    </div>
+
+    <div class="overflow-x-auto">
+      <table class="w-full text-left border-collapse text-xs">
+        <thead>
+          <tr class="bg-gray-50/70 border-b border-gray-200 text-gray-500 uppercase tracking-wider text-[10px]">
+            <th class="py-3 px-5 font-semibold">Member</th>
+            <th class="py-3 px-4 font-semibold">Role</th>
+            <th class="py-3 px-4 font-semibold">Joined Date</th>
+            {% if is_admin %}
+            <th class="py-3 px-5 font-semibold text-right">Actions</th>
+            {% endif %}
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+          {% for m in members %}
+          <tr class="hover:bg-gray-50/50 transition">
+            <td class="py-3.5 px-5">
+              <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-full bg-brand-100 text-brand-700 font-bold flex items-center justify-center text-xs shrink-0">
+                  {{ m.first_name|default:m.email|slice:":1"|upper }}
+                </div>
+                <div>
+                  <div class="font-bold text-gray-900 flex items-center gap-1.5">
+                    <span>{{ m.first_name }} {{ m.last_name }}</span>
+                    {% if m.id == request.user.id %}
+                    <span class="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-gray-100 text-gray-600">You</span>
+                    {% endif %}
+                  </div>
+                  <div class="text-[11px] text-gray-400 font-mono">{{ m.email }}</div>
+                </div>
+              </div>
+            </td>
+
+            <td class="py-3.5 px-4">
+              <div class="flex items-center gap-2">
+                <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider
+                  {% if m.role == 'owner' %}bg-purple-50 text-purple-700 border border-purple-200
+                  {% elif m.role == 'admin' %}bg-blue-50 text-blue-700 border border-blue-200
+                  {% else %}bg-emerald-50 text-emerald-700 border border-emerald-200{% endif %}">
+                  {% if m.role == 'owner' %}👑{% elif m.role == 'admin' %}🛡️{% else %}💬{% endif %}
+                  {{ m.get_role_display }}
+                </span>
+                {% if m.is_available_for_leads %}
+                  <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100" title="Ready for lead assignment">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                    Available
+                  </span>
+                {% else %}
+                  <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-50 text-gray-500 border border-gray-200" title="Away / Paused">
+                    <span class="w-1.5 h-1.5 rounded-full bg-gray-400"></span>
+                    Away
+                  </span>
+                {% endif %}
+              </div>
+            </td>
+
+            <td class="py-3.5 px-4 text-gray-500 font-mono text-[11px]">
+              {{ m.date_joined|date:"M d, Y" }}
+            </td>
+
+            {% if is_admin %}
+            <td class="py-3.5 px-5 text-right whitespace-nowrap">
+              <div class="inline-flex items-center gap-2">
+                <!-- Change Role -->
+                {% if request.user.role == 'owner' or m.role != 'owner' %}
+                <button
+                  type="button"
+                  onclick="openChangeRoleModal('{{ m.id }}', '{{ m.email|escapejs }}', '{{ m.role }}')"
+                  class="px-2.5 py-1 text-[11px] font-semibold text-gray-700 hover:text-brand-600 hover:bg-gray-100 rounded-lg transition cursor-pointer"
+                >
+                  Change Role
+                </button>
+                {% endif %}
+
+                <!-- Remove Member -->
+                {% if m.id != request.user.id %}
+                  {% if request.user.role == 'owner' or m.role != 'owner' %}
+                  <button
+                    type="button"
+                    onclick="removeMember('{{ m.id }}', '{{ m.email|escapejs }}')"
+                    class="px-2.5 py-1 text-[11px] font-semibold text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                  >
+                    Remove
+                  </button>
+                  {% endif %}
+                {% endif %}
+              </div>
+            </td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Pending Invitations Card -->
+  <div class="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-2xs">
+    <div class="p-5 border-b border-gray-100 flex items-center justify-between">
+      <div>
+        <h3 class="text-sm font-bold text-gray-900 flex items-center gap-2">
+          <span>✉️</span> Pending Invitations ({{ pending_invites|length }})
+        </h3>
+        <p class="text-xs text-gray-500 mt-0.5">Invited team members who haven't accepted their join link yet.</p>
+      </div>
+    </div>
+
+    {% if pending_invites %}
+    <div class="overflow-x-auto">
+      <table class="w-full text-left border-collapse text-xs">
+        <thead>
+          <tr class="bg-gray-50/70 border-b border-gray-200 text-gray-500 uppercase tracking-wider text-[10px]">
+            <th class="py-3 px-5 font-semibold">Invited Email</th>
+            <th class="py-3 px-4 font-semibold">Assigned Role</th>
+            <th class="py-3 px-4 font-semibold">Invited By</th>
+            <th class="py-3 px-4 font-semibold">Expires</th>
+            {% if is_admin %}
+            <th class="py-3 px-5 font-semibold text-right">Actions</th>
+            {% endif %}
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+          {% for inv in pending_invites %}
+          <tr id="invite-row-{{ inv.id }}" class="hover:bg-gray-50/50 transition">
+            <td class="py-3 px-5 font-medium text-gray-900 font-mono">
+              {{ inv.email }}
+            </td>
+            <td class="py-3 px-4">
+              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-gray-100 text-gray-700">
+                {{ inv.get_role_display }}
+              </span>
+            </td>
+            <td class="py-3 px-4 text-gray-500">
+              {{ inv.invited_by.first_name|default:inv.invited_by.email }}
+            </td>
+            <td class="py-3 px-4 text-gray-400 font-mono text-[11px]">
+              {{ inv.expires_at|date:"M d, Y" }}
+            </td>
+            {% if is_admin %}
+            <td class="py-3 px-5 text-right whitespace-nowrap">
+              <div class="inline-flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onclick="copyInviteLink('{% url 'accept_invite' token=inv.token %}', this)"
+                  class="px-2.5 py-1 text-[11px] font-semibold text-brand-600 hover:text-brand-800 hover:bg-brand-50 rounded-lg transition cursor-pointer"
+                >
+                  📋 Copy Link
+                </button>
+                <button
+                  type="button"
+                  onclick="revokeInvite('{{ inv.id }}')"
+                  class="px-2.5 py-1 text-[11px] font-semibold text-gray-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                >
+                  Revoke
+                </button>
+              </div>
+            </td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="p-8 text-center text-xs text-gray-400">
+      <span class="text-2xl block mb-2">📬</span>
+      No pending invitations. Click <strong>Invite Team Member</strong> above to add staff.
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+
+<!-- Modal: Invite Team Member -->
+<div id="inviteModal" class="fixed inset-0 z-50 hidden overflow-y-auto" role="dialog" aria-modal="true">
+  <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity" onclick="closeInviteModal()"></div>
+  <div class="min-h-full flex items-center justify-center p-4">
+    <div class="relative bg-white rounded-2xl shadow-2xl border border-gray-100 max-w-md w-full overflow-hidden transform transition-all text-left z-10 p-5 space-y-4">
+      <div class="flex items-center justify-between border-b border-gray-100 pb-3">
+        <div class="flex items-center gap-2">
+          <span class="w-7 h-7 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center text-sm">✉️</span>
+          <h3 class="text-xs sm:text-sm font-bold text-gray-900">Invite Team Member</h3>
+        </div>
+        <button type="button" onclick="closeInviteModal()" class="text-gray-400 hover:text-gray-700 text-xs cursor-pointer">✕</button>
+      </div>
+
+      <div id="invite-form-container">
+        <form id="inviteForm" onsubmit="submitInvite(event)" class="space-y-3.5">
+          {% csrf_token %}
+          <div>
+            <label class="block text-xs font-bold text-gray-700 mb-1">Email Address *</label>
+            <input
+              type="email"
+              id="invite-email"
+              name="email"
+              required
+              placeholder="colleague@yourcompany.com"
+              class="w-full px-3 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900"
+            />
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold text-gray-700 mb-1">Assign Role *</label>
+            <select
+              id="invite-role"
+              name="role"
+              class="w-full px-3 py-2 text-xs bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900 font-medium"
+            >
+              <option value="agent" selected>Agent (Two-way chat & Lead assignment)</option>
+              <option value="admin">Admin (Manage campaigns, phone numbers & staff)</option>
+              {% if request.user.role == 'owner' %}
+              <option value="owner">Owner (Full organization ownership & billing)</option>
+              {% endif %}
+            </select>
+          </div>
+
+          <div class="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
+            <button type="button" onclick="closeInviteModal()" class="px-3.5 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded-xl cursor-pointer">
+              Cancel
+            </button>
+            <button
+              type="submit"
+              id="btn-send-invite"
+              class="px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition cursor-pointer shadow-2xs"
+            >
+              Generate Invite Link
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Invite Created Result Box -->
+      <div id="invite-result-container" class="hidden space-y-3 pt-1">
+        <div class="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-900 text-xs">
+          <div class="font-bold flex items-center gap-1.5 mb-1">
+            <span>✅</span> Invitation Created!
+          </div>
+          <p class="text-[11px] text-emerald-800">
+            Share this link with your team member. When they open it, they can set their password and join your workspace immediately.
+          </p>
+        </div>
+
+        <div class="space-y-1">
+          <label class="block text-[11px] font-bold text-gray-700">Invite Link (Expires in 7 days):</label>
+          <div class="flex items-center gap-2">
+            <input
+              type="text"
+              id="invite-link-input"
+              readonly
+              class="w-full px-2.5 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-lg text-gray-800 font-mono select-all"
+            />
+            <button
+              type="button"
+              id="btn-copy-generated"
+              onclick="copyGeneratedLink(this)"
+              class="px-3 py-1.5 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition shrink-0 cursor-pointer"
+            >
+              Copy
+            </button>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-end pt-2">
+          <button
+            type="button"
+            onclick="closeInviteModal(); window.location.reload();"
+            class="px-4 py-1.5 text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl cursor-pointer"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Change Role -->
+<div id="roleModal" class="fixed inset-0 z-50 hidden overflow-y-auto" role="dialog" aria-modal="true">
+  <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity" onclick="closeRoleModal()"></div>
+  <div class="min-h-full flex items-center justify-center p-4">
+    <div class="relative bg-white rounded-2xl shadow-2xl border border-gray-100 max-w-sm w-full overflow-hidden transform transition-all text-left z-10 p-5 space-y-3.5">
+      <div class="flex items-center justify-between border-b border-gray-100 pb-2.5">
+        <h3 class="text-xs font-bold text-gray-900">Change Member Role</h3>
+        <button type="button" onclick="closeRoleModal()" class="text-gray-400 hover:text-gray-700 text-xs cursor-pointer">✕</button>
+      </div>
+
+      <form id="roleForm" onsubmit="submitRoleChange(event)" class="space-y-3">
+        {% csrf_token %}
+        <input type="hidden" id="role-user-id" />
+        <p class="text-xs text-gray-600">
+          Updating role for: <strong id="role-user-email" class="font-mono text-gray-900"></strong>
+        </p>
+
+        <div>
+          <label class="block text-xs font-bold text-gray-700 mb-1">New Role</label>
+          <select
+            id="role-select"
+            class="w-full px-3 py-2 text-xs bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900 font-medium"
+          >
+            <option value="agent">Agent (Two-way chat & Lead assignment)</option>
+            <option value="admin">Admin (Manage campaigns, phone numbers & staff)</option>
+            {% if request.user.role == 'owner' %}
+            <option value="owner">Owner (Full organization ownership & billing)</option>
+            {% endif %}
+          </select>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-2">
+          <button type="button" onclick="closeRoleModal()" class="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded-xl cursor-pointer">
+            Cancel
+          </button>
+          <button type="submit" class="px-4 py-1.5 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition cursor-pointer">
+            Update Role
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+  function openInviteModal() {
+    document.getElementById("invite-form-container").classList.remove("hidden");
+    document.getElementById("invite-result-container").classList.add("hidden");
+    document.getElementById("invite-email").value = "";
+    document.getElementById("inviteModal").classList.remove("hidden");
+    document.getElementById("invite-email").focus();
+  }
+  function closeInviteModal() {
+    document.getElementById("inviteModal").classList.add("hidden");
+  }
+
+  async function submitInvite(e) {
+    e.preventDefault();
+    const email = document.getElementById("invite-email").value.trim();
+    const role = document.getElementById("invite-role").value;
+    const btn = document.getElementById("btn-send-invite");
+
+    if (!email) return;
+
+    btn.disabled = true;
+    btn.textContent = "Creating...";
+
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value;
+    const formData = new FormData();
+    formData.append("csrfmiddlewaretoken", csrfToken);
+    formData.append("email", email);
+    formData.append("role", role);
+
+    try {
+      const resp = await fetch("{% url 'team_invite_create' %}", {
+        method: "POST",
+        headers: {
+          "X-Requested-With": "XMLHttpRequest",
+          "X-CSRFToken": csrfToken,
+        },
+        body: formData,
+      });
+      const data = await resp.json();
+      if (resp.ok && data.status === "success") {
+        document.getElementById("invite-form-container").classList.add("hidden");
+        document.getElementById("invite-result-container").classList.remove("hidden");
+        document.getElementById("invite-link-input").value = data.invite.invite_url;
+      } else {
+        alert(data.message || "Failed to create invitation.");
+      }
+    } catch (err) {
+      alert("Network error creating invitation.");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Generate Invite Link";
+    }
+  }
+
+  function copyGeneratedLink(btn) {
+    const input = document.getElementById("invite-link-input");
+    if (!input) return;
+    navigator.clipboard.writeText(input.value).then(() => {
+      const orig = btn.textContent;
+      btn.textContent = "Copied!";
+      btn.classList.add("bg-emerald-600");
+      setTimeout(() => {
+        btn.textContent = orig;
+        btn.classList.remove("bg-emerald-600");
+      }, 1800);
+    });
+  }
+
+  function copyInviteLink(relativeUrl, btn) {
+    const fullUrl = window.location.origin + relativeUrl;
+    navigator.clipboard.writeText(fullUrl).then(() => {
+      const orig = btn.textContent;
+      btn.textContent = "Copied!";
+      btn.classList.add("bg-emerald-50", "text-emerald-700");
+      setTimeout(() => {
+        btn.textContent = orig;
+        btn.classList.remove("bg-emerald-50", "text-emerald-700");
+      }, 1800);
+    });
+  }
+
+  async function revokeInvite(inviteId) {
+    if (!confirm("Revoke this pending invitation?")) return;
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value;
+    const formData = new FormData();
+    formData.append("csrfmiddlewaretoken", csrfToken);
+
+    try {
+      const resp = await fetch(`/settings/team/invites/${inviteId}/revoke/`, {
+        method: "POST",
+        headers: {
+          "X-Requested-With": "XMLHttpRequest",
+          "X-CSRFToken": csrfToken,
+        },
+        body: formData,
+      });
+      const data = await resp.json();
+      if (resp.ok && data.status === "success") {
+        document.getElementById(`invite-row-${inviteId}`)?.remove();
+      } else {
+        alert(data.message || "Failed to revoke invitation.");
+      }
+    } catch (err) {
+      alert("Error revoking invitation.");
+    }
+  }
+
+  function openChangeRoleModal(userId, email, currentRole) {
+    document.getElementById("role-user-id").value = userId;
+    document.getElementById("role-user-email").textContent = email;
+    document.getElementById("role-select").value = currentRole;
+    document.getElementById("roleModal").classList.remove("hidden");
+  }
+  function closeRoleModal() {
+    document.getElementById("roleModal").classList.add("hidden");
+  }
+
+  async function submitRoleChange(e) {
+    e.preventDefault();
+    const userId = document.getElementById("role-user-id").value;
+    const newRole = document.getElementById("role-select").value;
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value;
+
+    const formData = new FormData();
+    formData.append("csrfmiddlewaretoken", csrfToken);
+    formData.append("role", newRole);
+
+    try {
+      const resp = await fetch(`/settings/team/members/${userId}/role/`, {
+        method: "POST",
+        headers: {
+          "X-Requested-With": "XMLHttpRequest",
+          "X-CSRFToken": csrfToken,
+        },
+        body: formData,
+      });
+      const data = await resp.json();
+      if (resp.ok && data.status === "success") {
+        closeRoleModal();
+        window.location.reload();
+      } else {
+        alert(data.message || "Failed to update role.");
+      }
+    } catch (err) {
+      alert("Error updating role.");
+    }
+  }
+
+  async function removeMember(userId, email) {
+    if (!confirm(`Are you sure you want to remove ${email} from your organization? They will immediately lose access.`)) {
+      return;
+    }
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value;
+    const formData = new FormData();
+    formData.append("csrfmiddlewaretoken", csrfToken);
+
+    try {
+      const resp = await fetch(`/settings/team/members/${userId}/remove/`, {
+        method: "POST",
+        headers: {
+          "X-Requested-With": "XMLHttpRequest",
+          "X-CSRFToken": csrfToken,
+        },
+        body: formData,
+      });
+      const data = await resp.json();
+      if (resp.ok && data.status === "success") {
+        window.location.reload();
+      } else {
+        alert(data.message || "Failed to remove member.");
+      }
+    } catch (err) {
+      alert("Error removing member.");
+    }
+  }
+</script>
+{% endblock %}
+

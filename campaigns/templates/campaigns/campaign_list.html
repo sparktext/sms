@@ -20,6 +20,22 @@
 {% block content %}
 <div class="space-y-6">
 
+  <!-- Top Section Tabs: Broadcasts vs Templates -->
+  <div class="flex items-center gap-2 border-b border-gray-200 pb-3">
+    <a
+      href="{% url 'campaigns:list' %}"
+      class="px-3.5 py-1.5 text-xs font-semibold rounded-lg text-brand-700 bg-brand-50 border border-brand-200"
+    >
+      📢 Broadcast Campaigns
+    </a>
+    <a
+      href="{% url 'campaigns:templates' %}"
+      class="px-3.5 py-1.5 text-xs font-semibold rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition"
+    >
+      📄 SMS Templates ({{ templates_count }})
+    </a>
+  </div>
+
   <!-- Summary Metric Tiles -->
   <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
     <div class="bg-white rounded-2xl p-4 border border-gray-100 shadow-2xs">
