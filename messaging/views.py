@@ -265,11 +265,51 @@ def conversation_detail(request, conversation_id):
     if conversation.unread_count > 0:
         conversation.unread_count = 0
         conversation.save(update_fields=["unread_count"])
+        try:
+            from .ws_broadcast import broadcast_inbox_event
+            last_msg = conversation.messages.order_by("-created_at").first()
+            broadcast_inbox_event(
+                org.id,
+                {
+                    "event": "inbox_update",
+                    "conversation": {
+                        "id": conversation.id,
+                        "last_body": last_msg.body if last_msg else "",
+                        "direction": last_msg.direction if last_msg else "",
+                        "last_message_at_display": _timesince_short(conversation.last_message_at),
+                        "unread_count": 0,
+                    },
+                },
+            )
+        except Exception:
+            pass
 
     status_filter = request.GET.get("status", "").strip().lower()
     assigned_filter = request.GET.get("assigned", "").strip().lower()
     q = request.GET.get("q", "").strip()
     valid_statuses = [Conversation.Status.OPEN, Conversation.Status.NEEDS_HUMAN, Conversation.Status.CLOSED]
+
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.GET.get("ajax") == "1"
+
+    messages_qs = conversation.messages.select_related("sent_by").order_by("created_at")
+    message_list = list(messages_qs)
+    can_send, block_reason = can_send_manual(conversation.contact, conversation)
+    org_members = list(User.objects.filter(organization=org).order_by("first_name", "email"))
+
+    context = {
+        "conversation": conversation,
+        "chat_messages": message_list,
+        "can_send": can_send,
+        "block_reason": block_reason,
+        "status_filter": status_filter or conversation.status,
+        "assigned_filter": assigned_filter,
+        "q": q,
+        "org_members": org_members,
+        "is_debug": getattr(settings, "DEBUG", False),
+    }
+
+    if is_ajax:
+        return render(request, "messaging/inbox_chat_pane.html", context)
 
     # If an explicit status filter was requested and it differs from this conversation's status:
     if status_filter in valid_statuses and conversation.status != status_filter:
@@ -296,30 +336,14 @@ def conversation_detail(request, conversation_id):
         org, status_filter, q, user=request.user, assigned_filter=assigned_filter
     )
 
-    messages_qs = conversation.messages.select_related("sent_by").order_by("created_at")
-    message_list = list(messages_qs)
-
-    can_send, block_reason = can_send_manual(conversation.contact, conversation)
-
-    org_members = list(User.objects.filter(organization=org).order_by("first_name", "email"))
-
-    context = {
+    context.update({
         "conversations": conversations,
-        "conversation": conversation,
-        "chat_messages": message_list,
-        "can_send": can_send,
-        "block_reason": block_reason,
-        "status_filter": status_filter,
-        "assigned_filter": assigned_filter,
-        "q": q,
         "counts": counts,
         "has_active_number": has_active_number,
         "active_phone_numbers": active_phone_numbers,
         "all_contacts": all_contacts,
-        "org_members": org_members,
         "quick_replies_json": quick_replies_json,
-        "is_debug": getattr(settings, "DEBUG", False),
-    }
+    })
     return render(request, "messaging/inbox.html", context)
 
 
@@ -477,6 +501,9 @@ def update_conversation_status(request, conversation_id):
         conversation.save(update_fields=["status"])
         messages.success(request, f"Conversation marked as {conversation.get_status_display()}.")
 
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.content_type == "application/json":
+        return JsonResponse({"status": "success", "new_status": conversation.status})
+
     return redirect("messaging:conversation_detail", conversation_id=conversation.id)
 
 
@@ -614,7 +641,7 @@ def ai_assistant_settings(request):
             ],
             "never_say": "free guarantee\nrefund immediately\nwe promise 100%",
             "handoff_rules": "If the customer requests a phone call or mentions an emergency, hand off immediately.",
-            "max_reply_chars": 320,
+            "max_reply_chars": 160,
             "max_ai_replies_per_hour_per_contact": 6,
         },
     )
@@ -632,9 +659,9 @@ def ai_assistant_settings(request):
         config.handoff_rules = request.POST.get("handoff_rules", "").strip()
 
         try:
-            config.max_reply_chars = max(50, min(1600, int(request.POST.get("max_reply_chars", 320))))
+            config.max_reply_chars = max(50, min(1600, int(request.POST.get("max_reply_chars", 160))))
         except (ValueError, TypeError):
-            config.max_reply_chars = 320
+            config.max_reply_chars = 160
 
         try:
             config.max_ai_replies_per_hour_per_contact = max(1, min(60, int(request.POST.get("max_ai_replies_per_hour_per_contact", 6))))
@@ -757,6 +784,9 @@ def resume_ai_conversation(request, conversation_id):
         body=f"AI Assistant resumed by {request.user.first_name or request.user.email}.",
         status=Message.Status.DELIVERED,
     )
+
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.content_type == "application/json":
+        return JsonResponse({"status": "success"})
 
     messages.success(request, "Conversation marked Open and resumed with AI Assistant.")
     return redirect("messaging:conversation_detail", conversation_id=conversation.id)

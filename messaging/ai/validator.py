@@ -9,8 +9,8 @@ logger = logging.getLogger(__name__)
 URL_REGEX = re.compile(r"(https?://\S+|www\.\S+|[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}(?:/\S*)?)", re.IGNORECASE)
 PHONE_REGEX = re.compile(r"(\+?1?[-.\s]?(?:\(\d{3}\)|\d{3})[-.\s]?\d{3}[-.\s]?\d{4})")
 
-# Banned topic terms
-PRICE_TERMS = ["$", "dollar", "price", "discount", "promo code", "coupon", "cost you", "hourly rate"]
+# Banned topic terms: prohibit specific dollar prices, rates, or promo codes
+PRICE_TERMS = ["$", "dollar", "promo code", "coupon", "cost you", "hourly rate"]
 GUARANTEE_TERMS = ["guarantee", "100% guaranteed", "money back", "warranty"]
 LEGAL_MEDICAL_TERMS = ["legal advice", "medical advice", "diagnosis", "prescription", "lawyer up", "sue them", "lawsuit"]
 
@@ -94,6 +94,9 @@ def validate_reply_content(data: Dict[str, Any], config: AIAssistantConfig) -> T
     # 4. Forbidden topics: Price / Discount mentions
     for term in PRICE_TERMS:
         if term in reply_lower:
+            # If the term is explicitly mentioned in the approved business knowledge (e.g. general discounts), allow it
+            if term in knowledge_lower and term not in ["$", "dollar"]:
+                continue
             return False, f"Reply mentions prohibited price/discount topic: '{term}'."
 
     # 5. Forbidden topics: Guarantees / Legal / Medical advice

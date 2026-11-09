@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 from pathlib import Path
 import environ
 import os
+import sys
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -37,6 +38,7 @@ env = environ.Env(
     AI_API_KEY=(str, ""),
     AI_TIMEOUT_SECONDS=(int, 45),
     AI_MAX_RETRIES=(int, 1),
+    REDIS_URL=(str, "redis://localhost:6380?protocol=2&socket_timeout=30"),
 )
 environ.Env.read_env(BASE_DIR / ".env", overwrite=True)
 
@@ -115,11 +117,24 @@ TEMPLATES = [
 WSGI_APPLICATION = 'sparktext.wsgi.application'
 ASGI_APPLICATION = 'sparktext.asgi.application'
 
-CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels.layers.InMemoryChannelLayer"
+TESTING = "test" in sys.argv
+if TESTING:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels.layers.InMemoryChannelLayer",
+        }
     }
-}
+else:
+    CHANNEL_LAYERS = {
+        "default": {
+            # Redis channel layer — shared across ALL processes (web server, AI worker, campaign worker).
+            # This means WebSocket broadcasts from any process instantly reach connected browsers.
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {
+                "hosts": [env("REDIS_URL", default="redis://localhost:6379")],
+            },
+        }
+    }
 
 
 # Database

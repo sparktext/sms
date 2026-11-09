@@ -156,7 +156,7 @@ def send_message(
 
     # Real-time WebSocket broadcast to open conversation windows
     try:
-        from .ws_broadcast import broadcast_chat_event
+        from .ws_broadcast import broadcast_chat_event, broadcast_inbox_event
         broadcast_chat_event(
             conversation.id,
             {
@@ -168,6 +168,20 @@ def send_message(
                     "sender_type": message.sender_type,
                     "created_at": (message.sent_at or timezone.now()).strftime("%I:%M %p"),
                     "status": message.status,
+                },
+            },
+        )
+        # Real-time WebSocket broadcast to sidebar inbox list
+        broadcast_inbox_event(
+            conversation.organization_id,
+            {
+                "event": "inbox_update",
+                "conversation": {
+                    "id": conversation.id,
+                    "last_body": message.body,
+                    "direction": message.direction,
+                    "last_message_at_display": "just now",
+                    "unread_count": conversation.unread_count,
                 },
             },
         )

@@ -64,17 +64,17 @@
         </select>
       </div>
 
-      <!-- Main Status Tabs (Clean 3-column equal grid, no text clipping) -->
-      <div class="grid grid-cols-3 gap-1 pt-0.5 select-none">
-        <a href="?status=open{% if assigned_filter %}&assigned={{ assigned_filter }}{% endif %}{% if q %}&q={{ q }}{% endif %}" class="text-center py-1.5 px-1 rounded-lg text-[11px] font-semibold transition whitespace-nowrap {% if status_filter == 'open' %}bg-slate-900 text-white shadow-2xs{% else %}bg-white border border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-100{% endif %}">
-          Open ({{ counts.open }})
-        </a>
-        <a href="?status=needs_human{% if assigned_filter %}&assigned={{ assigned_filter }}{% endif %}{% if q %}&q={{ q }}{% endif %}" class="text-center py-1.5 px-1 rounded-lg text-[11px] font-semibold transition truncate {% if status_filter == 'needs_human' %}bg-amber-600 text-white shadow-2xs{% else %}bg-white border border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-100{% endif %}" title="Needs Human Attention ({{ counts.needs_human }})">
-          Needs Human ({{ counts.needs_human }})
-        </a>
-        <a href="?status=closed{% if assigned_filter %}&assigned={{ assigned_filter }}{% endif %}{% if q %}&q={{ q }}{% endif %}" class="text-center py-1.5 px-1 rounded-lg text-[11px] font-semibold transition whitespace-nowrap {% if status_filter == 'closed' %}bg-slate-900 text-white shadow-2xs{% else %}bg-white border border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-100{% endif %}">
-          Closed ({{ counts.closed }})
-        </a>
+      <!-- Main Status Tabs (Clean 3-column equal grid, instant AJAX switching, no page reload) -->
+      <div class="grid grid-cols-3 gap-1 pt-0.5 select-none" id="inbox-status-tabs">
+        <button type="button" onclick="switchStatusTab('open')" id="tab-btn-open" class="text-center py-1.5 px-1 rounded-lg text-[11px] font-semibold transition whitespace-nowrap cursor-pointer {% if status_filter == 'open' %}bg-slate-900 text-white shadow-2xs{% else %}bg-white border border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-100{% endif %}">
+          Open (<span id="tab-count-open">{{ counts.open }}</span>)
+        </button>
+        <button type="button" onclick="switchStatusTab('needs_human')" id="tab-btn-needs_human" class="text-center py-1.5 px-1 rounded-lg text-[11px] font-semibold transition truncate cursor-pointer {% if status_filter == 'needs_human' %}bg-amber-600 text-white shadow-2xs{% else %}bg-white border border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-100{% endif %}" title="Needs Human Attention ({{ counts.needs_human }})">
+          Needs Human (<span id="tab-count-needs_human">{{ counts.needs_human }}</span>)
+        </button>
+        <button type="button" onclick="switchStatusTab('closed')" id="tab-btn-closed" class="text-center py-1.5 px-1 rounded-lg text-[11px] font-semibold transition whitespace-nowrap cursor-pointer {% if status_filter == 'closed' %}bg-slate-900 text-white shadow-2xs{% else %}bg-white border border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-100{% endif %}">
+          Closed (<span id="tab-count-closed">{{ counts.closed }}</span>)
+        </button>
       </div>
     </div>
 
@@ -96,502 +96,11 @@
   </div>
 
   <!-- ============================================================ -->
-  <!-- RIGHT PANE: ACTIVE CHAT THREAD OR EMPTY STATE                -->
+  <!-- RIGHT PANE CONTAINER: ACTIVE CHAT THREAD & LEAD DOSSIER     -->
   <!-- ============================================================ -->
-  <div class="flex-1 flex flex-col min-w-0 bg-slate-50/60 {% if not conversation %}hidden md:flex{% else %}flex{% endif %} h-full">
-
-    {% if conversation %}
-      <!-- Top Chat Header Bar -->
-      <div class="px-4 py-3 bg-white border-b border-gray-200 shrink-0 flex flex-wrap items-center justify-between gap-y-2.5 gap-x-3 shadow-2xs">
-        <!-- Left: Contact Avatar & Info -->
-        <div class="flex items-center gap-3 min-w-0 flex-1">
-          <!-- Mobile back button -->
-          <a href="{% url 'messaging:inbox' %}{% if status_filter %}?status={{ status_filter }}{% endif %}"
-             class="md:hidden p-1.5 text-gray-500 hover:bg-gray-100 rounded-lg transition shrink-0" title="Back to chat list">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
-            </svg>
-          </a>
-
-          <!-- Contact Avatar -->
-          <div class="w-10 h-10 rounded-xl bg-brand-50 text-brand-700 font-bold text-xs flex items-center justify-center shrink-0 border border-brand-100 shadow-2xs">
-            {% if conversation.contact.first_name %}{{ conversation.contact.first_name|slice:":1"|upper }}{% elif conversation.contact.last_name %}{{ conversation.contact.last_name|slice:":1"|upper }}{% else %}#FF{% endif %}
-          </div>
-
-          <div class="min-w-0">
-            <div class="flex items-center gap-2">
-              <h3 class="font-bold text-sm text-gray-900 truncate max-w-[200px] sm:max-w-xs md:max-w-md" title="{% if conversation.contact.first_name or conversation.contact.last_name %}{{ conversation.contact.first_name }} {{ conversation.contact.last_name }}{% else %}{{ conversation.contact.phone }}{% endif %}">
-                {% if conversation.contact.first_name or conversation.contact.last_name %}
-                  {{ conversation.contact.first_name }} {{ conversation.contact.last_name }}
-                {% else %}
-                  {{ conversation.contact.phone }}
-                {% endif %}
-              </h3>
-              <a href="{% url 'contacts:detail' conversation.contact.id %}" class="inline-flex items-center gap-1 text-[10px] font-semibold text-brand-600 hover:text-brand-800 bg-brand-50 hover:bg-brand-100 border border-brand-200 px-2 py-0.5 rounded-md transition shrink-0" title="View Full Contact Profile">
-                <span>Profile</span>
-                <span class="text-[9px]">↗</span>
-              </a>
-            </div>
-            <div class="text-[11px] text-gray-500 font-mono flex items-center gap-1.5 mt-0.5">
-              <span>{{ conversation.contact.phone }}</span>
-              <span class="text-gray-300">·</span>
-              <span class="font-sans text-[10px] text-gray-400">via {{ conversation.phone_number.e164 }}{% if conversation.phone_number.label %} ({{ conversation.phone_number.label }}){% endif %}</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Right Side: Status Selector, AI Mode Selector & Consent Pill -->
-        <div class="flex items-center gap-2 shrink-0 flex-wrap">
-          {% if conversation.contact.sms_status == "opted_in" %}
-          <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 whitespace-nowrap">
-            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Opted In
-          </span>
-          {% elif conversation.contact.sms_status == "opted_out" %}
-          <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200 whitespace-nowrap">
-            <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span> Opted Out
-          </span>
-          {% else %}
-          <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 whitespace-nowrap">
-            <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span> No consent
-          </span>
-          {% endif %}
-
-          <!-- Per-Conversation AI Mode Selector (Human Takeover / Suggest / Auto) -->
-          <form method="post" action="{% url 'messaging:update_ai_mode' conversation.id %}" class="inline-block" title="Control AI Assistant mode for this specific conversation">
-            {% csrf_token %}
-            <select name="ai_mode" onchange="this.form.submit()" class="text-xs font-semibold px-2.5 py-1 rounded-lg border transition cursor-pointer {% if conversation.ai_mode == 'off' %}bg-rose-50 border-rose-200 text-rose-800 font-bold{% elif conversation.ai_mode == 'suggest' %}bg-indigo-50 border-indigo-200 text-indigo-800 font-bold{% elif conversation.ai_mode == 'auto' %}bg-purple-50 border-purple-200 text-purple-800 font-bold{% else %}bg-gray-50 border-gray-200 text-gray-700{% endif %} focus:outline-none focus:ring-1 focus:ring-brand-500">
-              <option value="default" {% if conversation.ai_mode == "default" %}selected{% endif %}>⚙️ AI: Default</option>
-              <option value="auto" {% if conversation.ai_mode == "auto" %}selected{% endif %}>🤖 AI: Auto</option>
-              <option value="suggest" {% if conversation.ai_mode == "suggest" %}selected{% endif %}>✨ AI: Suggest</option>
-              <option value="off" {% if conversation.ai_mode == "off" %}selected{% endif %}>🛑 AI: Off</option>
-            </select>
-          </form>
-
-          <form method="post" action="{% url 'messaging:update_status' conversation.id %}" class="inline-block">
-            {% csrf_token %}
-            <select name="status" onchange="this.form.submit()" class="text-xs font-semibold px-2.5 py-1 rounded-lg bg-gray-50 border border-gray-200 text-gray-700 focus:outline-none focus:ring-1 focus:ring-brand-500 cursor-pointer">
-              <option value="open" {% if conversation.status == "open" %}selected{% endif %}>🟢 Open</option>
-              <option value="needs_human" {% if conversation.status == "needs_human" %}selected{% endif %}>🟡 Needs Human</option>
-              <option value="closed" {% if conversation.status == "closed" %}selected{% endif %}>⚪ Closed</option>
-            </select>
-          </form>
-
-          <!-- Live WebSocket Status Badge -->
-          <span id="ws-status-badge" class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[11px] font-semibold bg-gray-50 text-gray-500 border border-gray-200 transition-all select-none" title="Live WebSocket connection status">
-            <span id="ws-status-dot" class="w-1.5 h-1.5 rounded-full bg-gray-400"></span>
-            <span id="ws-status-text" class="hidden sm:inline">Connecting</span>
-          </span>
-
-          <!-- Notification Sound Toggle -->
-          <button type="button" id="btn-sound-toggle" onclick="toggleSound()" class="p-1.5 text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition cursor-pointer" title="Notification chime (enabled)">
-            <span>🔔</span>
-          </button>
-
-          <!-- Toggle Lead Dossier Panel Button -->
-          <button type="button" id="btn-toggle-dossier" onclick="toggleLeadDossier()" class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg border border-gray-200 bg-white hover:bg-brand-50 hover:text-brand-700 hover:border-brand-200 text-gray-700 shadow-2xs transition cursor-pointer" title="Toggle Lead Profile & Qualification Dossier">
-            <span>📋</span>
-            <span class="hidden sm:inline">Lead Info</span>
-          </button>
-        </div>
-      </div>
-
-      <!-- Handoff Warning Banner when status is Needs Human -->
-      {% if conversation.status == 'needs_human' %}
-      <div class="px-4 py-2.5 bg-amber-50/90 border-b border-amber-200 text-amber-900 text-xs flex items-center justify-between gap-3 shrink-0 shadow-2xs">
-        <div class="flex items-center gap-2 min-w-0">
-          <span class="text-amber-600 font-bold text-sm shrink-0">⚠️</span>
-          <div class="truncate">
-            <strong class="font-bold">Needs Human Attention:</strong>
-            <span class="text-amber-800 ml-1">{{ conversation.handoff_reason|default:"Customer inquiry requires human assistance." }}</span>
-          </div>
-        </div>
-        <form method="post" action="{% url 'messaging:resume_ai' conversation.id %}" class="shrink-0">
-          {% csrf_token %}
-          <button type="submit" class="px-2.5 py-1 text-[11px] font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-lg transition shadow-2xs cursor-pointer">
-            Resume AI Assistant
-          </button>
-        </form>
-      </div>
-      {% endif %}
-
-      <!-- Human Takeover Banner when AI is explicitly stopped or switched to Suggest for this chat -->
-      {% if conversation.ai_mode == 'off' %}
-      <div class="px-4 py-2 bg-slate-900 text-white text-xs flex items-center justify-between gap-3 shrink-0 shadow-2xs">
-        <div class="flex items-center gap-2">
-          <span>🛑</span>
-          <span><strong>Human Takeover Active:</strong> AI is stopped for this conversation. You can chat freely without AI intervention.</span>
-        </div>
-        <form method="post" action="{% url 'messaging:update_ai_mode' conversation.id %}">
-          {% csrf_token %}
-          <input type="hidden" name="ai_mode" value="default">
-          <button type="submit" class="px-2.5 py-1 text-[11px] font-semibold text-slate-900 bg-white hover:bg-gray-100 rounded-lg transition shadow-2xs cursor-pointer">
-            Re-enable AI
-          </button>
-        </form>
-      </div>
-      {% elif conversation.ai_mode == 'suggest' %}
-      <div class="px-4 py-1.5 bg-indigo-50 border-b border-indigo-200 text-indigo-900 text-[11px] flex items-center justify-between gap-2 shrink-0">
-        <div class="flex items-center gap-1.5">
-          <span>✨</span>
-          <span><strong>Suggest Mode Active:</strong> Gemma will draft suggestions for your review instead of auto-sending.</span>
-        </div>
-        <form method="post" action="{% url 'messaging:update_ai_mode' conversation.id %}">
-          {% csrf_token %}
-          <input type="hidden" name="ai_mode" value="auto">
-          <button type="submit" class="text-brand-600 font-semibold hover:underline cursor-pointer">
-            Switch to Auto →
-          </button>
-        </form>
-      </div>
-      {% endif %}
-
-      <!-- Messages Thread Area -->
-      <div id="chat-window" class="flex-1 overflow-y-auto p-4 sm:p-6 space-y-3 bg-[#f8fafc]/90">
-        {% if chat_messages %}
-          {% for msg in chat_messages %}
-          {% if msg.sender_type == 'system' %}
-            <!-- System audit notification (Clean timeline pill) -->
-            <div id="msg-{{ msg.id }}" data-msg-id="{{ msg.id }}" class="w-full flex flex-col items-center my-2 select-none">
-              {% if "qualification questions" in msg.body|lower or "handed off" in msg.body|lower %}
-                <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-900 border border-amber-200/90 shadow-2xs text-center max-w-lg">
-                  <span class="text-amber-600">🤝</span>
-                  <span>Handed off: <strong>{{ msg.body|cut:"Conversation handed off to team member: " }}</strong></span>
-                </span>
-              {% elif "took over" in msg.body|lower %}
-                <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold bg-purple-50 text-purple-900 border border-purple-200/90 shadow-2xs text-center max-w-lg">
-                  <span class="text-purple-600">👤</span>
-                  <span>{{ msg.body }}</span>
-                </span>
-              {% elif "resumed" in msg.body|lower %}
-                <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-900 border border-emerald-200/90 shadow-2xs text-center max-w-lg">
-                  <span class="text-emerald-600">🤖</span>
-                  <span>{{ msg.body }}</span>
-                </span>
-              {% elif "safety check failed" in msg.body|lower %}
-                <div class="inline-flex flex-col items-center gap-1">
-                  <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold bg-rose-50 text-rose-900 border border-rose-200 shadow-2xs text-center max-w-lg">
-                    <span class="text-rose-600">⚠️</span>
-                    <span>Handed off: AI safety guard triggered</span>
-                    <button type="button" onclick="document.getElementById('details-{{ msg.id }}').classList.toggle('hidden');" class="text-rose-700 underline text-[10px] ml-1 cursor-pointer">Details</button>
-                  </span>
-                  <div id="details-{{ msg.id }}" class="hidden px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-200 text-[10px] text-gray-600 font-mono text-center max-w-md">
-                    {{ msg.body }}
-                  </div>
-                </div>
-              {% else %}
-                <span class="px-3 py-1 rounded-full text-[11px] font-medium bg-gray-100 text-gray-600 border border-gray-200/80 shadow-2xs text-center max-w-md">
-                  ℹ️ {{ msg.body }}
-                </span>
-              {% endif %}
-            </div>
-          {% else %}
-          <div id="msg-{{ msg.id }}" data-msg-id="{{ msg.id }}" class="flex flex-col {% if msg.direction == 'outbound' %}items-end{% else %}items-start{% endif %}">
-            
-            <div class="max-w-md sm:max-w-lg rounded-2xl px-4 py-2.5 text-xs sm:text-sm shadow-2xs leading-relaxed
-              {% if msg.direction == 'outbound' %}
-                {% if msg.sender_type == 'ai' %}
-                  bg-gradient-to-r from-brand-600 to-indigo-600 text-white rounded-br-xs
-                {% else %}
-                  bg-brand-600 text-white rounded-br-xs
-                {% endif %}
-              {% else %}
-                bg-white text-gray-900 border border-gray-200/90 rounded-bl-xs
-              {% endif %}">
-              <p class="whitespace-pre-wrap break-words">{{ msg.body }}</p>
-            </div>
-
-            <!-- Meta: Timestamp and Delivery Ticks -->
-            <div class="flex items-center gap-1.5 text-[10px] text-gray-400 mt-1 px-1">
-              <span>{{ msg.created_at|date:"h:i A" }}</span>
-
-              {% if msg.direction == 'outbound' %}
-                <span>·</span>
-                {% if msg.status == 'delivered' %}
-                  <span class="text-emerald-600 font-semibold" title="Delivered to carrier">✓✓ Delivered</span>
-                {% elif msg.status == 'sent' %}
-                  <span class="text-gray-500 font-medium">✓ Sent</span>
-                {% elif msg.status == 'failed' or msg.status == 'undelivered' %}
-                  <span class="text-rose-600 font-medium" title="{{ msg.error_message|default:'Delivery failed' }}">✕ Failed</span>
-                {% else %}
-                  <span>{{ msg.get_status_display }}</span>
-                {% endif %}
-
-                {% if msg.sender_type == 'ai' %}
-                  <span class="text-indigo-600 font-bold">· 🤖 AI Assistant</span>
-                {% elif msg.sent_by %}
-                  <span class="text-gray-400">· by {{ msg.sent_by.first_name|default:msg.sent_by.email }}</span>
-                  {% if msg.is_ai_assisted %}
-                    <span class="text-indigo-500 font-medium">· ✨ AI-assisted</span>
-                  {% endif %}
-                {% endif %}
-              {% endif %}
-            </div>
-
-          </div>
-          {% endif %}
-          {% endfor %}
-        {% else %}
-          <div id="empty-chat-placeholder" class="h-full flex flex-col items-center justify-center text-center py-12">
-            <div class="w-12 h-12 rounded-2xl bg-white border border-gray-200 text-gray-400 flex items-center justify-center mb-2 shadow-2xs">
-              💬
-            </div>
-            <p class="text-xs text-gray-600 font-semibold">No messages yet in this conversation</p>
-            <p class="text-[11px] text-gray-400">Type an SMS below to start the thread.</p>
-          </div>
-        {% endif %}
-      </div>
-
-      <!-- Bottom Composer Bar -->
-      <div class="p-3.5 bg-white border-t border-gray-200 shrink-0">
-        <!-- AI Suggestion Draft Card (Suggest Mode) -->
-        {% if conversation.ai_draft_reply %}
-        <div id="ai-draft-card" class="mb-3 p-3 rounded-xl bg-gradient-to-r from-indigo-50/90 to-purple-50/90 border border-indigo-200 text-indigo-950 text-xs shadow-2xs space-y-2">
-          <div class="flex items-center justify-between">
-            <span class="font-bold flex items-center gap-1.5 text-brand-700">
-              <span>✨</span> AI Suggestion
-            </span>
-            <span class="text-[10px] text-gray-500 font-medium">Gemma Copilot Draft</span>
-          </div>
-          <p id="ai-draft-text" class="text-xs text-gray-800 whitespace-pre-wrap leading-relaxed bg-white/80 p-2.5 rounded-lg border border-indigo-100 font-sans">{{ conversation.ai_draft_reply }}</p>
-          <div class="flex items-center justify-end gap-2 pt-0.5">
-            <button
-              type="button"
-              onclick="discardAIDraft('{% url 'messaging:ai_draft_action' conversation.id %}')"
-              class="px-2.5 py-1 text-[11px] font-medium text-gray-500 hover:text-gray-800 hover:bg-gray-200/60 rounded-lg transition cursor-pointer"
-            >
-              Discard
-            </button>
-            <button
-              type="button"
-              onclick="applyAIDraftToComposer()"
-              class="px-2.5 py-1 text-[11px] font-semibold text-brand-700 hover:bg-brand-100 rounded-lg transition border border-brand-200 cursor-pointer"
-            >
-              Edit Draft
-            </button>
-            <button
-              type="button"
-              onclick="sendAIDraft('{% url 'messaging:ai_draft_action' conversation.id %}')"
-              class="px-3 py-1 text-[11px] font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition shadow-2xs cursor-pointer flex items-center gap-1"
-            >
-              <span>Approve & Send</span>
-              <span>→</span>
-            </button>
-          </div>
-        </div>
-        {% endif %}
-
-        {% if not can_send %}
-          <div class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2.5">
-            <span class="font-bold text-amber-700 text-sm leading-none">⚠️</span>
-            <div>
-              <strong class="font-bold block mb-0.5">Sending Currently Blocked</strong>
-              <p class="text-amber-800 leading-relaxed">{{ block_reason }}</p>
-            </div>
-          </div>
-        {% else %}
-          <form id="message-form" method="post" action="{% url 'messaging:send_message' conversation.id %}" class="space-y-2">
-            {% csrf_token %}
-
-            <!-- Quick Snippets Bar (One-click canned replies with Edit/Add capability) -->
-            <div class="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs select-none">
-              <span class="text-[10px] font-bold text-gray-400 uppercase tracking-wider shrink-0 flex items-center gap-1">
-                <span>⚡</span> Quick:
-              </span>
-              <div id="snippets-chips-container" class="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-                <!-- Populated dynamically via JS -->
-              </div>
-              <button type="button" onclick="openSnippetsModal()" class="px-2 py-0.5 rounded-lg bg-white hover:bg-brand-50 hover:text-brand-700 hover:border-brand-300 border border-dashed border-gray-300 text-[11px] font-semibold text-gray-600 shrink-0 transition cursor-pointer flex items-center gap-1 shadow-2xs" title="Edit existing quick replies or add new ones">
-                <span>⚙️</span>
-                <span>Edit / Add</span>
-              </button>
-            </div>
-
-            <div>
-              <textarea
-                id="message-body"
-                name="body"
-                rows="2"
-                maxlength="1600"
-                required
-                placeholder="Type your message to {{ conversation.contact.first_name|default:conversation.contact.phone }}..."
-                class="w-full px-3.5 py-2 text-xs sm:text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition resize-none text-gray-900"
-              ></textarea>
-            </div>
-
-            <div class="flex items-center justify-between">
-              <div id="char-counter" class="text-[11px] text-gray-400 font-mono">
-                0 / 160 characters · 1 segment
-              </div>
-
-              <button
-                type="submit"
-                id="send-button"
-                class="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs cursor-pointer disabled:opacity-50"
-              >
-                <span>Send SMS</span>
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
-                </svg>
-              </button>
-            </div>
-          </form>
-        {% endif %}
-      </div>
-
-    {% else %}
-      <!-- WhatsApp style Empty State when no chat is selected -->
-      <div class="h-full flex flex-col items-center justify-center text-center p-8">
-        <div class="w-16 h-16 rounded-3xl bg-brand-50 text-brand-600 flex items-center justify-center mb-4 border border-brand-100 shadow-xs text-2xl">
-          💬
-        </div>
-        <h3 class="text-base font-bold text-gray-900 mb-1">SparkText Inbox</h3>
-        <p class="text-xs text-gray-500 max-w-sm mx-auto mb-6 leading-relaxed">
-          Select a contact from the left pane to view message history, check compliance status, and send text messages.
-        </p>
-        <button type="button" onclick="openNewChatModal()" class="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition shadow-xs cursor-pointer">
-          Start a Conversation ⚡
-        </button>
-      </div>
-    {% endif %}
-
+  <div id="inbox-chat-pane-container" class="flex-1 flex min-w-0 h-full overflow-hidden">
+    {% include "messaging/inbox_chat_pane.html" %}
   </div>
-
-  <!-- ============================================================ -->
-  <!-- COLUMN 3: LEAD DOSSIER & CRM PROFILE (Collapsible Pane)      -->
-  <!-- ============================================================ -->
-  {% if conversation %}
-  <div id="lead-dossier-panel" class="w-72 lg:w-80 border-l border-gray-200 bg-white flex flex-col shrink-0 h-full overflow-y-auto select-none" style="display: none;">
-    <!-- Dossier Header -->
-    <div class="p-3.5 border-b border-gray-100 bg-gray-50/70 flex items-center justify-between shrink-0">
-      <div class="flex items-center gap-2">
-        <span class="text-sm">📋</span>
-        <h4 class="text-xs font-bold text-gray-900 uppercase tracking-wider">Lead Dossier</h4>
-      </div>
-      <button type="button" onclick="toggleLeadDossier(false)" class="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-200/70 rounded-lg transition cursor-pointer" title="Close Lead Dossier">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-      </button>
-    </div>
-
-    <div class="p-4 space-y-4 flex-1">
-      <!-- Contact Card -->
-      <div class="text-center pb-3 border-b border-gray-100">
-        <div class="w-14 h-14 rounded-2xl bg-brand-50 text-brand-700 font-bold text-base flex items-center justify-center mx-auto mb-2 border border-brand-100 shadow-2xs">
-          {% if conversation.contact.first_name %}{{ conversation.contact.first_name|slice:":1"|upper }}{% elif conversation.contact.last_name %}{{ conversation.contact.last_name|slice:":1"|upper }}{% else %}#FF{% endif %}
-        </div>
-        <h3 class="font-bold text-sm text-gray-900 leading-tight">
-          {% if conversation.contact.first_name or conversation.contact.last_name %}
-            {{ conversation.contact.first_name }} {{ conversation.contact.last_name }}
-          {% else %}
-            {{ conversation.contact.phone }}
-          {% endif %}
-        </h3>
-        <p class="text-xs text-gray-500 font-mono mt-0.5">{{ conversation.contact.phone }}</p>
-        {% if conversation.contact.email %}
-          <p class="text-[11px] text-gray-400 mt-0.5">{{ conversation.contact.email }}</p>
-        {% endif %}
-
-        <div class="flex items-center justify-center gap-1.5 mt-2 flex-wrap">
-          {% if conversation.contact.sms_status == "opted_in" %}
-            <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">● Opted In</span>
-          {% elif conversation.contact.sms_status == "opted_out" %}
-            <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">● Opted Out</span>
-          {% else %}
-            <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">● No Consent</span>
-          {% endif %}
-          <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-600 border border-gray-200">Source: {{ conversation.contact.get_source_display }}</span>
-        </div>
-      </div>
-
-      <!-- Qualification Snapshot Card -->
-      <div class="rounded-xl p-3.5 bg-gradient-to-br from-slate-50 to-brand-50/30 border border-brand-100/80 shadow-2xs space-y-2.5">
-        <div class="flex items-center justify-between">
-          <span class="text-[11px] font-bold text-brand-900 uppercase tracking-wider flex items-center gap-1.5">
-            <span>🚗</span> Auto Quote Data
-          </span>
-          {% if conversation.qualification_answers and conversation.qualification_answers.coverage_type %}
-            <span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">✓ Collected</span>
-          {% else %}
-            <span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-gray-100 text-gray-500">In Progress</span>
-          {% endif %}
-        </div>
-
-        <div class="space-y-1.5 text-xs">
-          <div class="flex items-center justify-between py-1 border-b border-gray-100/80">
-            <span class="text-gray-500 text-[11px]">Coverage:</span>
-            <span class="font-semibold text-gray-900">{{ conversation.qualification_answers.coverage_type|default:"—" }}</span>
-          </div>
-          <div class="flex items-center justify-between py-1 border-b border-gray-100/80">
-            <span class="text-gray-500 text-[11px]">Postal ZIP Code:</span>
-            <span class="font-semibold text-gray-900 font-mono">{{ conversation.qualification_answers.zip_code|default:"—" }}</span>
-          </div>
-          <div class="flex items-center justify-between py-1 border-b border-gray-100/80">
-            <span class="text-gray-500 text-[11px]">Active Policy:</span>
-            <span class="font-semibold text-gray-900">{{ conversation.qualification_answers.currently_insured|default:"—" }}</span>
-          </div>
-          <div class="flex items-center justify-between py-1">
-            <span class="text-gray-500 text-[11px]">Start Timeline:</span>
-            <span class="font-semibold text-gray-900">{{ conversation.qualification_answers.effective_date|default:"—" }}</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Lead Stage Dropdown -->
-      <div class="space-y-1">
-        <div class="flex items-center justify-between">
-          <label class="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">CRM Lead Stage</label>
-          <span id="stage-status-indicator" class="text-[10px] text-emerald-600 font-semibold hidden">Saved ✓</span>
-        </div>
-        <select id="dossier-stage-select" onchange="updateLeadStage(this.value)" class="w-full text-xs font-semibold px-3 py-1.5 rounded-xl border border-gray-200 bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500/20 cursor-pointer">
-          <option value="New Lead" {% if conversation.contact.custom_fields.stage == "New Lead" or not conversation.contact.custom_fields.stage %}selected{% endif %}>🟢 New Lead</option>
-          <option value="Contacted" {% if conversation.contact.custom_fields.stage == "Contacted" %}selected{% endif %}>💬 Contacted</option>
-          <option value="Qualified" {% if conversation.contact.custom_fields.stage == "Qualified" %}selected{% endif %}>⭐ Qualified</option>
-          <option value="Quote Sent" {% if conversation.contact.custom_fields.stage == "Quote Sent" %}selected{% endif %}>📄 Quote Sent</option>
-          <option value="Won" {% if conversation.contact.custom_fields.stage == "Won" %}selected{% endif %}>🏆 Closed Won</option>
-          <option value="Lost" {% if conversation.contact.custom_fields.stage == "Lost" %}selected{% endif %}>❌ Closed Lost</option>
-        </select>
-      </div>
-
-      <!-- Assigned Team Member -->
-      <div class="space-y-1">
-        <div class="flex items-center justify-between">
-          <label class="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Assigned Member</label>
-          <span id="assign-status-indicator" class="text-[10px] text-emerald-600 font-semibold hidden">Updated ✓</span>
-        </div>
-        <select id="dossier-assign-select" onchange="updateAssignedAgent(this.value)" class="w-full text-xs font-semibold px-3 py-1.5 rounded-xl border border-gray-200 bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500/20 cursor-pointer">
-          <option value="" {% if not conversation.assigned_to %}selected{% endif %}>Unassigned</option>
-          {% for member in org_members %}
-            <option value="{{ member.id }}" {% if conversation.assigned_to_id == member.id %}selected{% endif %}>
-              👤 {{ member.first_name|default:member.email }}
-            </option>
-          {% endfor %}
-        </select>
-      </div>
-
-      <!-- Handoff Note (if present) -->
-      {% if conversation.handoff_reason %}
-      <div class="p-2.5 rounded-xl bg-amber-50/80 border border-amber-200 text-amber-900 text-[11px] space-y-1">
-        <strong class="font-bold flex items-center gap-1 text-amber-800">
-          <span>⚠️</span> Handoff Reason:
-        </strong>
-        <p class="leading-relaxed">{{ conversation.handoff_reason }}</p>
-      </div>
-      {% endif %}
-
-      <!-- Quick Action Buttons -->
-      <div class="pt-2 space-y-2">
-        <button type="button" id="btn-copy-summary" onclick="copyLeadSummary()" class="w-full inline-flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-xl transition cursor-pointer shadow-2xs">
-          <span>📋</span> <span id="copy-summary-text">Copy Lead Summary</span>
-        </button>
-        <a href="tel:{{ conversation.contact.phone }}" class="w-full inline-flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl transition cursor-pointer shadow-2xs">
-          <span>📞</span> Call {{ conversation.contact.first_name|default:conversation.contact.phone }}
-        </a>
-        <a href="{% url 'contacts:detail' conversation.contact.id %}" class="w-full inline-flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-xl transition cursor-pointer shadow-2xs">
-          <span>↗</span> Open Full Contact Record
-        </a>
-      </div>
-    </div>
-  </div>
-  {% endif %}
 
 </div>
 
@@ -1077,7 +586,16 @@
       if (data.status === "success") {
         const card = document.getElementById("ai-draft-card");
         if (card) card.remove();
-        window.location.reload();
+        if (typeof appendChatMessage === "function") {
+          appendChatMessage({
+            id: data.message_id,
+            body: data.body,
+            direction: "outbound",
+            status: "delivered",
+            created_at: data.sent_at,
+            sender_type: "human"
+          });
+        }
       } else {
         alert(data.message || "Failed to send AI draft.");
       }
@@ -1092,6 +610,69 @@
   const currentUserId = "{{ request.user.id }}";
   let searchDebounceTimer = null;
   let initialListHtml = null;
+  let currentStatusFilter = "{{ status_filter|default:'open' }}";
+
+  function switchStatusTab(newStatus) {
+    if (currentStatusFilter === newStatus) return;
+    currentStatusFilter = newStatus;
+
+    // Update tab button classes
+    const tabs = ["open", "needs_human", "closed"];
+    tabs.forEach(s => {
+      const btn = document.getElementById("tab-btn-" + s);
+      if (!btn) return;
+      if (s === newStatus) {
+        if (s === "needs_human") {
+          btn.className = "text-center py-1.5 px-1 rounded-lg text-[11px] font-semibold transition truncate cursor-pointer bg-amber-600 text-white shadow-2xs";
+        } else {
+          btn.className = "text-center py-1.5 px-1 rounded-lg text-[11px] font-semibold transition whitespace-nowrap cursor-pointer bg-slate-900 text-white shadow-2xs";
+        }
+      } else {
+        btn.className = "text-center py-1.5 px-1 rounded-lg text-[11px] font-semibold transition whitespace-nowrap cursor-pointer bg-white border border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-100";
+      }
+    });
+
+    // Update URL bar without page reload
+    const url = new URL(window.location.href);
+    url.searchParams.set("status", newStatus);
+    window.history.pushState({ status: newStatus }, "", url.toString());
+
+    // Fetch conversation items for this status tab via AJAX
+    const container = document.getElementById("conversations-list-container");
+    const activeConvId = (typeof currentConvId !== 'undefined' && currentConvId) ? currentConvId : {% if conversation %}{{ conversation.id }}{% else %}""{% endif %};
+    const searchInput = document.getElementById("chat-search-input");
+    const term = searchInput ? searchInput.value.trim() : "";
+    const assigned = (typeof currentSubFilter !== 'undefined') ? currentSubFilter : "";
+
+    const spinner = document.getElementById("search-loading-spinner");
+    if (spinner) spinner.classList.remove("hidden");
+    if (container) container.style.opacity = "0.5";
+
+    let fetchUrl = `{% url 'messaging:inbox_search' %}?status=${encodeURIComponent(newStatus)}`;
+    if (term) fetchUrl += `&q=${encodeURIComponent(term)}`;
+    if (assigned && assigned !== "all") fetchUrl += `&assigned=${encodeURIComponent(assigned)}`;
+    if (activeConvId) fetchUrl += `&active_id=${encodeURIComponent(activeConvId)}`;
+
+    fetch(fetchUrl, { headers: { "X-Requested-With": "XMLHttpRequest" } })
+      .then(res => res.text())
+      .then(html => {
+        if (container) {
+          container.innerHTML = html;
+          container.style.opacity = "1";
+          initialListHtml = html;
+          if (typeof applySubFilterOnly === 'function') applySubFilterOnly();
+        }
+      })
+      .catch(err => {
+        console.error("Tab switch error:", err);
+        if (container) container.style.opacity = "1";
+      })
+      .finally(() => {
+        if (spinner) spinner.classList.add("hidden");
+      });
+  }
+
+
 
   function handleLiveSearch(query) {
     const term = (query || "").trim();
@@ -1125,8 +706,8 @@
     if (spinner) spinner.classList.remove("hidden");
     searchDebounceTimer = setTimeout(async () => {
       try {
-        const activeId = "{{ conversation.id|default:'' }}";
-        const status = "{{ status_filter|default:'open' }}";
+        const activeId = (typeof currentConvId !== 'undefined' && currentConvId) ? currentConvId : "{{ conversation.id|default:'' }}";
+        const status = currentStatusFilter || "open";
         const assigned = (typeof currentSubFilter !== 'undefined') ? currentSubFilter : "";
         const url = `{% url 'messaging:inbox_search' %}?q=${encodeURIComponent(term)}&status=${encodeURIComponent(status)}&assigned=${encodeURIComponent(assigned)}&active_id=${encodeURIComponent(activeId)}`;
         const resp = await fetch(url, {
@@ -1307,9 +888,10 @@
     if (!textarea) return;
 
     // Personalize merge tags if currently inside an active conversation
-    const firstName = "{{ conversation.contact.first_name|default:''|escapejs }}";
-    const lastName = "{{ conversation.contact.last_name|default:''|escapejs }}";
-    const phone = "{{ conversation.contact.phone|default:''|escapejs }}";
+    const meta = typeof getActiveMeta === "function" ? getActiveMeta() : document.getElementById("active-conversation-meta");
+    const firstName = meta ? (meta.dataset.firstName || "") : "{{ conversation.contact.first_name|default:''|escapejs }}";
+    const lastName = meta ? (meta.dataset.lastName || "") : "{{ conversation.contact.last_name|default:''|escapejs }}";
+    const phone = meta ? (meta.dataset.phone || "") : "{{ conversation.contact.phone|default:''|escapejs }}";
     const businessName = "{{ org.name|default:'SparkText'|escapejs }}";
 
     let personalized = text;
@@ -1626,17 +1208,22 @@
     renderSnippets();
   });
 
-  {% if conversation %}
+  // --- ACTIVE CONVERSATION METADATA HELPERS ---
+  function getActiveMeta() {
+    return document.getElementById("active-conversation-meta");
+  }
+
   // --- COPY LEAD SUMMARY TO CLIPBOARD ---
   function copyLeadSummary() {
+    const meta = getActiveMeta();
     const btn = document.getElementById("btn-copy-summary");
     const txtEl = document.getElementById("copy-summary-text");
-    const name = "{% if conversation.contact.first_name or conversation.contact.last_name %}{{ conversation.contact.first_name }} {{ conversation.contact.last_name }}{% else %}Lead{% endif %}";
-    const phone = "{{ conversation.contact.phone }}";
-    const coverage = "{{ conversation.qualification_answers.coverage_type|default:'Not specified' }}";
-    const zip = "{{ conversation.qualification_answers.zip_code|default:'Not specified' }}";
-    const status = "{{ conversation.qualification_answers.currently_insured|default:'Not specified' }}";
-    const timeline = "{{ conversation.qualification_answers.effective_date|default:'Not specified' }}";
+    const name = meta ? ((meta.dataset.firstName + " " + meta.dataset.lastName).trim() || "Lead") : "Lead";
+    const phone = meta ? (meta.dataset.phone || "") : "";
+    const coverage = meta ? (meta.dataset.coverage || "Not specified") : "Not specified";
+    const zip = meta ? (meta.dataset.zip || "Not specified") : "Not specified";
+    const status = meta ? (meta.dataset.insured || "Not specified") : "Not specified";
+    const timeline = meta ? (meta.dataset.timeline || "Not specified") : "Not specified";
 
     const summary = `Lead Profile:\nName: ${name}\nPhone: ${phone}\nCoverage: ${coverage}\nZIP: ${zip}\nPolicy Status: ${status}\nStart Timeline: ${timeline}`;
 
@@ -1652,12 +1239,15 @@
 
   // --- UPDATE LEAD STAGE (AJAX) ---
   function updateLeadStage(newStage) {
+    const meta = getActiveMeta();
+    const contactId = meta ? meta.dataset.contactId : null;
+    if (!contactId) return;
     const indicator = document.getElementById("stage-status-indicator");
     const formData = new FormData();
     formData.append("stage", newStage);
     formData.append("csrfmiddlewaretoken", "{{ csrf_token }}");
 
-    fetch("{% url 'messaging:update_contact_stage' conversation.contact.id %}", {
+    fetch(`/inbox/contacts/${contactId}/stage/`, {
       method: "POST",
       body: formData,
       headers: { "X-Requested-With": "XMLHttpRequest" },
@@ -1674,12 +1264,15 @@
 
   // --- UPDATE ASSIGNED AGENT (AJAX) ---
   function updateAssignedAgent(userId) {
+    const meta = getActiveMeta();
+    const convId = meta ? meta.dataset.convId : currentConvId;
+    if (!convId) return;
     const indicator = document.getElementById("assign-status-indicator");
     const formData = new FormData();
     formData.append("assigned_to_id", userId);
     formData.append("csrfmiddlewaretoken", "{{ csrf_token }}");
 
-    fetch("{% url 'messaging:update_assigned_to' conversation.id %}", {
+    fetch(`/inbox/${convId}/assign/`, {
       method: "POST",
       body: formData,
       headers: { "X-Requested-With": "XMLHttpRequest" },
@@ -1693,7 +1286,83 @@
     })
     .catch(err => console.error("Error updating assigned agent:", err));
   }
-  {% endif %}
+
+  // --- UPDATE CONVERSATION AI MODE (AJAX) ---
+  function updateConversationAiMode(newMode) {
+    const meta = getActiveMeta();
+    const convId = meta ? meta.dataset.convId : currentConvId;
+    if (!convId) return;
+    const formData = new FormData();
+    formData.append("ai_mode", newMode);
+    formData.append("csrfmiddlewaretoken", "{{ csrf_token }}");
+
+    fetch(`/inbox/${convId}/ai-mode/`, {
+      method: "POST",
+      body: formData,
+      headers: { "X-Requested-With": "XMLHttpRequest" }
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.status === "success") {
+        selectConversation(convId, window.location.href, false);
+      }
+    })
+    .catch(err => console.error("Error updating AI mode:", err));
+  }
+
+  // --- UPDATE CONVERSATION STATUS (AJAX) ---
+  function updateConversationStatus(newStatus) {
+    const meta = getActiveMeta();
+    const convId = meta ? meta.dataset.convId : currentConvId;
+    if (!convId) return;
+    const formData = new FormData();
+    formData.append("status", newStatus);
+    formData.append("csrfmiddlewaretoken", "{{ csrf_token }}");
+
+    fetch(`/inbox/${convId}/status/`, {
+      method: "POST",
+      body: formData,
+      headers: { "X-Requested-With": "XMLHttpRequest" }
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.status === "success") {
+        selectConversation(convId, window.location.href, false);
+      }
+    })
+    .catch(err => console.error("Error updating status:", err));
+  }
+
+  // --- RESUME AI ASSISTANT (AJAX) ---
+  function resumeAiAssistant(convId) {
+    const formData = new FormData();
+    formData.append("csrfmiddlewaretoken", "{{ csrf_token }}");
+    fetch(`/inbox/${convId}/resume-ai/`, {
+      method: "POST",
+      body: formData,
+      headers: { "X-Requested-With": "XMLHttpRequest" }
+    })
+    .then(res => res.json())
+    .then(data => {
+      selectConversation(convId, window.location.href, false);
+    })
+    .catch(err => console.error("Error resuming AI:", err));
+  }
+
+  // --- MOBILE BACK BUTTON HANDLER ---
+  function handleMobileBack(event) {
+    if (window.innerWidth < 768) {
+      event.preventDefault();
+      const container = document.getElementById("inbox-chat-pane-container");
+      if (container) {
+        const middlePane = container.querySelector(".flex-1");
+        if (middlePane) {
+          middlePane.classList.add("hidden");
+        }
+      }
+      window.history.pushState({}, "", "{% url 'messaging:inbox' %}");
+    }
+  }
 
   // --- NOTIFICATION SOUND CHIME (Synthesized Web Audio API) ---
   let soundEnabled = localStorage.getItem("sparktext_sound") !== "false";
@@ -1759,7 +1428,217 @@
     }
   }
 
-  (function() {
+  // ─────────────────────────────────────────────────────────────
+  // CHAT PANE & WEBSOCKET ENGINE (Pure Real-Time, Seamless AJAX)
+  // ─────────────────────────────────────────────────────────────
+  let currentConvId = {% if conversation %}{{ conversation.id }}{% else %}null{% endif %};
+  let lastMsgId = 0;
+  let chatSocket = null;
+  let chatReconnectTimer = null;
+  let chatReconnectAttempts = 0;
+
+  function formatStatus(status) {
+    if (status === "delivered") return "✓✓ delivered";
+    if (status === "sent") return "✓ sent";
+    if (status === "failed" || status === "undelivered") return "✕ failed";
+    if (status === "queued" || status === "sending") return "⏳ queued";
+    return status ? ("✓ " + status) : "";
+  }
+
+  function setBadgeState(state) {
+    const statusBadge = document.getElementById("ws-status-badge");
+    const statusDot   = document.getElementById("ws-status-dot");
+    const statusText  = document.getElementById("ws-status-text");
+    if (!statusBadge || !statusDot || !statusText) return;
+    if (state === "live") {
+      statusBadge.className = "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 transition-all select-none";
+      statusDot.className   = "w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse";
+      statusText.textContent = "Live";
+      statusBadge.title = "WebSocket connected — instant delivery active";
+    } else if (state === "connecting" || state === "reconnecting") {
+      statusBadge.className = "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 transition-all select-none";
+      statusDot.className   = "w-1.5 h-1.5 rounded-full bg-amber-500";
+      statusText.textContent = state === "reconnecting" ? "Reconnecting" : "Connecting";
+      statusBadge.title = "Connecting to live channel...";
+    } else {
+      statusBadge.className = "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[11px] font-semibold bg-gray-50 text-gray-500 border border-gray-200 transition-all select-none";
+      statusDot.className   = "w-1.5 h-1.5 rounded-full bg-gray-400";
+      statusText.textContent = "Offline";
+      statusBadge.title = "WebSocket disconnected";
+    }
+  }
+
+  function appendChatMessage(m) {
+    const chatWindow = document.getElementById("chat-window");
+    if (!chatWindow) return;
+    const msgId = m.id || m.message_id;
+    if (!msgId) return;
+
+    const existingEl = document.getElementById("msg-" + msgId);
+    if (existingEl) {
+      if (m.status) updateMessageStatus(msgId, m.status);
+      return;
+    }
+
+    const emptyPlaceholder = document.getElementById("empty-chat-placeholder");
+    if (emptyPlaceholder) emptyPlaceholder.remove();
+
+    const isOutbound = m.direction === "outbound";
+    const wrapper = document.createElement("div");
+    wrapper.id = "msg-" + msgId;
+    wrapper.setAttribute("data-msg-id", msgId);
+    wrapper.className = "flex flex-col " + (isOutbound ? "items-end" : "items-start");
+
+    const bubble = document.createElement("div");
+    bubble.className = "max-w-md sm:max-w-lg rounded-2xl px-4 py-2.5 text-xs sm:text-sm shadow-2xs leading-relaxed " +
+      (isOutbound
+        ? (m.sender_type === "ai" ? "bg-gradient-to-r from-brand-600 to-indigo-600 text-white rounded-br-xs" : "bg-brand-600 text-white rounded-br-xs")
+        : "bg-white text-gray-900 border border-gray-200/90 rounded-bl-xs");
+
+    const p = document.createElement("p");
+    p.className = "whitespace-pre-wrap break-words";
+    p.textContent = m.body;
+    bubble.appendChild(p);
+    wrapper.appendChild(bubble);
+
+    const meta = document.createElement("div");
+    meta.id = "msg-status-" + msgId;
+    meta.className = "flex items-center gap-1.5 text-[10px] text-gray-400 mt-1 px-1";
+
+    const timeSpan = document.createElement("span");
+    timeSpan.textContent = m.created_at || m.sent_at || "";
+    meta.appendChild(timeSpan);
+
+    if (isOutbound && m.status) {
+      const dotSpan = document.createElement("span");
+      dotSpan.textContent = "·";
+      meta.appendChild(dotSpan);
+
+      const statusSpan = document.createElement("span");
+      statusSpan.className = "msg-status-text";
+      statusSpan.textContent = formatStatus(m.status);
+      meta.appendChild(statusSpan);
+    }
+    wrapper.appendChild(meta);
+
+    chatWindow.appendChild(wrapper);
+    chatWindow.scrollTop = chatWindow.scrollHeight;
+
+    lastMsgId = Math.max(lastMsgId, parseInt(msgId, 10) || 0);
+
+    if (!isOutbound) {
+      playNotificationChime();
+    }
+  }
+
+  function updateMessageStatus(msgId, status) {
+    const metaEl = document.getElementById("msg-status-" + msgId);
+    if (!metaEl) return;
+    let statusSpan = metaEl.querySelector(".msg-status-text");
+    if (!statusSpan) {
+      const dotSpan = document.createElement("span");
+      dotSpan.textContent = "·";
+      metaEl.appendChild(dotSpan);
+      statusSpan = document.createElement("span");
+      statusSpan.className = "msg-status-text";
+      metaEl.appendChild(statusSpan);
+    }
+    statusSpan.textContent = formatStatus(status);
+  }
+
+  function handleAiDraftUpdate(draftText) {
+    if (!draftText) return;
+    const draftTextEl = document.getElementById("ai-draft-text");
+    const draftCard = document.getElementById("ai-draft-card");
+    if (draftTextEl && draftCard) {
+      draftTextEl.textContent = draftText;
+      draftCard.classList.remove("hidden");
+      draftCard.classList.add("animate-pulse");
+      setTimeout(() => draftCard.classList.remove("animate-pulse"), 1000);
+    }
+  }
+
+  function disconnectChatWebSocket() {
+    if (chatReconnectTimer) {
+      clearTimeout(chatReconnectTimer);
+      chatReconnectTimer = null;
+    }
+    if (chatSocket) {
+      chatSocket.onopen = null;
+      chatSocket.onmessage = null;
+      chatSocket.onclose = null;
+      chatSocket.onerror = null;
+      chatSocket.close();
+      chatSocket = null;
+    }
+  }
+
+  function initChatWebSocket(convId) {
+    disconnectChatWebSocket();
+    if (!convId) return;
+
+    chatReconnectAttempts = 0;
+    connectChatSocket(convId);
+  }
+
+  function connectChatSocket(convId) {
+    if (convId !== currentConvId) return;
+
+    setBadgeState(chatReconnectAttempts > 0 ? "reconnecting" : "connecting");
+
+    try {
+      const wsScheme = window.location.protocol === "https:" ? "wss://" : "ws://";
+      const wsUrl = `${wsScheme}${window.location.host}/ws/chat/${convId}/`;
+      chatSocket = new WebSocket(wsUrl);
+
+      chatSocket.onopen = function() {
+        if (convId !== currentConvId) {
+          disconnectChatWebSocket();
+          return;
+        }
+        chatReconnectAttempts = 0;
+        setBadgeState("live");
+      };
+
+      chatSocket.onmessage = function(e) {
+        if (convId !== currentConvId) return;
+        try {
+          const data = JSON.parse(e.data);
+          if (data.event === "new_message" && data.message) {
+            appendChatMessage(data.message);
+          } else if (data.event === "status_update" && data.message_id) {
+            updateMessageStatus(data.message_id, data.status);
+          } else if (data.event === "ai_draft" && data.draft) {
+            handleAiDraftUpdate(data.draft);
+          }
+        } catch (err) {
+          console.debug("WS message parse error:", err);
+        }
+      };
+
+      chatSocket.onclose = function() {
+        if (convId !== currentConvId) return;
+        setBadgeState("reconnecting");
+        const delay = Math.min(1000 * Math.pow(1.5, chatReconnectAttempts), 10000);
+        chatReconnectAttempts++;
+        clearTimeout(chatReconnectTimer);
+        chatReconnectTimer = setTimeout(() => {
+          if (convId === currentConvId) connectChatSocket(convId);
+        }, delay);
+      };
+
+      chatSocket.onerror = function() {
+        if (chatSocket) chatSocket.close();
+      };
+    } catch (err) {
+      console.debug("WS exception:", err);
+      setBadgeState("offline");
+    }
+  }
+
+  // Initialize interactive controls for whatever conversation is active in the DOM
+  function initChatPane(convId) {
+    currentConvId = convId ? parseInt(convId, 10) : null;
     const chatWindow = document.getElementById("chat-window");
     const textarea = document.getElementById("message-body");
     const charCounter = document.getElementById("char-counter");
@@ -1767,6 +1646,13 @@
 
     if (chatWindow) {
       chatWindow.scrollTop = chatWindow.scrollHeight;
+    }
+
+    const msgEls = document.querySelectorAll("[data-msg-id]");
+    if (msgEls.length > 0) {
+      lastMsgId = parseInt(msgEls[msgEls.length - 1].getAttribute("data-msg-id"), 10) || 0;
+    } else {
+      lastMsgId = 0;
     }
 
     if (textarea && charCounter) {
@@ -1821,7 +1707,8 @@
             });
 
             if (result.data.ai_mode_changed) {
-              setTimeout(() => window.location.reload(), 300);
+              // Smoothly reload right pane to update takeover banner
+              selectConversation(currentConvId, window.location.href, false);
             }
           } else {
             alert(result.data.message || "Failed to send message.");
@@ -1830,293 +1717,215 @@
         .catch(err => {
           if (sendBtn) sendBtn.disabled = false;
           console.error("Send error:", err);
-          form.submit();
         });
       });
     }
 
-    function formatStatus(status) {
-      if (status === "delivered") return "✓✓ delivered";
-      if (status === "sent") return "✓ sent";
-      if (status === "failed" || status === "undelivered") return "✕ failed";
-      if (status === "queued" || status === "sending") return "⏳ queued";
-      return status ? ("✓ " + status) : "";
+    updateSoundButton();
+    renderSnippets();
+
+    const savedDossier = localStorage.getItem("sparktext_dossier");
+    updateDossierUI(savedDossier === "open");
+
+    if (convId) {
+      initChatWebSocket(convId);
+    } else {
+      disconnectChatWebSocket();
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // SEAMLESS CONVERSATION SWITCHING (Zero Page Reload!)
+  // ─────────────────────────────────────────────────────────────
+  function selectConversation(convId, url, pushState = true) {
+    if (!convId) return;
+    const numId = parseInt(convId, 10);
+
+    // 1. Instantly highlight active conversation in sidebar
+    document.querySelectorAll(".chat-list-item").forEach(item => {
+      item.classList.remove("bg-brand-50/70", "border-l-brand-600");
+      item.classList.add("hover:bg-slate-50/80", "border-l-transparent");
+    });
+
+    const activeCard = document.getElementById("conv-item-" + numId) ||
+                       document.querySelector(`a.chat-list-item[data-conv-id="${numId}"]`) ||
+                       document.querySelector(`a.chat-list-item[href*="/inbox/${numId}/"]`);
+    if (activeCard) {
+      activeCard.classList.remove("hover:bg-slate-50/80", "border-l-transparent", "bg-slate-50/50");
+      activeCard.classList.add("bg-brand-50/70", "border-l-brand-600");
+
+      const badge = activeCard.querySelector(".rounded-full.bg-brand-600.text-white");
+      if (badge) badge.remove();
     }
 
-    function appendChatMessage(m) {
-      if (!chatWindow) return;
-      const msgId = m.id || m.message_id;
-      if (!msgId) return;
-
-      const existingEl = document.getElementById("msg-" + msgId);
-      if (existingEl) {
-        if (m.status) updateMessageStatus(msgId, m.status);
-        return;
-      }
-
-      const emptyPlaceholder = document.getElementById("empty-chat-placeholder");
-      if (emptyPlaceholder) emptyPlaceholder.remove();
-
-      const isOutbound = m.direction === "outbound";
-      const wrapper = document.createElement("div");
-      wrapper.id = "msg-" + msgId;
-      wrapper.setAttribute("data-msg-id", msgId);
-      wrapper.className = "flex flex-col " + (isOutbound ? "items-end" : "items-start");
-
-      const bubble = document.createElement("div");
-      bubble.className = "max-w-md sm:max-w-lg rounded-2xl px-4 py-2.5 text-xs sm:text-sm shadow-2xs leading-relaxed " +
-        (isOutbound
-          ? "bg-brand-600 text-white rounded-br-xs"
-          : "bg-white text-gray-900 border border-gray-200/90 rounded-bl-xs");
-
-      const p = document.createElement("p");
-      p.className = "whitespace-pre-wrap break-words";
-      p.textContent = m.body;
-      bubble.appendChild(p);
-      wrapper.appendChild(bubble);
-
-      const meta = document.createElement("div");
-      meta.id = "msg-status-" + msgId;
-      meta.className = "flex items-center gap-1.5 text-[10px] text-gray-400 mt-1 px-1";
-
-      const timeSpan = document.createElement("span");
-      timeSpan.textContent = m.created_at || m.sent_at || "";
-      meta.appendChild(timeSpan);
-
-      if (isOutbound && m.status) {
-        const dotSpan = document.createElement("span");
-        dotSpan.textContent = "·";
-        meta.appendChild(dotSpan);
-
-        const statusSpan = document.createElement("span");
-        statusSpan.className = "msg-status-text";
-        statusSpan.textContent = formatStatus(m.status);
-        meta.appendChild(statusSpan);
-      }
-      wrapper.appendChild(meta);
-
-      chatWindow.appendChild(wrapper);
-      chatWindow.scrollTop = chatWindow.scrollHeight;
-
-      if (typeof lastMsgId !== 'undefined') {
-        lastMsgId = Math.max(lastMsgId, msgId);
-      }
-
-      if (!isOutbound) {
-        playNotificationChime();
-      }
+    // 2. Update browser URL without reload
+    if (pushState) {
+      window.history.pushState({ conversationId: numId }, "", url);
     }
 
-    function updateMessageStatus(msgId, status) {
-      const metaEl = document.getElementById("msg-status-" + msgId);
-      if (!metaEl) return;
-      let statusSpan = metaEl.querySelector(".msg-status-text");
-      if (!statusSpan) {
-        const dotSpan = document.createElement("span");
-        dotSpan.textContent = "·";
-        metaEl.appendChild(dotSpan);
-        statusSpan = document.createElement("span");
-        statusSpan.className = "msg-status-text";
-        metaEl.appendChild(statusSpan);
+    // 3. Load chat pane via AJAX
+    const container = document.getElementById("inbox-chat-pane-container");
+    if (container) container.style.opacity = "0.6";
+
+    const fetchUrl = url + (url.includes("?") ? "&" : "?") + "ajax=1";
+    fetch(fetchUrl, {
+      headers: { "X-Requested-With": "XMLHttpRequest" }
+    })
+    .then(res => {
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.text();
+    })
+    .then(html => {
+      if (container) {
+        container.innerHTML = html;
+        container.style.opacity = "1";
       }
-      statusSpan.textContent = formatStatus(status);
-    }
+      initChatPane(numId);
+    })
+    .catch(err => {
+      console.error("AJAX conversation load error:", err);
+      if (container) container.style.opacity = "1";
+      window.location.href = url; // fallback to browser navigation
+    });
+  }
 
-    function handleAiDraftUpdate(draftText) {
-      if (!draftText) return;
-      const draftTextEl = document.getElementById("ai-draft-text");
-      const draftCard = document.getElementById("ai-draft-card");
-      if (draftTextEl && draftCard) {
-        draftTextEl.textContent = draftText;
-        draftCard.classList.remove("hidden");
-        draftCard.classList.add("animate-pulse");
-        setTimeout(() => draftCard.classList.remove("animate-pulse"), 1000);
-      }
-    }
+  // Attach event delegation for all conversation items in sidebar
+  document.addEventListener("DOMContentLoaded", function() {
+    const listContainer = document.getElementById("conversations-list-container");
+    if (listContainer) {
+      listContainer.addEventListener("click", function(e) {
+        const link = e.target.closest("a.chat-list-item");
+        if (!link) return;
+        if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) return; // allow open in new tab
+        e.preventDefault();
 
-    {% if conversation %}
-    let lastMsgId = 0;
-    const msgEls = document.querySelectorAll("[data-msg-id]");
-    if (msgEls.length > 0) {
-      lastMsgId = parseInt(msgEls[msgEls.length - 1].getAttribute("data-msg-id")) || 0;
-    }
-
-    // ─────────────────────────────────────────────────
-    // Chat-window WebSocket (instant inbound SMS delivery)
-    // ─────────────────────────────────────────────────
-    const convId = {{ conversation.id }};
-    const wsScheme = window.location.protocol === "https:" ? "wss://" : "ws://";
-    const wsUrl = `${wsScheme}${window.location.host}/ws/chat/${convId}/`;
-
-    const statusBadge = document.getElementById("ws-status-badge");
-    const statusDot   = document.getElementById("ws-status-dot");
-    const statusText  = document.getElementById("ws-status-text");
-
-    let chatSocket = null;
-    let reconnectAttempts = 0;
-    let reconnectTimer = null;
-    let isSocketOpen = false;
-
-    function setBadgeState(state) {
-      if (!statusBadge || !statusDot || !statusText) return;
-      if (state === "live") {
-        statusBadge.className = "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 transition-all select-none";
-        statusDot.className   = "w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse";
-        statusText.textContent = "Live";
-        statusBadge.title = "WebSocket connected — instant delivery active";
-      } else if (state === "connecting" || state === "reconnecting") {
-        statusBadge.className = "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 transition-all select-none";
-        statusDot.className   = "w-1.5 h-1.5 rounded-full bg-amber-500";
-        statusText.textContent = state === "reconnecting" ? "Reconnecting" : "Connecting";
-        statusBadge.title = "Connecting to live channel...";
-      } else {
-        statusBadge.className = "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[11px] font-semibold bg-gray-50 text-gray-500 border border-gray-200 transition-all select-none";
-        statusDot.className   = "w-1.5 h-1.5 rounded-full bg-gray-400";
-        statusText.textContent = "Polling";
-        statusBadge.title = "WebSocket disconnected — polling fallback active";
-      }
-    }
-
-    function initWebSocket() {
-      if (chatSocket && (chatSocket.readyState === WebSocket.OPEN || chatSocket.readyState === WebSocket.CONNECTING)) return;
-      setBadgeState(reconnectAttempts > 0 ? "reconnecting" : "connecting");
-
-      try {
-        chatSocket = new WebSocket(wsUrl);
-
-        chatSocket.onopen = function() {
-          isSocketOpen = true;
-          reconnectAttempts = 0;
-          setBadgeState("live");
-        };
-
-        chatSocket.onmessage = function(e) {
-          try {
-            const data = JSON.parse(e.data);
-            if (data.event === "new_message" && data.message) {
-              appendChatMessage(data.message);
-            } else if (data.event === "status_update" && data.message_id) {
-              updateMessageStatus(data.message_id, data.status);
-            } else if (data.event === "ai_draft" && data.draft) {
-              handleAiDraftUpdate(data.draft);
-            }
-          } catch (err) {
-            console.debug("WS message parse error:", err);
-          }
-        };
-
-        chatSocket.onclose = function() {
-          isSocketOpen = false;
-          setBadgeState("reconnecting");
-          const delay = Math.min(1000 * Math.pow(1.5, reconnectAttempts), 10000);
-          reconnectAttempts++;
-          clearTimeout(reconnectTimer);
-          reconnectTimer = setTimeout(initWebSocket, delay);
-        };
-
-        chatSocket.onerror = function() { chatSocket.close(); };
-      } catch (err) {
-        console.debug("WS exception:", err);
-        setBadgeState("fallback");
-      }
-    }
-
-    // ─────────────────────────────────────────────────
-    // Chat-window POLLING — always runs alongside WebSocket.
-    //
-    // WHY: The AI worker and campaign worker are separate
-    // OS processes. InMemoryChannelLayer is per-process, so
-    // AI replies broadcast there don't reach the web server's
-    // WebSocket consumers. Polling ensures those messages
-    // always appear. appendChatMessage() deduplicates by ID,
-    // so there are never duplicate bubbles.
-    // ─────────────────────────────────────────────────
-    setInterval(function() {
-      fetch("{% url 'messaging:poll_messages' conversation.id %}?after_id=" + lastMsgId)
-        .then(res => res.json())
-        .then(data => {
-          if (data.messages && data.messages.length > 0) {
-            data.messages.forEach(m => appendChatMessage(m));
-          }
-        })
-        .catch(err => console.debug("Chat poll error:", err));
-    }, 5000);
-
-    // Connect WebSocket on page load
-    initWebSocket();
-    {% endif %}
-
-    // ─────────────────────────────────────────────────
-    // Sidebar Inbox Live-Feed Polling
-    //
-    // Polls /inbox/live-feed/ every 5 seconds for
-    // conversations updated in the last 60s and updates
-    // the left-pane conversation cards without a page reload.
-    // Works regardless of which conversation is open.
-    // ─────────────────────────────────────────────────
-    const currentConvId = {% if conversation %}{{ conversation.id }}{% else %}null{% endif %};
-
-    function updateSidebarCard(conv) {
-      const link = document.querySelector(`a[href*="/inbox/${conv.id}/"]`);
-      if (!link) return; // Conversation not in current list view — skip
-
-      // Update snippet text
-      const snippetEl = link.querySelector("p.text-\\[11px\\]");
-      if (snippetEl) {
-        const prefix = conv.direction === "outbound"
-          ? "<span class='text-gray-400'>You:</span> "
-          : "";
-        snippetEl.innerHTML = prefix + escapeHtml(conv.last_body);
-      }
-
-      // Update timestamp
-      const timeEl = link.querySelector("span.text-\\[10px\\].text-gray-400");
-      if (timeEl) timeEl.textContent = conv.last_message_at_display;
-
-      // Update or add unread badge
-      const badgeContainer = link.querySelector(".flex.items-center.justify-between.gap-1");
-      if (badgeContainer) {
-        let badge = badgeContainer.querySelector(".rounded-full.bg-brand-600.text-white");
-        if (conv.unread_count > 0) {
-          if (!badge) {
-            badge = document.createElement("span");
-            badge.className = "px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-brand-600 text-white shrink-0";
-            badgeContainer.appendChild(badge);
-          }
-          badge.textContent = conv.unread_count;
-        } else if (badge) {
-          badge.remove();
+        const href = link.getAttribute("href");
+        const convId = link.getAttribute("data-conv-id") || href.match(/\/inbox\/(\d+)\//)?.[1];
+        if (convId) {
+          selectConversation(convId, href);
         }
-      }
+      });
+    }
 
-      // If this conv is not currently open, add unread highlight
+    // Initial chat pane boot
+    if (currentConvId) {
+      initChatPane(currentConvId);
+    }
+  });
+
+  // Handle browser back/forward buttons (Status tabs + Conversations)
+  window.addEventListener("popstate", function(e) {
+    const urlParams = new URLSearchParams(window.location.search);
+    const status = urlParams.get("status") || "open";
+    if (status !== currentStatusFilter) {
+      switchStatusTab(status);
+    }
+
+    const state = e.state;
+    const match = window.location.pathname.match(/\/inbox\/(\d+)\//);
+    const targetConvId = state?.conversationId || (match ? match[1] : null);
+
+    if (targetConvId && parseInt(targetConvId, 10) !== currentConvId) {
+      selectConversation(targetConvId, window.location.href, false);
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // SIDEBAR INBOX CARD UPDATER (Real-Time WebSocket)
+  // ─────────────────────────────────────────────────────────────
+  function updateSidebarCard(conv) {
+    const link = document.getElementById("conv-item-" + conv.id) ||
+                 document.querySelector(`a[href*="/inbox/${conv.id}/"]`);
+    if (!link) return;
+
+    // Update snippet text
+    const snippetEl = link.querySelector("p.text-\\[11px\\]");
+    if (snippetEl) {
+      const prefix = conv.direction === "outbound"
+        ? "<span class='text-gray-400'>You:</span> "
+        : "";
+      snippetEl.innerHTML = prefix + escapeHtml(conv.last_body);
+    }
+
+    // Update timestamp
+    const timeEl = link.querySelector("span.text-\\[10px\\].text-gray-400");
+    if (timeEl) timeEl.textContent = conv.last_message_at_display;
+
+    // Update or add unread badge
+    const badgeContainer = link.querySelector(".flex.items-center.justify-between.gap-1");
+    if (badgeContainer) {
+      let badge = badgeContainer.querySelector(".rounded-full.bg-brand-600.text-white");
       if (conv.id !== currentConvId && conv.unread_count > 0) {
-        link.classList.add("bg-slate-50/50");
-      }
-
-      // Move to top of the list (most recent activity)
-      const list = document.getElementById("conversations-list-container");
-      if (list && link.parentNode === list && list.firstChild !== link) {
-        list.insertBefore(link, list.firstChild);
+        if (!badge) {
+          badge = document.createElement("span");
+          badge.className = "px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-brand-600 text-white shrink-0";
+          badgeContainer.appendChild(badge);
+        }
+        badge.textContent = conv.unread_count;
+      } else if (badge) {
+        badge.remove();
       }
     }
 
-    function escapeHtml(text) {
-      const div = document.createElement("div");
-      div.appendChild(document.createTextNode(text));
-      return div.innerHTML;
+    // If this conv is not currently open, add unread highlight
+    if (conv.id !== currentConvId && conv.unread_count > 0) {
+      link.classList.add("bg-slate-50/50");
     }
 
-    setInterval(function() {
-      fetch("{% url 'messaging:inbox_live_feed' %}")
-        .then(res => res.json())
-        .then(data => {
-          if (data.conversations && data.conversations.length > 0) {
-            data.conversations.forEach(updateSidebarCard);
+    // Move to top of the list (most recent activity)
+    const list = document.getElementById("conversations-list-container");
+    if (list && link.parentNode === list && list.firstChild !== link) {
+      list.insertBefore(link, list.firstChild);
+    }
+  }
+
+  function escapeHtml(text) {
+    const div = document.createElement("div");
+    div.appendChild(document.createTextNode(text || ""));
+    return div.innerHTML;
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // GLOBAL INBOX WEBSOCKET (ws/inbox/<org_id>/)
+  // ─────────────────────────────────────────────────────────────
+  {% if request.user.organization_id %}
+  const orgId = {{ request.user.organization_id }};
+  const inboxWsScheme = window.location.protocol === "https:" ? "wss://" : "ws://";
+  const inboxWsUrl = `${inboxWsScheme}${window.location.host}/ws/inbox/${orgId}/`;
+  let inboxSocket = null;
+  let inboxReconnectTimer = null;
+
+  function initInboxWebSocket() {
+    if (inboxSocket && (inboxSocket.readyState === WebSocket.OPEN || inboxSocket.readyState === WebSocket.CONNECTING)) return;
+
+    try {
+      inboxSocket = new WebSocket(inboxWsUrl);
+
+      inboxSocket.onmessage = function(e) {
+        try {
+          const data = JSON.parse(e.data);
+          if (data.event === "inbox_update" && data.conversation) {
+            updateSidebarCard(data.conversation);
           }
-        })
-        .catch(err => console.debug("Inbox feed poll error:", err));
-    }, 5000);
-  })();
+        } catch (err) {
+          console.debug("Inbox WS parse error:", err);
+        }
+      };
+
+      inboxSocket.onclose = function() {
+        clearTimeout(inboxReconnectTimer);
+        inboxReconnectTimer = setTimeout(initInboxWebSocket, 3000);
+      };
+
+      inboxSocket.onerror = function() {
+        inboxSocket.close();
+      };
+    } catch (err) {
+      console.debug("Inbox WS exception:", err);
+    }
+  }
+
+  initInboxWebSocket();
+  {% endif %}
 </script>
 {% endblock %}

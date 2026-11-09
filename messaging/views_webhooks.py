@@ -173,7 +173,7 @@ def _handle_inbound_sms(
 
     # Real-time WebSocket broadcast to open conversation windows
     try:
-        from .ws_broadcast import broadcast_chat_event
+        from .ws_broadcast import broadcast_chat_event, broadcast_inbox_event
         broadcast_chat_event(
             conversation.id,
             {
@@ -185,6 +185,21 @@ def _handle_inbound_sms(
                     "sender_type": message.sender_type,
                     "created_at": message.created_at.strftime("%I:%M %p"),
                     "status": message.status,
+                },
+            },
+        )
+        # Real-time WebSocket broadcast to sidebar inbox list
+        conversation.refresh_from_db(fields=["unread_count"])
+        broadcast_inbox_event(
+            org.id,
+            {
+                "event": "inbox_update",
+                "conversation": {
+                    "id": conversation.id,
+                    "last_body": message.body,
+                    "direction": message.direction,
+                    "last_message_at_display": "just now",
+                    "unread_count": conversation.unread_count,
                 },
             },
         )

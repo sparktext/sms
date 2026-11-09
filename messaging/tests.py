@@ -574,3 +574,67 @@ class MessagingTests(TestCase):
         self.assertContains(res, "Marcus")
         self.assertContains(res, "comprehensive deductible 500")
         self.assertContains(res, "🔍 Match:")
+
+    def test_conversation_detail_ajax_switching(self):
+        """AJAX request to /inbox/<id>/ renders only the chat pane template without page reload."""
+        contact = Contact.objects.create(
+            organization=self.org_a,
+            phone="+16505557766",
+            first_name="Diana",
+            last_name="Prince",
+            sms_status=Contact.SMSStatus.OPTED_IN,
+        )
+        conv = Conversation.objects.create(
+            organization=self.org_a,
+            contact=contact,
+            phone_number=self.phone_a,
+            unread_count=3,
+        )
+        Message.objects.create(
+            organization=self.org_a,
+            conversation=conv,
+            direction=Message.Direction.INBOUND,
+            body="Need insurance quote for my vehicle",
+        )
+
+        self.client.force_login(self.user_a)
+
+        # 1. AJAX fetch for conversation detail
+        res = self.client.get(
+            f"/inbox/{conv.id}/",
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertTemplateUsed(res, "messaging/inbox_chat_pane.html")
+        self.assertContains(res, "Diana Prince")
+        self.assertContains(res, "Need insurance quote for my vehicle")
+
+        # Verify unread count was reset to 0
+        conv.refresh_from_db()
+        self.assertEqual(conv.unread_count, 0)
+
+        # 2. AJAX status update
+        status_res = self.client.post(
+            f"/inbox/{conv.id}/status/",
+            {"status": "closed"},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(status_res.status_code, 200)
+        self.assertEqual(status_res.json().get("status"), "success")
+        conv.refresh_from_db()
+        self.assertEqual(conv.status, Conversation.Status.CLOSED)
+
+        # 3. AJAX resume AI
+        conv.status = Conversation.Status.NEEDS_HUMAN
+        conv.handoff_reason = "Human needed"
+        conv.save()
+
+        resume_res = self.client.post(
+            f"/inbox/{conv.id}/resume-ai/",
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(resume_res.status_code, 200)
+        self.assertEqual(resume_res.json().get("status"), "success")
+        conv.refresh_from_db()
+        self.assertEqual(conv.status, Conversation.Status.OPEN)
+        self.assertEqual(conv.handoff_reason, "")

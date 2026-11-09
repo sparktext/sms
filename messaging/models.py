@@ -321,8 +321,8 @@ class AIAssistantConfig(models.Model):
         help_text=_("Custom rules describing when to hand off to a human agent"),
     )
     max_reply_chars = models.PositiveIntegerField(
-        default=320,
-        help_text=_("Maximum character length for AI reply (default 320 for ~2 SMS segments)"),
+        default=160,
+        help_text=_("Maximum character length for AI reply (default 160 for 1 SMS segment)"),
     )
     max_ai_replies_per_hour_per_contact = models.PositiveIntegerField(
         default=6,

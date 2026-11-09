@@ -1,5 +1,7 @@
 {% for conv in conversations %}
 <a href="{% url 'messaging:conversation_detail' conv.id %}{% if status_filter %}?status={{ status_filter }}{% endif %}{% if assigned_filter %}&assigned={{ assigned_filter }}{% endif %}{% if q %}&q={{ q }}{% endif %}"
+   data-conv-id="{{ conv.id }}"
+   id="conv-item-{{ conv.id }}"
    data-search-text="{{ conv.contact.first_name }} {{ conv.contact.last_name }} {{ conv.contact.phone }} {% if conv.cached_last_msg %}{{ conv.cached_last_msg.body }}{% endif %}"
    data-has-reply="{% if conv.last_inbound_at %}true{% else %}false{% endif %}"
    data-unread-count="{{ conv.unread_count }}"
