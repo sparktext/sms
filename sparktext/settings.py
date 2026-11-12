@@ -21,6 +21,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Read environment variables
 env = environ.Env(
     DEBUG=(bool, True),
+    SECRET_KEY=(str, "django-insecure-@^3s@sl(m65*7z*#-d@obnklrqilm_zci@9s)f9p_o)!q@7k=6"),
     TWILIO_ACCOUNT_SID=(str, ""),
     TWILIO_AUTH_TOKEN=(str, ""),
     TWILIO_PHONE_NUMBER=(str, ""),
@@ -39,6 +40,14 @@ env = environ.Env(
     AI_TIMEOUT_SECONDS=(int, 45),
     AI_MAX_RETRIES=(int, 1),
     REDIS_URL=(str, "redis://localhost:6380?protocol=2&socket_timeout=30"),
+    EMAIL_BACKEND=(str, "django.core.mail.backends.smtp.EmailBackend"),
+    EMAIL_HOST=(str, "smtp.hostinger.com"),
+    EMAIL_PORT=(int, 465),
+    EMAIL_USE_SSL=(bool, True),
+    EMAIL_HOST_USER=(str, "info@sparktext.si"),
+    EMAIL_HOST_PASSWORD=(str, ""),
+    DEFAULT_FROM_EMAIL=(str, "info@sparktext.si"),
+    CONTACT_EMAIL=(str, "info@sparktext.si"),
 )
 environ.Env.read_env(BASE_DIR / ".env", overwrite=True)
 
@@ -47,10 +56,10 @@ environ.Env.read_env(BASE_DIR / ".env", overwrite=True)
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-@^3s@sl(m65*7z*#-d@obnklrqilm_zci@9s)f9p_o)!q@7k=6'
+SECRET_KEY = env("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = env("DEBUG")
 
 ALLOWED_HOSTS = ["localhost", "127.0.0.1", "testserver", "*", "https://denim-creamed-starlit.ngrok-free.dev"]
 
@@ -101,7 +110,7 @@ ROOT_URLCONF = 'sparktext.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -186,27 +195,22 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
+STATICFILES_DIRS = [BASE_DIR / 'static']
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 
-# Email (Hostinger SMTP)
+# Email (Standard Django SMTP Configuration via Environment)
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
-
-DEFAULT_FROM_EMAIL = 'info@sparktext.si'
-CONTACT_EMAIL = 'info@sparktext.si'
-
-MAILERS = {
-    'default': {
-        'BACKEND': 'django.core.mail.backends.smtp.EmailBackend',
-        'OPTIONS': {
-            'host': 'smtp.hostinger.com',
-            'port': 465,
-            'use_ssl': True,
-            'username': 'info@sparktext.si',
-            'password': '001002!@#Bb',
-        },
-    },
-}
+ 
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="info@sparktext.si")
+CONTACT_EMAIL = env("CONTACT_EMAIL", default="info@sparktext.si")
+EMAIL_BACKEND = env("EMAIL_BACKEND", default="django.core.mail.backends.smtp.EmailBackend")
+EMAIL_HOST = env("EMAIL_HOST", default="smtp.hostinger.com")
+EMAIL_PORT = env.int("EMAIL_PORT", default=465)
+EMAIL_USE_SSL = env.bool("EMAIL_USE_SSL", default=True)
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="info@sparktext.si")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
 
 # Messaging & Provider Settings
 TWILIO_ACCOUNT_SID = env("TWILIO_ACCOUNT_SID", default="")

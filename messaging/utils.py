@@ -2,8 +2,37 @@ import json
 import logging
 import urllib.request
 from django.conf import settings
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
+
+
+def format_chat_timestamp(dt=None) -> str:
+    """Format a message timestamp consistently with date and time (e.g. 'Nov 06, 05:18 PM')."""
+    if not dt:
+        dt = timezone.now()
+    return timezone.localtime(dt).strftime("%b %d, %I:%M %p")
+
+
+def get_org_status_counts(org_or_id) -> dict:
+    """Return conversation counts keyed by status (open, needs_human, closed) for an organization."""
+    from django.db.models import Count
+    from .models import Conversation
+
+    org_id = getattr(org_or_id, "id", org_or_id)
+    if not org_id:
+        return {"open": 0, "needs_human": 0, "closed": 0}
+    status_counts_map = dict(
+        Conversation.objects.filter(organization_id=org_id)
+        .values("status")
+        .annotate(c=Count("id"))
+        .values_list("status", "c")
+    )
+    return {
+        "open": status_counts_map.get(Conversation.Status.OPEN, 0),
+        "needs_human": status_counts_map.get(Conversation.Status.NEEDS_HUMAN, 0),
+        "closed": status_counts_map.get(Conversation.Status.CLOSED, 0),
+    }
 
 
 def get_public_base_url() -> str:

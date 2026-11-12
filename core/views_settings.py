@@ -406,7 +406,7 @@ def lead_routing_settings(request):
         except ValueError:
             pass
 
-        org.route_only_available = (request.POST.get("route_only_available") == "1")
+        org.route_only_available = True
         org.save(update_fields=["lead_routing_strategy", "max_leads_per_agent", "route_only_available"])
 
         if _is_ajax(request):

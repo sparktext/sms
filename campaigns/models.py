@@ -17,6 +17,11 @@ class Campaign(models.Model):
         COMPLETED = "completed", _("Completed")
         CANCELLED = "cancelled", _("Cancelled")
 
+    class AIMode(models.TextChoices):
+        DEFAULT = "default", _("Default AI Assistant")
+        CUSTOM = "custom", _("Custom Campaign Playbook")
+        OFF = "off", _("Turn AI Off (Human Only)")
+
     organization = models.ForeignKey(
         "core.Organization",
         on_delete=models.CASCADE,
@@ -65,6 +70,29 @@ class Campaign(models.Model):
         null=True,
         blank=True,
         related_name="created_campaigns",
+    )
+
+    # Campaign-Specific AI Assistant Playbook & Goal
+    ai_mode = models.CharField(
+        max_length=20,
+        choices=AIMode.choices,
+        default=AIMode.DEFAULT,
+        help_text=_("How the AI Assistant should handle customer replies to this campaign"),
+    )
+    ai_campaign_goal = models.TextField(
+        blank=True,
+        default="",
+        help_text=_("Specific objective for replies to this campaign (e.g. 'Qualify homeowners for switching insurance')"),
+    )
+    ai_qualification_questions = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=_("Custom qualification questions list for this campaign"),
+    )
+    ai_special_instructions = models.TextField(
+        blank=True,
+        default="",
+        help_text=_("Specific offer details or guardrails (e.g. 'Mention the $450 bundling discount')"),
     )
 
     # Denormalized counter metrics
@@ -170,6 +198,34 @@ class CampaignRecipient(models.Model):
         return f"Recipient {self.contact.phone} for Campaign #{self.campaign_id} ({self.status})"
 
 
+class TemplateCategory(models.Model):
+    """
+    Organization-scoped categories for organizing SMS Templates.
+    Allows creating, renaming, and deleting any category freely (including defaults).
+    """
+    organization = models.ForeignKey(
+        "core.Organization",
+        on_delete=models.CASCADE,
+        related_name="template_categories",
+    )
+    slug = models.CharField(max_length=50)
+    name = models.CharField(max_length=80)
+    order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["order", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "slug"],
+                name="unique_template_category_per_org",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.slug})"
+
+
 class CampaignTemplate(models.Model):
     """
     Reusable message templates for broadcast campaigns, follow-ups, and quick replies.
@@ -188,8 +244,7 @@ class CampaignTemplate(models.Model):
     )
     name = models.CharField(max_length=150)
     category = models.CharField(
-        max_length=30,
-        choices=Category.choices,
+        max_length=50,
         default=Category.MARKETING,
     )
     body = models.TextField(
@@ -215,8 +270,21 @@ class CampaignTemplate(models.Model):
             models.Index(fields=["organization", "category"]),
         ]
 
+    @property
+    def category_display(self) -> str:
+        cat = TemplateCategory.objects.filter(
+            organization_id=self.organization_id,
+            slug=self.category,
+        ).first()
+        if cat:
+            return cat.name
+        for code, label in self.Category.choices:
+            if code == self.category:
+                return str(label)
+        return self.category.replace("_", " ").title()
+
     def __str__(self):
-        return f"{self.name} ({self.get_category_display()})"
+        return f"{self.name} ({self.category_display})"
 
     @property
     def character_count(self) -> int:

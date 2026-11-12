@@ -4,8 +4,16 @@
   {% if conversation %}Chat with {{ conversation.contact.phone }} - SparkText{% else %}Inbox - SparkText{% endif %}
 {% endblock %}
 
+{% block global_breadcrumb %}
+<a href="{% url 'messaging:inbox' %}" id="global-breadcrumb-inbox-link" class="{% if conversation %}font-medium text-gray-500 hover:text-gray-900{% else %}font-semibold text-gray-800{% endif %} transition">Inbox</a>
+<span id="global-breadcrumb-sep" class="text-gray-300 {% if not conversation %}hidden{% endif %}">/</span>
+<span id="global-breadcrumb-conv" class="font-semibold text-gray-800 truncate {% if not conversation %}hidden{% endif %}">{% if conversation %}{% if conversation.contact.first_name or conversation.contact.last_name %}{{ conversation.contact.first_name }} {{ conversation.contact.last_name }}{% else %}{{ conversation.contact.phone }}{% endif %}{% endif %}</span>
+{% endblock %}
+
+{% block page_header %}{% endblock %}
+
 {% block content %}
-<div class="h-[calc(100vh-6.5rem)] -my-2 -mx-2 sm:-mx-4 bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden flex flex-col md:flex-row">
+<div class="h-[calc(100vh-6rem)] sm:h-[calc(100vh-7rem)] -my-2 -mx-2 sm:-mx-4 bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden flex flex-col md:flex-row">
 
   <!-- ============================================================ -->
   <!-- LEFT PANE: CONTACTS & CONVERSATIONS LIST (WhatsApp style)    -->
@@ -86,8 +94,10 @@
     {% endif %}
 
     <!-- Scrollable Conversations List -->
-    <div id="conversations-list-container" class="flex-1 overflow-y-auto divide-y divide-gray-100">
-      {% include "messaging/inbox_conversation_items.html" %}
+    <div id="conversations-scroll-wrap" class="flex-1 overflow-y-auto">
+      <div id="conversations-list-container" class="divide-y divide-gray-100">
+        {% include "messaging/inbox_conversation_items.html" %}
+      </div>
       <div id="inbox-no-matches-msg" class="p-8 text-center hidden">
         <p class="text-xs text-gray-400">No conversations match your filter</p>
       </div>
@@ -157,7 +167,7 @@
           Direct Phone Number
         </button>
         <button type="button" id="tabBtnExisting" onclick="switchModalTab('existing')" class="px-3 py-2 border-b-2 border-transparent text-gray-500 hover:text-gray-800 transition cursor-pointer">
-          Existing Contacts ({{ all_contacts|length }})
+          Existing Contacts ({{ total_contacts_count|default:all_contacts|length }})
         </button>
       </div>
 
@@ -221,14 +231,14 @@
         </form>
       </div>
 
-      <!-- Tab 2: Existing Contacts list & quick search -->
+      <!-- Tab 2: Existing Contacts list & live server search -->
       <div id="modalTabExisting" class="p-4 space-y-3 hidden">
         <div>
           <input
             type="text"
             id="modalContactSearch"
-            onkeyup="filterModalContacts(this.value)"
-            placeholder="Search contacts by name or phone..."
+            oninput="filterModalContacts(this.value)"
+            placeholder="Search all contacts by name, phone, or email..."
             class="w-full px-3 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900 bg-gray-50/40 focus:bg-white transition"
           />
         </div>
@@ -424,17 +434,82 @@
     }
   }
 
+  let modalContactsTimer = null;
+  let modalContactsSeq = 0;
+  let initialModalContactsHtml = null;
+
+  document.addEventListener("DOMContentLoaded", function() {
+    const list = document.getElementById("modalContactsList");
+    if (list) initialModalContactsHtml = list.innerHTML;
+  });
+
+  function renderModalContactsList(contacts) {
+    const list = document.getElementById("modalContactsList");
+    if (!list) return;
+    if (!contacts || contacts.length === 0) {
+      list.innerHTML = `<div class="p-6 text-center text-xs text-gray-400">No contacts match your search.</div>`;
+      return;
+    }
+    list.innerHTML = contacts.map((c) => {
+      const badgeHtml = c.sms_status === "opted_in"
+        ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">Opted In</span>`
+        : c.sms_status === "opted_out"
+          ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">Opted Out</span>`
+          : `<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-50 text-gray-600 border border-gray-200">No Consent</span>`;
+      return `
+        <div
+          class="modal-contact-item p-2.5 flex items-center justify-between hover:bg-brand-50/60 transition cursor-pointer group"
+          data-search="${escapeHtml((c.name || '') + ' ' + (c.phone || ''))}"
+          onclick="startChatWithContact('${escapeHtml(String(c.id))}')"
+        >
+          <div class="flex items-center gap-2.5 min-w-0">
+            <div class="w-8 h-8 rounded-xl bg-gray-100 group-hover:bg-brand-100 text-gray-600 group-hover:text-brand-700 font-bold text-xs flex items-center justify-center shrink-0 transition">
+              ${escapeHtml(c.initials || '#FF')}
+            </div>
+            <div class="min-w-0">
+              <div class="text-xs font-bold text-gray-900 truncate">${escapeHtml(c.name || c.phone)}</div>
+              <div class="text-[11px] text-gray-400 font-mono">${escapeHtml(c.phone || '')}</div>
+            </div>
+          </div>
+          <div>${badgeHtml}</div>
+        </div>
+      `;
+    }).join("");
+  }
+
   function filterModalContacts(query) {
-    const term = (query || "").toLowerCase().trim();
-    const items = document.querySelectorAll(".modal-contact-item");
-    items.forEach(el => {
-      const text = (el.getAttribute("data-search") || "").toLowerCase();
-      if (!term || text.includes(term)) {
-        el.style.display = "flex";
-      } else {
-        el.style.display = "none";
+    const term = (query || "").trim();
+    clearTimeout(modalContactsTimer);
+    if (!term) {
+      const list = document.getElementById("modalContactsList");
+      if (list && initialModalContactsHtml !== null) {
+        list.innerHTML = initialModalContactsHtml;
       }
+      return;
+    }
+
+    // Immediate local filter while fetching full DB matches
+    const lowerTerm = term.toLowerCase();
+    document.querySelectorAll(".modal-contact-item").forEach(el => {
+      const text = (el.getAttribute("data-search") || "").toLowerCase();
+      el.style.display = text.includes(lowerTerm) ? "flex" : "none";
     });
+
+    const seq = ++modalContactsSeq;
+    modalContactsTimer = setTimeout(async () => {
+      try {
+        const resp = await fetch(`{% url 'messaging:search_contacts' %}?q=${encodeURIComponent(term)}`, {
+          headers: { "X-Requested-With": "XMLHttpRequest" }
+        });
+        if (!resp.ok || seq !== modalContactsSeq) return;
+        const data = await resp.json();
+        if (seq === modalContactsSeq) {
+          renderModalContactsList(data.contacts || []);
+        }
+      } catch (err) {
+        console.debug("Modal contact search error:", err);
+      }
+    }, 180);
   }
 
   function showModalError(msg) {
@@ -563,7 +638,11 @@
     .then(data => {
       if (data.status === "success") {
         const card = document.getElementById("ai-draft-card");
-        if (card) card.remove();
+        if (card) {
+          card.classList.add("hidden");
+          const textEl = document.getElementById("ai-draft-text");
+          if (textEl) textEl.textContent = "";
+        }
       }
     })
     .catch(err => console.error("Error discarding draft:", err));
@@ -585,7 +664,11 @@
     .then(data => {
       if (data.status === "success") {
         const card = document.getElementById("ai-draft-card");
-        if (card) card.remove();
+        if (card) {
+          card.classList.add("hidden");
+          const textEl = document.getElementById("ai-draft-text");
+          if (textEl) textEl.textContent = "";
+        }
         if (typeof appendChatMessage === "function") {
           appendChatMessage({
             id: data.message_id,
@@ -597,20 +680,118 @@
           });
         }
       } else {
-        alert(data.message || "Failed to send AI draft.");
+        window.showAppToast(data.message || "Failed to send AI draft.", "error");
       }
     })
     .catch(err => {
       console.error("Error sending draft:", err);
-      alert("A network error occurred while sending the draft.");
+      window.showAppToast("A network error occurred while sending the draft.", "error");
     });
   }
 
-  // Live Client-side & Full Historical Database Message Search
+  // Live Client-side & Full Historical Database Message Search + Pagination
   const currentUserId = "{{ request.user.id }}";
   let searchDebounceTimer = null;
   let initialListHtml = null;
   let currentStatusFilter = "{{ status_filter|default:'open' }}";
+  let isLoadingMoreConvs = false;
+
+  function buildInboxSearchUrl(status, term, assigned, activeId, offset = 0, append = false) {
+    let url = `{% url 'messaging:inbox_search' %}?status=${encodeURIComponent(status || 'open')}&offset=${encodeURIComponent(offset)}`;
+    if (term) url += `&q=${encodeURIComponent(term)}`;
+    if (assigned && assigned !== "all") url += `&assigned=${encodeURIComponent(assigned)}`;
+    if (activeId) url += `&active_id=${encodeURIComponent(activeId)}`;
+    if (append) url += `&append=1`;
+    return url;
+  }
+
+  function fetchInboxListPage(status, term, assigned, options = {}) {
+    const container = document.getElementById("conversations-list-container");
+    const scrollWrap = document.getElementById("conversations-scroll-wrap");
+    const activeConvId = (typeof currentConvId !== 'undefined' && currentConvId) ? currentConvId : "{{ conversation.id|default:'' }}";
+    const spinner = document.getElementById("search-loading-spinner");
+    const silent = !!options.silent;
+
+    if (!silent) {
+      if (spinner) spinner.classList.remove("hidden");
+      if (container) container.style.opacity = "0.5";
+    }
+
+    const fetchUrl = buildInboxSearchUrl(status, term, assigned, activeConvId, 0, false);
+    fetch(fetchUrl, { headers: { "X-Requested-With": "XMLHttpRequest" } })
+      .then(res => res.text())
+      .then(html => {
+        if (container) {
+          container.innerHTML = html;
+          container.style.opacity = "1";
+          if (!term) initialListHtml = html;
+          if (!silent && scrollWrap) scrollWrap.scrollTop = 0;
+          const noMatches = document.getElementById("inbox-no-matches-msg");
+          if (noMatches) noMatches.style.display = "none";
+          if (currentConvId && explicitlyMarkedUnreadConvId !== parseInt(currentConvId, 10)) {
+            clearCardUnreadBadge(currentConvId);
+          }
+        }
+      })
+      .catch(err => {
+        console.error("Inbox list fetch error:", err);
+        if (container) container.style.opacity = "1";
+      })
+      .finally(() => {
+        if (!silent && spinner) spinner.classList.add("hidden");
+      });
+  }
+
+  async function loadMoreConversations() {
+    if (isLoadingMoreConvs) return;
+    const btn = document.getElementById("inbox-load-more-btn");
+    const container = document.getElementById("conversations-list-container");
+    if (!btn || !container) return;
+
+    const nextOffset = parseInt(btn.getAttribute("data-next-offset") || "0", 10);
+    if (!nextOffset) return;
+
+    isLoadingMoreConvs = true;
+    btn.disabled = true;
+    btn.textContent = "Loading...";
+
+    try {
+      const activeConvId = (typeof currentConvId !== 'undefined' && currentConvId) ? currentConvId : "{{ conversation.id|default:'' }}";
+      const searchInput = document.getElementById("chat-search-input");
+      const term = searchInput ? searchInput.value.trim() : "";
+      const assigned = (typeof currentSubFilter !== 'undefined') ? currentSubFilter : "";
+
+      const fetchUrl = buildInboxSearchUrl(currentStatusFilter, term, assigned, activeConvId, nextOffset, true);
+      const res = await fetch(fetchUrl, { headers: { "X-Requested-With": "XMLHttpRequest" } });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const html = await res.text();
+
+      const oldWrap = document.getElementById("inbox-load-more-wrap");
+      if (oldWrap) oldWrap.remove();
+
+      const temp = document.createElement("div");
+      temp.innerHTML = html;
+      const frag = document.createDocumentFragment();
+      while (temp.firstChild) {
+        const node = temp.firstChild;
+        if (node.nodeType === 1 && node.id && document.getElementById(node.id)) {
+          temp.removeChild(node);
+          continue;
+        }
+        frag.appendChild(node);
+      }
+      container.appendChild(frag);
+    } catch (err) {
+      console.error("Load more conversations error:", err);
+      const retryBtn = document.getElementById("inbox-load-more-btn");
+      if (retryBtn) {
+        retryBtn.disabled = false;
+        retryBtn.textContent = "Load more conversations";
+      }
+    } finally {
+      isLoadingMoreConvs = false;
+    }
+  }
 
   function switchStatusTab(newStatus) {
     if (currentStatusFilter === newStatus) return;
@@ -637,39 +818,10 @@
     url.searchParams.set("status", newStatus);
     window.history.pushState({ status: newStatus }, "", url.toString());
 
-    // Fetch conversation items for this status tab via AJAX
-    const container = document.getElementById("conversations-list-container");
-    const activeConvId = (typeof currentConvId !== 'undefined' && currentConvId) ? currentConvId : {% if conversation %}{{ conversation.id }}{% else %}""{% endif %};
     const searchInput = document.getElementById("chat-search-input");
     const term = searchInput ? searchInput.value.trim() : "";
     const assigned = (typeof currentSubFilter !== 'undefined') ? currentSubFilter : "";
-
-    const spinner = document.getElementById("search-loading-spinner");
-    if (spinner) spinner.classList.remove("hidden");
-    if (container) container.style.opacity = "0.5";
-
-    let fetchUrl = `{% url 'messaging:inbox_search' %}?status=${encodeURIComponent(newStatus)}`;
-    if (term) fetchUrl += `&q=${encodeURIComponent(term)}`;
-    if (assigned && assigned !== "all") fetchUrl += `&assigned=${encodeURIComponent(assigned)}`;
-    if (activeConvId) fetchUrl += `&active_id=${encodeURIComponent(activeConvId)}`;
-
-    fetch(fetchUrl, { headers: { "X-Requested-With": "XMLHttpRequest" } })
-      .then(res => res.text())
-      .then(html => {
-        if (container) {
-          container.innerHTML = html;
-          container.style.opacity = "1";
-          initialListHtml = html;
-          if (typeof applySubFilterOnly === 'function') applySubFilterOnly();
-        }
-      })
-      .catch(err => {
-        console.error("Tab switch error:", err);
-        if (container) container.style.opacity = "1";
-      })
-      .finally(() => {
-        if (spinner) spinner.classList.add("hidden");
-      });
+    fetchInboxListPage(newStatus, term, assigned);
   }
 
 
@@ -720,6 +872,9 @@
           if (currentVal.trim() === term) {
             container.innerHTML = html;
             applySubFilterOnly();
+            if (currentConvId && explicitlyMarkedUnreadConvId !== parseInt(currentConvId, 10)) {
+              clearCardUnreadBadge(currentConvId);
+            }
           }
         }
       } catch (err) {
@@ -809,11 +964,11 @@
     }
 
     const searchInput = document.getElementById("chat-search-input");
-    const qVal = searchInput ? searchInput.value : "";
+    const qVal = searchInput ? searchInput.value.trim() : "";
     if (qVal) {
       handleLiveSearch(qVal);
     } else {
-      applySubFilterOnly();
+      fetchInboxListPage(currentStatusFilter, "", type);
     }
   }
 
@@ -822,8 +977,16 @@
     if (container) {
       initialListHtml = container.innerHTML;
     }
+    const scrollWrap = document.getElementById("conversations-scroll-wrap");
+    if (scrollWrap) {
+      scrollWrap.addEventListener("scroll", function() {
+        if (this.scrollHeight - this.scrollTop - this.clientHeight <= 120) {
+          loadMoreConversations();
+        }
+      }, { passive: true });
+    }
     if (currentSubFilter && currentSubFilter !== "all") {
-      setSubFilter(currentSubFilter);
+      applySubFilterOnly();
     }
   });
 
@@ -1014,9 +1177,12 @@
   }
 
   async function deleteSnippet(templateId) {
-    if (!confirm("Are you sure you want to delete this quick reply? It will be removed for all team members.")) {
-      return;
-    }
+    const confirmed = await window.showAppConfirm({
+      title: "Delete Quick Reply",
+      message: "Are you sure you want to delete this quick reply? It will be removed for all team members.",
+      confirmText: "Delete",
+    });
+    if (!confirmed) return;
     const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '{{ csrf_token }}';
     const formData = new FormData();
     formData.append("csrfmiddlewaretoken", csrfToken);
@@ -1035,12 +1201,13 @@
         renderSnippets();
         renderModalSnippetsList();
         resetSnippetForm();
+        window.showAppToast("Quick reply deleted.", "success");
       } else {
-        alert("Failed to delete quick reply.");
+        window.showAppToast("Failed to delete quick reply.", "error");
       }
     } catch (e) {
       console.error("Error deleting quick reply:", e);
-      alert("Network error deleting quick reply.");
+      window.showAppToast("Network error deleting quick reply.", "error");
     }
   }
 
@@ -1055,12 +1222,12 @@
     const editId = (idxInput?.value || "").trim();
 
     if (!label) {
-      alert("Please enter a short chip label (e.g., ⏰ Hours).");
+      window.showAppToast("Please enter a short chip label (e.g., Hours).", "warning");
       labelInput?.focus();
       return;
     }
     if (!text) {
-      alert("Please enter the message text.");
+      window.showAppToast("Please enter the message text.", "warning");
       textInput?.focus();
       return;
     }
@@ -1111,11 +1278,11 @@
         renderModalSnippetsList();
         resetSnippetForm();
       } else {
-        alert(resJson.message || "Failed to save quick reply.");
+        window.showAppToast(resJson.message || "Failed to save quick reply.", "error");
       }
     } catch (e) {
       console.error("Error saving quick reply:", e);
-      alert("Network error saving quick reply.");
+      window.showAppToast("Network error saving quick reply.", "error");
     } finally {
       if (saveBtn) {
         saveBtn.disabled = false;
@@ -1125,9 +1292,13 @@
   }
 
   async function resetDefaultSnippets() {
-    if (!confirm("Reset quick replies back to organization defaults? Any custom quick replies in this category will be reset.")) {
-      return;
-    }
+    const confirmed = await window.showAppConfirm({
+      title: "Reset Quick Replies",
+      message: "Reset quick replies back to organization defaults? Any custom quick replies in this category will be reset.",
+      confirmText: "Reset Defaults",
+      variant: "primary",
+    });
+    if (!confirmed) return;
     const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '{{ csrf_token }}';
     const formData = new FormData();
     formData.append("csrfmiddlewaretoken", csrfToken);
@@ -1145,12 +1316,13 @@
       if (resp.ok) {
         await reloadSnippetsFromCloud();
         resetSnippetForm();
+        window.showAppToast("Quick replies reset to defaults.", "success");
       } else {
-        alert("Failed to reset defaults.");
+        window.showAppToast("Failed to reset defaults.", "error");
       }
     } catch (e) {
       console.error("Error resetting quick reply defaults:", e);
-      alert("Network error resetting defaults.");
+      window.showAppToast("Network error resetting defaults.", "error");
     }
   }
 
@@ -1287,6 +1459,39 @@
     .catch(err => console.error("Error updating assigned agent:", err));
   }
 
+  function syncChatHeaderSelectPill(selectEl) {
+    if (!selectEl) return;
+    const selectedOpt = selectEl.options[selectEl.selectedIndex];
+    const labelText = selectedOpt ? selectedOpt.textContent.trim() : selectEl.value;
+    if (selectEl.name === "ai_mode") {
+      const pill = document.getElementById("ai-mode-pill");
+      const label = document.getElementById("ai-mode-pill-label");
+      if (label) label.textContent = labelText;
+      if (pill) {
+        const base = "inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border text-xs font-medium transition pointer-events-none select-none whitespace-nowrap shadow-2xs ";
+        const modeMap = {
+          off: "bg-rose-50 border-rose-200 text-rose-700",
+          suggest: "bg-indigo-50 border-indigo-200 text-indigo-700",
+          auto: "bg-purple-50 border-purple-200 text-purple-700",
+          default: "bg-white group-hover:bg-gray-50 border-gray-200/90 text-gray-700",
+        };
+        pill.className = base + (modeMap[selectEl.value] || modeMap.default);
+      }
+    } else if (selectEl.name === "status") {
+      const label = document.getElementById("conv-status-pill-label");
+      const dot = document.getElementById("conv-status-dot");
+      if (label) label.textContent = labelText;
+      if (dot) {
+        const dotMap = {
+          open: "bg-emerald-500",
+          needs_human: "bg-amber-500",
+          closed: "bg-gray-400",
+        };
+        dot.className = "w-1.5 h-1.5 rounded-full shrink-0 " + (dotMap[selectEl.value] || dotMap.open);
+      }
+    }
+  }
+
   // --- UPDATE CONVERSATION AI MODE (AJAX) ---
   function updateConversationAiMode(newMode) {
     const meta = getActiveMeta();
@@ -1327,10 +1532,20 @@
     .then(res => res.json())
     .then(data => {
       if (data.status === "success") {
-        selectConversation(convId, window.location.href, false);
+        const appliedStatus = data.new_status || newStatus;
+        handleConversationStatusTransition(convId, appliedStatus, data.counts);
+        if (typeof window.showAppToast === "function") {
+          const labels = { open: "Open", needs_human: "Needs Human", closed: "Closed" };
+          window.showAppToast(`Moved to ${labels[appliedStatus] || appliedStatus}.`, "success", 2500);
+        }
       }
     })
-    .catch(err => console.error("Error updating status:", err));
+    .catch(err => {
+      console.error("Error updating status:", err);
+      if (typeof window.showAppToast === "function") {
+        window.showAppToast("Could not update conversation status.", "error");
+      }
+    });
   }
 
   // --- RESUME AI ASSISTANT (AJAX) ---
@@ -1344,7 +1559,12 @@
     })
     .then(res => res.json())
     .then(data => {
-      selectConversation(convId, window.location.href, false);
+      if (data.status === "success") {
+        handleConversationStatusTransition(convId, data.new_status || "open", data.counts);
+        if (!chatSocket || chatSocket.readyState !== WebSocket.OPEN) {
+          selectConversation(convId, window.location.href, false);
+        }
+      }
     })
     .catch(err => console.error("Error resuming AI:", err));
   }
@@ -1360,6 +1580,7 @@
           middlePane.classList.add("hidden");
         }
       }
+      syncInboxBreadcrumb("");
       window.history.pushState({}, "", "{% url 'messaging:inbox' %}");
     }
   }
@@ -1377,7 +1598,12 @@
   function updateSoundButton() {
     const btn = document.getElementById("btn-sound-toggle");
     if (btn) {
-      btn.innerHTML = soundEnabled ? "<span>🔔</span>" : "<span class='opacity-40'>🔕</span>";
+      btn.innerHTML = soundEnabled
+        ? `<svg class="w-3.5 h-3.5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>`
+        : `<svg class="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" d="M5.586 15H4l1.405-1.405A2.032 2.032 0 006 12.158V11c0-1.158.316-2.244.868-3.172M13.73 21a2 2 0 01-3.46 0M9.34 5.34A6.002 6.002 0 0118 11v1.159c0 .538.214 1.055.595 1.436L20 15h-2M10 5a2 2 0 114 0v.341M3 3l18 18"/></svg>`;
+      btn.className = soundEnabled
+        ? "w-8 h-8 inline-flex items-center justify-center rounded-lg border border-gray-200/90 bg-white hover:bg-gray-50 text-gray-600 shadow-2xs transition cursor-pointer"
+        : "w-8 h-8 inline-flex items-center justify-center rounded-lg border border-gray-200/90 bg-gray-50/70 hover:bg-gray-100 text-gray-400 shadow-2xs transition cursor-pointer";
       btn.title = soundEnabled ? "Notification sound enabled (click to mute)" : "Notification sound muted (click to enable)";
     }
   }
@@ -1433,16 +1659,64 @@
   // ─────────────────────────────────────────────────────────────
   let currentConvId = {% if conversation %}{{ conversation.id }}{% else %}null{% endif %};
   let lastMsgId = 0;
+  let oldestMsgId = 0;
+  let hasOlderMessages = false;
+  let isLoadingOlderMessages = false;
+  let olderMessagesTimer = null;
   let chatSocket = null;
   let chatReconnectTimer = null;
   let chatReconnectAttempts = 0;
 
-  function formatStatus(status) {
-    if (status === "delivered") return "✓✓ delivered";
-    if (status === "sent") return "✓ sent";
-    if (status === "failed" || status === "undelivered") return "✕ failed";
-    if (status === "queued" || status === "sending") return "⏳ queued";
-    return status ? ("✓ " + status) : "";
+  function syncInboxBreadcrumb(convLabel) {
+    const inboxLink = document.getElementById("global-breadcrumb-inbox-link");
+    const sepEl = document.getElementById("global-breadcrumb-sep");
+    const convEl = document.getElementById("global-breadcrumb-conv");
+    const cleanLabel = (convLabel || "").trim();
+    if (cleanLabel) {
+      if (inboxLink) inboxLink.className = "font-medium text-gray-500 hover:text-gray-900 transition";
+      if (sepEl) sepEl.classList.remove("hidden");
+      if (convEl) {
+        convEl.textContent = cleanLabel;
+        convEl.classList.remove("hidden");
+      }
+      document.title = `Chat with ${cleanLabel} - SparkText`;
+    } else {
+      if (inboxLink) inboxLink.className = "font-semibold text-gray-800 transition";
+      if (sepEl) sepEl.classList.add("hidden");
+      if (convEl) {
+        convEl.textContent = "";
+        convEl.classList.add("hidden");
+      }
+      document.title = "Inbox - SparkText";
+    }
+  }
+
+  function applyStatusBadge(statusSpan, status, errorMessage) {
+    if (!statusSpan) return;
+    if (status === "delivered") {
+      statusSpan.className = "msg-status-text text-emerald-600 font-semibold";
+      statusSpan.textContent = "✓✓ Delivered";
+      statusSpan.title = "Delivered to carrier";
+    } else if (status === "sent") {
+      statusSpan.className = "msg-status-text text-gray-500 font-medium";
+      statusSpan.textContent = "✓ Sent";
+      statusSpan.title = "Sent to carrier";
+    } else if (status === "undelivered") {
+      statusSpan.className = "msg-status-text text-rose-600 font-medium";
+      statusSpan.textContent = "✕ Undelivered";
+      statusSpan.title = errorMessage || "Undelivered by carrier";
+    } else if (status === "failed") {
+      statusSpan.className = "msg-status-text text-rose-600 font-medium";
+      statusSpan.textContent = "✕ Failed";
+      statusSpan.title = errorMessage || "Delivery failed";
+    } else if (status === "queued" || status === "sending") {
+      statusSpan.className = "msg-status-text text-gray-400 font-medium";
+      statusSpan.textContent = status === "sending" ? "⏳ Sending" : "⏳ Queued";
+      statusSpan.title = "Waiting for carrier confirmation";
+    } else {
+      statusSpan.className = "msg-status-text text-gray-400 font-medium";
+      statusSpan.textContent = status ? ("✓ " + status) : "";
+    }
   }
 
   function setBadgeState(state) {
@@ -1450,43 +1724,64 @@
     const statusDot   = document.getElementById("ws-status-dot");
     const statusText  = document.getElementById("ws-status-text");
     if (!statusBadge || !statusDot || !statusText) return;
-    if (state === "live") {
-      statusBadge.className = "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 transition-all select-none";
-      statusDot.className   = "w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse";
-      statusText.textContent = "Live";
-      statusBadge.title = "WebSocket connected — instant delivery active";
-    } else if (state === "connecting" || state === "reconnecting") {
-      statusBadge.className = "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 transition-all select-none";
-      statusDot.className   = "w-1.5 h-1.5 rounded-full bg-amber-500";
-      statusText.textContent = state === "reconnecting" ? "Reconnecting" : "Connecting";
-      statusBadge.title = "Connecting to live channel...";
+    if (state === "live" || state === "connecting") {
+      statusBadge.className = "hidden";
+      statusBadge.title = state === "live" ? "WebSocket connected — instant delivery active" : "Connecting to live channel...";
+    } else if (state === "reconnecting") {
+      statusBadge.className = "inline-flex items-center justify-center gap-1.5 h-8 px-2.5 rounded-lg text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200 transition-all select-none whitespace-nowrap";
+      statusDot.className   = "w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse shrink-0";
+      statusText.textContent = "Retry...";
+      statusBadge.title = "Reconnecting to live channel...";
     } else {
-      statusBadge.className = "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[11px] font-semibold bg-gray-50 text-gray-500 border border-gray-200 transition-all select-none";
-      statusDot.className   = "w-1.5 h-1.5 rounded-full bg-gray-400";
+      statusBadge.className = "inline-flex items-center justify-center gap-1.5 h-8 px-2.5 rounded-lg text-xs font-medium bg-gray-50 text-gray-500 border border-gray-200 transition-all select-none whitespace-nowrap";
+      statusDot.className   = "w-1.5 h-1.5 rounded-full bg-gray-400 shrink-0";
       statusText.textContent = "Offline";
       statusBadge.title = "WebSocket disconnected";
     }
   }
 
-  function appendChatMessage(m) {
-    const chatWindow = document.getElementById("chat-window");
-    if (!chatWindow) return;
+  function createDateDividerNode(dateKey, dateLabel) {
+    const div = document.createElement("div");
+    div.setAttribute("data-date-divider", dateKey);
+    div.className = "w-full flex justify-center my-2 select-none";
+    const pill = document.createElement("span");
+    pill.className = "px-2.5 py-0.5 rounded-full text-[10px] font-semibold text-gray-500 bg-white/90 border border-gray-200/80 shadow-2xs";
+    pill.textContent = dateLabel;
+    div.appendChild(pill);
+    return div;
+  }
+
+  function buildInboxMessageNode(m) {
     const msgId = m.id || m.message_id;
-    if (!msgId) return;
 
-    const existingEl = document.getElementById("msg-" + msgId);
-    if (existingEl) {
-      if (m.status) updateMessageStatus(msgId, m.status);
-      return;
+    // Render system audit timeline pill
+    if (m.sender_type === "system") {
+      const wrapper = document.createElement("div");
+      wrapper.id = "msg-" + msgId;
+      wrapper.setAttribute("data-msg-id", msgId);
+      wrapper.className = "w-full flex flex-col items-center my-2 select-none";
+
+      const bodyLower = (m.body || "").toLowerCase();
+      const isHandoff = bodyLower.includes("qualification") || bodyLower.includes("handed off");
+      const pill = document.createElement("span");
+      if (isHandoff) {
+        pill.className = "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-900 border border-amber-200/90 shadow-2xs text-center max-w-lg";
+        pill.innerHTML = `<span class="text-amber-600">🤝</span><span>${escapeHtml(m.body)}</span>`;
+      } else {
+        pill.className = "inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-500 border border-gray-200/60 text-center max-w-md";
+        pill.innerHTML = `<span>ℹ️</span><span>${escapeHtml(m.body)}</span>`;
+      }
+      wrapper.appendChild(pill);
+      return wrapper;
     }
-
-    const emptyPlaceholder = document.getElementById("empty-chat-placeholder");
-    if (emptyPlaceholder) emptyPlaceholder.remove();
 
     const isOutbound = m.direction === "outbound";
     const wrapper = document.createElement("div");
     wrapper.id = "msg-" + msgId;
     wrapper.setAttribute("data-msg-id", msgId);
+    if (m.is_optimistic) {
+      wrapper.setAttribute("data-optimistic-body", m.body || "");
+    }
     wrapper.className = "flex flex-col " + (isOutbound ? "items-end" : "items-start");
 
     const bubble = document.createElement("div");
@@ -1506,6 +1801,7 @@
     meta.className = "flex items-center gap-1.5 text-[10px] text-gray-400 mt-1 px-1";
 
     const timeSpan = document.createElement("span");
+    timeSpan.className = "msg-time-text";
     timeSpan.textContent = m.created_at || m.sent_at || "";
     meta.appendChild(timeSpan);
 
@@ -1515,23 +1811,195 @@
       meta.appendChild(dotSpan);
 
       const statusSpan = document.createElement("span");
-      statusSpan.className = "msg-status-text";
-      statusSpan.textContent = formatStatus(m.status);
+      applyStatusBadge(statusSpan, m.status, m.error_message);
       meta.appendChild(statusSpan);
     }
-    wrapper.appendChild(meta);
 
+    if (isOutbound && m.sender_type === "ai") {
+      const dotAi = document.createElement("span");
+      dotAi.textContent = "·";
+      meta.appendChild(dotAi);
+      const aiTag = document.createElement("span");
+      aiTag.className = "text-indigo-500 font-medium";
+      aiTag.textContent = "🤖 AI Assistant";
+      meta.appendChild(aiTag);
+    } else if (isOutbound && m.sent_by) {
+      const dotBy = document.createElement("span");
+      dotBy.textContent = "·";
+      meta.appendChild(dotBy);
+      const bySpan = document.createElement("span");
+      bySpan.textContent = "by " + m.sent_by;
+      meta.appendChild(bySpan);
+    }
+
+    wrapper.appendChild(meta);
+    return wrapper;
+  }
+
+  function promoteOptimisticBubble(optimisticEl, realId, m) {
+    if (!optimisticEl || !realId) return;
+    const oldId = optimisticEl.getAttribute("data-msg-id");
+    optimisticEl.id = "msg-" + realId;
+    optimisticEl.setAttribute("data-msg-id", realId);
+    optimisticEl.removeAttribute("data-optimistic-body");
+
+    const metaEl = oldId ? document.getElementById("msg-status-" + oldId) : optimisticEl.querySelector('[id^="msg-status-"]');
+    if (metaEl) {
+      metaEl.id = "msg-status-" + realId;
+      const timeEl = metaEl.querySelector(".msg-time-text");
+      if (timeEl && (m.created_at || m.sent_at)) {
+        timeEl.textContent = m.created_at || m.sent_at;
+      }
+    }
+    if (m.status) {
+      updateMessageStatus(realId, m.status, m.error_message);
+    }
+    lastMsgId = Math.max(lastMsgId, parseInt(realId, 10) || 0);
+  }
+
+  function appendChatMessage(m) {
+    const chatWindow = document.getElementById("chat-window");
+    if (!chatWindow) return;
+    const msgId = m.id || m.message_id;
+    if (!msgId) return;
+
+    // Remove typing indicator if present
+    const typingEl = document.getElementById("ai-typing-indicator");
+    if (typingEl) typingEl.remove();
+
+    const existingEl = document.getElementById("msg-" + msgId);
+    if (existingEl) {
+      if (m.status) updateMessageStatus(msgId, m.status);
+      return;
+    }
+
+    // Reconcile matching optimistic outbound bubble if WebSocket arrives before HTTP response
+    if (!m.is_optimistic && m.direction === "outbound" && m.sender_type !== "system") {
+      const pendingEls = chatWindow.querySelectorAll("[data-optimistic-body]");
+      for (const el of pendingEls) {
+        if ((el.getAttribute("data-optimistic-body") || "") === (m.body || "")) {
+          promoteOptimisticBubble(el, msgId, m);
+          return;
+        }
+      }
+    }
+
+    const emptyPlaceholder = document.getElementById("empty-chat-placeholder");
+    if (emptyPlaceholder) emptyPlaceholder.remove();
+
+    if (m.date_key && m.date_label && !chatWindow.querySelector(`[data-date-divider="${CSS.escape(m.date_key)}"]`)) {
+      chatWindow.appendChild(createDateDividerNode(m.date_key, m.date_label));
+    }
+
+    const wrapper = buildInboxMessageNode(m);
     chatWindow.appendChild(wrapper);
     chatWindow.scrollTop = chatWindow.scrollHeight;
 
     lastMsgId = Math.max(lastMsgId, parseInt(msgId, 10) || 0);
 
-    if (!isOutbound) {
+    if (m.sender_type !== "system" && m.direction !== "outbound") {
       playNotificationChime();
     }
   }
 
-  function updateMessageStatus(msgId, status) {
+  function prependOlderInboxMessages(convId, messages, hasMore, nextOldestId) {
+    if (convId !== currentConvId) return;
+    const chatWindow = document.getElementById("chat-window");
+    if (!chatWindow) return;
+
+    const prevHeight = chatWindow.scrollHeight;
+    const prevTop = chatWindow.scrollTop;
+    const wasAtBottom = (chatWindow.scrollHeight - chatWindow.scrollTop - chatWindow.clientHeight) <= 32;
+
+    const fragment = document.createDocumentFragment();
+    let lastBatchDateKey = null;
+
+    for (const m of messages) {
+      const msgId = m.id || m.message_id;
+      if (!msgId || document.getElementById("msg-" + msgId)) continue;
+
+      if (m.date_key && m.date_label && m.date_key !== lastBatchDateKey) {
+        const existingDivider = chatWindow.querySelector(`[data-date-divider="${CSS.escape(m.date_key)}"]`);
+        if (existingDivider) existingDivider.remove();
+        fragment.appendChild(createDateDividerNode(m.date_key, m.date_label));
+        lastBatchDateKey = m.date_key;
+      }
+
+      fragment.appendChild(buildInboxMessageNode(m));
+    }
+
+    hasOlderMessages = !!hasMore;
+    if (nextOldestId) oldestMsgId = nextOldestId;
+
+    const banner = document.getElementById("older-messages-banner");
+    if (banner && banner.parentNode === chatWindow) {
+      chatWindow.insertBefore(fragment, banner.nextSibling);
+      if (!hasOlderMessages) {
+        banner.remove();
+      }
+    } else {
+      chatWindow.prepend(fragment);
+    }
+
+    if (wasAtBottom) {
+      chatWindow.scrollTop = chatWindow.scrollHeight;
+    } else {
+      chatWindow.scrollTop = prevTop + (chatWindow.scrollHeight - prevHeight);
+    }
+  }
+
+  function shouldTriggerOlderMessagesLoad(chatWindow) {
+    if (!chatWindow || !hasOlderMessages || !oldestMsgId || isLoadingOlderMessages) return false;
+    const distanceFromBottom = chatWindow.scrollHeight - chatWindow.scrollTop - chatWindow.clientHeight;
+    if (distanceFromBottom <= 40) return false; // Never trigger while pinned at bottom
+    if (chatWindow.scrollTop <= 150) return true;
+    const msgEls = chatWindow.querySelectorAll("[data-msg-id]");
+    if (!msgEls.length) return false;
+    // Trigger once scrolling up brings the oldest 5 loaded messages into view
+    const fifthOldest = msgEls[Math.min(4, msgEls.length - 1)];
+    const cwRect = chatWindow.getBoundingClientRect();
+    const targetRect = fifthOldest.getBoundingClientRect();
+    return targetRect.bottom >= cwRect.top;
+  }
+
+  function loadOlderInboxMessages() {
+    if (!currentConvId || !hasOlderMessages || !oldestMsgId || isLoadingOlderMessages) return;
+    const convId = currentConvId;
+    isLoadingOlderMessages = true;
+
+    const labelEl = document.getElementById("older-messages-label");
+    const dotEl = document.getElementById("older-messages-dot");
+    if (labelEl) labelEl.textContent = "Loading older messages...";
+    if (dotEl) dotEl.classList.remove("hidden");
+
+    fetch(`/inbox/${convId}/messages/?before_id=${oldestMsgId}&limit=60`, {
+      headers: { "X-Requested-With": "XMLHttpRequest" }
+    })
+    .then(res => {
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.json();
+    })
+    .then(data => {
+      isLoadingOlderMessages = false;
+      if (convId !== currentConvId) return;
+      const msgs = Array.isArray(data.messages) ? data.messages : [];
+      prependOlderInboxMessages(convId, msgs, !!data.has_more, data.oldest_id || 0);
+      if (hasOlderMessages) {
+        if (labelEl) labelEl.textContent = "Scroll up to load older messages";
+        if (dotEl) dotEl.classList.add("hidden");
+      }
+    })
+    .catch(err => {
+      isLoadingOlderMessages = false;
+      console.debug("Older messages load paused:", err);
+      if (convId === currentConvId) {
+        if (labelEl) labelEl.textContent = "Load older messages";
+        if (dotEl) dotEl.classList.add("hidden");
+      }
+    });
+  }
+
+  function updateMessageStatus(msgId, status, errorMessage) {
     const metaEl = document.getElementById("msg-status-" + msgId);
     if (!metaEl) return;
     let statusSpan = metaEl.querySelector(".msg-status-text");
@@ -1540,21 +2008,124 @@
       dotSpan.textContent = "·";
       metaEl.appendChild(dotSpan);
       statusSpan = document.createElement("span");
-      statusSpan.className = "msg-status-text";
       metaEl.appendChild(statusSpan);
     }
-    statusSpan.textContent = formatStatus(status);
+    applyStatusBadge(statusSpan, status, errorMessage);
+  }
+
+  function handleAiTypingUpdate(isTyping, modelName) {
+    const chatWindow = document.getElementById("chat-window");
+    if (!chatWindow) return;
+    let indicator = document.getElementById("ai-typing-indicator");
+    if (isTyping) {
+      if (!indicator) {
+        indicator = document.createElement("div");
+        indicator.id = "ai-typing-indicator";
+        indicator.className = "flex items-center gap-2.5 text-xs text-brand-800 bg-brand-50/90 border border-brand-200/90 py-1.5 px-3 rounded-2xl w-fit shadow-2xs my-2 transition-all duration-300";
+        const name = modelName || "Gemma";
+        indicator.innerHTML = `
+          <span class="inline-block animate-bounce text-sm">🤖</span>
+          <span class="font-medium text-slate-700"><strong>${escapeHtml(name)}</strong> is drafting a reply...</span>
+          <span class="flex gap-1 items-center ml-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-brand-500 animate-pulse"></span>
+            <span class="w-1.5 h-1.5 rounded-full bg-brand-500 animate-pulse" style="animation-delay: 150ms;"></span>
+            <span class="w-1.5 h-1.5 rounded-full bg-brand-500 animate-pulse" style="animation-delay: 300ms;"></span>
+          </span>
+        `;
+        chatWindow.appendChild(indicator);
+        chatWindow.scrollTop = chatWindow.scrollHeight;
+      }
+    } else {
+      if (indicator) indicator.remove();
+    }
   }
 
   function handleAiDraftUpdate(draftText) {
     if (!draftText) return;
+    const typingEl = document.getElementById("ai-typing-indicator");
+    if (typingEl) typingEl.remove();
+
     const draftTextEl = document.getElementById("ai-draft-text");
     const draftCard = document.getElementById("ai-draft-card");
     if (draftTextEl && draftCard) {
       draftTextEl.textContent = draftText;
       draftCard.classList.remove("hidden");
-      draftCard.classList.add("animate-pulse");
-      setTimeout(() => draftCard.classList.remove("animate-pulse"), 1000);
+      draftCard.classList.add("ring-2", "ring-brand-400", "transition-all", "duration-500");
+      setTimeout(() => draftCard.classList.remove("ring-2", "ring-brand-400"), 1500);
+    }
+  }
+
+  function handleHandoffAlert(data) {
+    const typingEl = document.getElementById("ai-typing-indicator");
+    if (typingEl) typingEl.remove();
+
+    const banner = document.getElementById("handoff-warning-banner");
+    const reasonEl = document.getElementById("handoff-warning-reason");
+    if (banner) {
+      if (reasonEl && data.reason) {
+        reasonEl.textContent = data.reason;
+      }
+      banner.classList.remove("hidden");
+      banner.classList.add("ring-2", "ring-amber-400", "transition-all", "duration-500");
+      setTimeout(() => banner.classList.remove("ring-2", "ring-amber-400"), 2000);
+    }
+
+    const statusSelect = document.querySelector('select[name="status"]');
+    if (statusSelect) {
+      statusSelect.value = "needs_human";
+      syncChatHeaderSelectPill(statusSelect);
+    }
+
+    if (data.message && typeof appendChatMessage === "function") {
+      appendChatMessage(data.message);
+    }
+    handleConversationStatusTransition(data.conversation_id || currentConvId, "needs_human", data.counts);
+  }
+
+  function handleStatusChange(data) {
+    const banner = document.getElementById("handoff-warning-banner");
+    if (banner && data.status !== "needs_human") {
+      banner.classList.add("hidden");
+    } else if (banner && data.status === "needs_human") {
+      banner.classList.remove("hidden");
+    }
+    const statusSelect = document.querySelector('select[name="status"]');
+    if (statusSelect && data.status) {
+      statusSelect.value = data.status;
+      syncChatHeaderSelectPill(statusSelect);
+    }
+    if (data.message && typeof appendChatMessage === "function") {
+      appendChatMessage(data.message);
+    }
+    if (data.status) {
+      handleConversationStatusTransition(data.conversation_id || currentConvId, data.status, data.counts);
+    }
+  }
+
+  let agentTypingTimeout = null;
+  function handleAgentTyping(data) {
+    if (!data) return;
+    const currentUserIdNum = parseInt(currentUserId, 10);
+    // Never show typing warning for yourself
+    if (data.user_id && currentUserIdNum && data.user_id === currentUserIdNum) {
+      return;
+    }
+    const indicator = document.getElementById("agent-typing-indicator");
+    const textEl = document.getElementById("agent-typing-text");
+    if (!indicator || !textEl) return;
+
+    clearTimeout(agentTypingTimeout);
+
+    if (data.is_typing) {
+      const name = data.user_name || "Another team member";
+      textEl.innerHTML = `<strong>${escapeHtml(name)}</strong> is currently typing a response...`;
+      indicator.classList.remove("hidden");
+      // Auto-expire after 4s if network packet drops
+      agentTypingTimeout = setTimeout(() => {
+        indicator.classList.add("hidden");
+      }, 4000);
+    } else {
+      indicator.classList.add("hidden");
     }
   }
 
@@ -1606,10 +2177,24 @@
           const data = JSON.parse(e.data);
           if (data.event === "new_message" && data.message) {
             appendChatMessage(data.message);
+            if (data.message.direction === "inbound") {
+              clearCardUnreadBadge(convId);
+              if (document.visibilityState !== "hidden") {
+                markConversationRead(convId);
+              }
+            }
           } else if (data.event === "status_update" && data.message_id) {
-            updateMessageStatus(data.message_id, data.status);
+            updateMessageStatus(data.message_id, data.status, data.error_message);
           } else if (data.event === "ai_draft" && data.draft) {
             handleAiDraftUpdate(data.draft);
+          } else if (data.event === "ai_typing") {
+            handleAiTypingUpdate(data.is_typing, data.model_name);
+          } else if (data.event === "handoff") {
+            handleHandoffAlert(data);
+          } else if (data.event === "status_change") {
+            handleStatusChange(data);
+          } else if (data.event === "agent_typing") {
+            handleAgentTyping(data);
           }
         } catch (err) {
           console.debug("WS message parse error:", err);
@@ -1638,7 +2223,29 @@
 
   // Initialize interactive controls for whatever conversation is active in the DOM
   function initChatPane(convId) {
+    clearTimeout(olderMessagesTimer);
+    isLoadingOlderMessages = false;
     currentConvId = convId ? parseInt(convId, 10) : null;
+    const metaEl = document.getElementById("active-conversation-meta");
+    if (metaEl) {
+      const first = (metaEl.getAttribute("data-first-name") || "").trim();
+      const last = (metaEl.getAttribute("data-last-name") || "").trim();
+      const phone = (metaEl.getAttribute("data-phone") || "").trim();
+      syncInboxBreadcrumb([first, last].filter(Boolean).join(" ") || phone);
+      hasOlderMessages = metaEl.getAttribute("data-has-older") === "true";
+      oldestMsgId = parseInt(metaEl.getAttribute("data-oldest-msg-id") || "0", 10) || 0;
+      const navUnreadAttr = metaEl.getAttribute("data-nav-unread");
+      if (navUnreadAttr !== null && typeof window.updateSidebarUnreadCount === "function") {
+        window.updateSidebarUnreadCount(parseInt(navUnreadAttr, 10) || 0);
+      }
+    } else {
+      syncInboxBreadcrumb("");
+      hasOlderMessages = false;
+      oldestMsgId = 0;
+    }
+    if (currentConvId) {
+      clearCardUnreadBadge(currentConvId);
+    }
     const chatWindow = document.getElementById("chat-window");
     const textarea = document.getElementById("message-body");
     const charCounter = document.getElementById("char-counter");
@@ -1646,6 +2253,14 @@
 
     if (chatWindow) {
       chatWindow.scrollTop = chatWindow.scrollHeight;
+      if (!chatWindow.dataset.olderScrollBound) {
+        chatWindow.dataset.olderScrollBound = "1";
+        chatWindow.addEventListener("scroll", function() {
+          if (shouldTriggerOlderMessagesLoad(this)) {
+            loadOlderInboxMessages();
+          }
+        }, { passive: true });
+      }
     }
 
     const msgEls = document.querySelectorAll("[data-msg-id]");
@@ -1653,6 +2268,22 @@
       lastMsgId = parseInt(msgEls[msgEls.length - 1].getAttribute("data-msg-id"), 10) || 0;
     } else {
       lastMsgId = 0;
+    }
+
+    let myTypingTimeout = null;
+    let isCurrentlyTypingSignalSent = false;
+
+    function sendMyTypingStatus(isTyping) {
+      if (!chatSocket || chatSocket.readyState !== WebSocket.OPEN) return;
+      try {
+        chatSocket.send(JSON.stringify({
+          type: "agent_typing",
+          is_typing: isTyping,
+        }));
+        isCurrentlyTypingSignalSent = isTyping;
+      } catch (err) {
+        console.debug("Failed to send typing signal:", err);
+      }
     }
 
     if (textarea && charCounter) {
@@ -1663,12 +2294,30 @@
           segments = Math.ceil(len / 153);
         }
         charCounter.textContent = `${len} / 1600 characters · ${segments} segment${segments > 1 ? 's' : ''}`;
+
+        // Send collision typing signal
+        if (!isCurrentlyTypingSignalSent && len > 0) {
+          sendMyTypingStatus(true);
+        }
+        clearTimeout(myTypingTimeout);
+        myTypingTimeout = setTimeout(() => {
+          sendMyTypingStatus(false);
+        }, 2500);
+      });
+
+      textarea.addEventListener("blur", function() {
+        clearTimeout(myTypingTimeout);
+        if (isCurrentlyTypingSignalSent) {
+          sendMyTypingStatus(false);
+        }
       });
 
       textarea.addEventListener("keydown", function(e) {
-        if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+        if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
           e.preventDefault();
-          if (form) form.requestSubmit();
+          if (form && this.value.trim()) {
+            form.requestSubmit();
+          }
         }
       });
     }
@@ -1676,13 +2325,30 @@
     if (form && textarea) {
       form.addEventListener("submit", function(e) {
         e.preventDefault();
+        clearTimeout(myTypingTimeout);
+        sendMyTypingStatus(false);
         const bodyText = textarea.value.trim();
         if (!bodyText) return;
 
-        const sendBtn = document.getElementById("send-button");
-        if (sendBtn) sendBtn.disabled = true;
-
         const formData = new FormData(form);
+        const sendConvId = currentConvId;
+        const tempId = "temp-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
+
+        // Clear input immediately and render optimistic sending bubble
+        textarea.value = "";
+        if (charCounter) charCounter.textContent = "0 / 1600 characters · 1 segment";
+        explicitlyMarkedUnreadConvId = null;
+
+        appendChatMessage({
+          id: tempId,
+          body: bodyText,
+          direction: "outbound",
+          sender_type: "human",
+          sent_by: "{{ request.user.first_name|default:request.user.email|escapejs }}",
+          status: "sending",
+          created_at: "Sending...",
+          is_optimistic: true,
+        });
 
         fetch(form.action, {
           method: "POST",
@@ -1693,29 +2359,58 @@
         })
         .then(res => res.json().then(data => ({ status: res.status, ok: res.ok, data })))
         .then(result => {
-          if (sendBtn) sendBtn.disabled = false;
+          const tempEl = document.getElementById("msg-" + tempId);
           if (result.ok && result.data.status === "success") {
-            textarea.value = "";
-            if (charCounter) charCounter.textContent = "0 / 1600 characters · 1 segment";
+            const realId = result.data.message_id;
+            const realEl = document.getElementById("msg-" + realId);
+            if (realEl && tempEl && realEl !== tempEl) {
+              tempEl.remove();
+            } else if (tempEl && !realEl) {
+              promoteOptimisticBubble(tempEl, realId, {
+                status: result.data.delivery_status,
+                created_at: result.data.sent_at,
+              });
+            } else {
+              appendChatMessage({
+                id: realId,
+                body: result.data.body,
+                direction: "outbound",
+                status: result.data.delivery_status,
+                created_at: result.data.sent_at,
+              });
+            }
 
-            appendChatMessage({
-              id: result.data.message_id,
-              body: result.data.body,
-              direction: "outbound",
-              status: result.data.delivery_status,
-              created_at: result.data.sent_at,
-            });
+            if (sendConvId) {
+              updateSidebarCard({
+                id: sendConvId,
+                last_body: result.data.body || bodyText,
+                direction: "outbound",
+                last_message_at_display: "just now",
+                unread_count: 0,
+              });
+            }
 
-            if (result.data.ai_mode_changed) {
+            if (result.data.ai_mode_changed && currentConvId === sendConvId) {
               // Smoothly reload right pane to update takeover banner
               selectConversation(currentConvId, window.location.href, false);
             }
           } else {
-            alert(result.data.message || "Failed to send message.");
+            if (tempEl) tempEl.remove();
+            if (!textarea.value) {
+              textarea.value = bodyText;
+              textarea.dispatchEvent(new Event("input"));
+            }
+            window.showAppToast(result.data.message || "Failed to send message.", "error");
           }
         })
         .catch(err => {
-          if (sendBtn) sendBtn.disabled = false;
+          const tempEl = document.getElementById("msg-" + tempId);
+          if (tempEl) tempEl.remove();
+          if (!textarea.value) {
+            textarea.value = bodyText;
+            textarea.dispatchEvent(new Event("input"));
+          }
+          window.showAppToast("Network error while sending SMS.", "error");
           console.error("Send error:", err);
         });
       });
@@ -1740,6 +2435,12 @@
   function selectConversation(convId, url, pushState = true) {
     if (!convId) return;
     const numId = parseInt(convId, 10);
+    explicitlyMarkedUnreadConvId = null;
+    currentConvId = numId;
+    clearTimeout(olderMessagesTimer);
+    isLoadingOlderMessages = false;
+    hasOlderMessages = false;
+    oldestMsgId = 0;
 
     // 1. Instantly highlight active conversation in sidebar
     document.querySelectorAll(".chat-list-item").forEach(item => {
@@ -1753,10 +2454,8 @@
     if (activeCard) {
       activeCard.classList.remove("hover:bg-slate-50/80", "border-l-transparent", "bg-slate-50/50");
       activeCard.classList.add("bg-brand-50/70", "border-l-brand-600");
-
-      const badge = activeCard.querySelector(".rounded-full.bg-brand-600.text-white");
-      if (badge) badge.remove();
     }
+    clearCardUnreadBadge(numId);
 
     // 2. Update browser URL without reload
     if (pushState) {
@@ -1830,52 +2529,315 @@
     }
   });
 
-  // ─────────────────────────────────────────────────────────────
-  // SIDEBAR INBOX CARD UPDATER (Real-Time WebSocket)
-  // ─────────────────────────────────────────────────────────────
-  function updateSidebarCard(conv) {
-    const link = document.getElementById("conv-item-" + conv.id) ||
-                 document.querySelector(`a[href*="/inbox/${conv.id}/"]`);
-    if (!link) return;
+  const markReadInFlight = new Set();
+  let explicitlyMarkedUnreadConvId = null;
 
-    // Update snippet text
-    const snippetEl = link.querySelector("p.text-\\[11px\\]");
-    if (snippetEl) {
-      const prefix = conv.direction === "outbound"
-        ? "<span class='text-gray-400'>You:</span> "
-        : "";
-      snippetEl.innerHTML = prefix + escapeHtml(conv.last_body);
+  function renderSidebarCardUnreadState(card, unreadCount) {
+    if (!card) return;
+    const count = parseInt(unreadCount, 10) || 0;
+    card.setAttribute("data-unread-count", String(count));
+    const snippetRow =
+      card.querySelector(".conv-snippet-row") ||
+      card.querySelectorAll(".flex.items-center.justify-between.gap-1")[1] ||
+      card;
+
+    if (count > 0) {
+      // Clear any stray badge outside the snippet row before placing/updating it inside snippetRow
+      card.querySelectorAll(".conv-unread-badge, .rounded-full.bg-brand-600.text-white").forEach(el => {
+        if (el.parentElement !== snippetRow) el.remove();
+      });
+      let badge = snippetRow.querySelector(".conv-unread-badge, .rounded-full.bg-brand-600.text-white");
+      if (!badge) {
+        badge = document.createElement("span");
+        badge.className = "conv-unread-badge px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-brand-600 text-white shrink-0";
+        snippetRow.appendChild(badge);
+      }
+      badge.textContent = count;
+    } else {
+      card.querySelectorAll(".conv-unread-badge, .rounded-full.bg-brand-600.text-white").forEach(el => el.remove());
+    }
+    if (count > 0) {
+      card.classList.add("bg-slate-50/50");
+    } else {
+      card.classList.remove("bg-slate-50/50");
+    }
+    initialListHtml = null;
+  }
+
+  function markCurrentConversationUnread() {
+    const convId = currentConvId ? parseInt(currentConvId, 10) : null;
+    if (!convId) return;
+    const formData = new FormData();
+    formData.append("csrfmiddlewaretoken", "{{ csrf_token }}");
+
+    fetch(`/inbox/${convId}/unread/`, {
+      method: "POST",
+      headers: { "X-Requested-With": "XMLHttpRequest" },
+      body: formData,
+    })
+    .then(res => res.json().then(data => ({ ok: res.ok, data })))
+    .then(({ ok, data }) => {
+      if (ok && data.status === "success") {
+        explicitlyMarkedUnreadConvId = convId;
+        renderSidebarCardUnreadState(getSidebarCardElement(convId), data.unread_count || 1);
+        if (data.nav_unread_count !== undefined && typeof window.updateSidebarUnreadCount === "function") {
+          window.updateSidebarUnreadCount(data.nav_unread_count);
+        }
+        if (typeof window.showAppToast === "function") {
+          window.showAppToast("Conversation marked as unread.", "info", 2800);
+        }
+      }
+    })
+    .catch(err => console.debug("Mark unread error:", err));
+  }
+
+  function navigateConversationStep(delta) {
+    const items = Array.from(document.querySelectorAll("#conversations-list-container a.chat-list-item"))
+      .filter(el => el.style.display !== "none" && el.offsetParent !== null);
+    if (!items.length) return;
+
+    const activeId = currentConvId ? String(currentConvId) : null;
+    const currentIndex = activeId ? items.findIndex(el => el.getAttribute("data-conv-id") === activeId) : -1;
+    let nextIndex;
+    if (currentIndex === -1) {
+      nextIndex = delta > 0 ? 0 : items.length - 1;
+    } else {
+      nextIndex = Math.max(0, Math.min(items.length - 1, currentIndex + delta));
+    }
+    const target = items[nextIndex];
+    if (!target) return;
+    const targetId = target.getAttribute("data-conv-id");
+    const targetHref = target.getAttribute("href");
+    if (targetId && targetId !== activeId && targetHref) {
+      selectConversation(targetId, targetHref);
+      target.scrollIntoView({ block: "nearest" });
+    }
+  }
+
+  document.addEventListener("keydown", function(e) {
+    const activeModal = ["quick-jump-modal", "global-confirm-modal", "newChatModal", "snippetsModal"]
+      .some(id => {
+        const m = document.getElementById(id);
+        return m && !m.classList.contains("hidden");
+      });
+    if (activeModal) return;
+
+    if (e.altKey && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+      e.preventDefault();
+      navigateConversationStep(e.key === "ArrowDown" ? 1 : -1);
+      return;
     }
 
-    // Update timestamp
-    const timeEl = link.querySelector("span.text-\\[10px\\].text-gray-400");
-    if (timeEl) timeEl.textContent = conv.last_message_at_display;
+    const tag = (document.activeElement?.tagName || "").toUpperCase();
+    const isEditing = ["INPUT", "TEXTAREA", "SELECT"].includes(tag) || document.activeElement?.isContentEditable;
+    if (!isEditing && !e.ctrlKey && !e.metaKey && !e.shiftKey && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+      e.preventDefault();
+      navigateConversationStep(e.key === "ArrowDown" ? 1 : -1);
+    }
+  });
 
-    // Update or add unread badge
-    const badgeContainer = link.querySelector(".flex.items-center.justify-between.gap-1");
-    if (badgeContainer) {
-      let badge = badgeContainer.querySelector(".rounded-full.bg-brand-600.text-white");
-      if (conv.id !== currentConvId && conv.unread_count > 0) {
-        if (!badge) {
-          badge = document.createElement("span");
-          badge.className = "px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-brand-600 text-white shrink-0";
-          badgeContainer.appendChild(badge);
-        }
-        badge.textContent = conv.unread_count;
-      } else if (badge) {
-        badge.remove();
+  function getSidebarCardElement(convId) {
+    return document.getElementById("conv-item-" + convId) ||
+           document.querySelector(`a.chat-list-item[data-conv-id="${convId}"]`) ||
+           document.querySelector(`a[href*="/inbox/${convId}/"]`);
+  }
+
+  function syncInboxTabCounts(counts) {
+    if (!counts) return;
+    ["open", "needs_human", "closed"].forEach(statusKey => {
+      if (counts[statusKey] === undefined) return;
+      const countEl = document.getElementById("tab-count-" + statusKey);
+      if (countEl) countEl.textContent = counts[statusKey];
+    });
+    const needsHumanBtn = document.getElementById("tab-btn-needs_human");
+    if (needsHumanBtn && counts.needs_human !== undefined) {
+      needsHumanBtn.setAttribute("title", `Needs Human Attention (${counts.needs_human})`);
+    }
+  }
+
+  function syncConversationEmptyTabState(container) {
+    const list = container || document.getElementById("conversations-list-container");
+    if (!list) return;
+    const hasCards = !!list.querySelector("a.chat-list-item");
+    const existingEmpty = document.getElementById("inbox-dynamic-empty-msg");
+    if (hasCards) {
+      if (existingEmpty) existingEmpty.remove();
+      return;
+    }
+    if (existingEmpty) return;
+    const statusLabelMap = { open: "open", needs_human: "needs human", closed: "closed" };
+    const statusLabel = statusLabelMap[currentStatusFilter] || currentStatusFilter || "matching";
+    const emptyEl = document.createElement("div");
+    emptyEl.id = "inbox-dynamic-empty-msg";
+    emptyEl.className = "p-8 text-center";
+    emptyEl.innerHTML = `<p class="text-xs text-gray-400">No ${escapeHtml(statusLabel)} conversations</p>`;
+    list.appendChild(emptyEl);
+  }
+
+  function handleConversationStatusTransition(convId, newStatus, counts) {
+    if (counts) syncInboxTabCounts(counts);
+    const numId = parseInt(convId, 10);
+    if (!numId || !newStatus) return;
+
+    const activeId = currentConvId !== null ? parseInt(currentConvId, 10) : null;
+    if (activeId !== null && numId === activeId) {
+      const statusSelect = document.querySelector('select[name="status"]');
+      if (statusSelect && statusSelect.value !== newStatus) {
+        statusSelect.value = newStatus;
+      }
+      if (statusSelect) syncChatHeaderSelectPill(statusSelect);
+      const banner = document.getElementById("handoff-warning-banner");
+      if (banner) {
+        if (newStatus === "needs_human") banner.classList.remove("hidden");
+        else banner.classList.add("hidden");
       }
     }
 
-    // If this conv is not currently open, add unread highlight
-    if (conv.id !== currentConvId && conv.unread_count > 0) {
-      link.classList.add("bg-slate-50/50");
+    const list = document.getElementById("conversations-list-container");
+    const card = getSidebarCardElement(numId);
+    if (currentStatusFilter && newStatus !== currentStatusFilter) {
+      if (card) {
+        card.remove();
+        initialListHtml = null;
+        syncConversationEmptyTabState(list);
+      }
+    } else if (currentStatusFilter && newStatus === currentStatusFilter && !card) {
+      const searchInput = document.getElementById("chat-search-input");
+      const term = searchInput ? searchInput.value.trim() : "";
+      const assigned = (typeof currentSubFilter !== "undefined") ? currentSubFilter : "";
+      fetchInboxListPage(currentStatusFilter, term, assigned, { silent: true });
+    }
+  }
+
+  function clearCardUnreadBadge(convId) {
+    const numId = parseInt(convId, 10);
+    if (!numId) return;
+    const card = getSidebarCardElement(numId);
+    if (!card) return;
+
+    const badgeEl = card.querySelector(".conv-unread-badge, .rounded-full.bg-brand-600.text-white");
+    const domUnread = badgeEl ? (parseInt(badgeEl.textContent || "0", 10) || 0) : 0;
+    const prevUnread = Math.max(parseInt(card.getAttribute("data-unread-count") || "0", 10) || 0, domUnread);
+    renderSidebarCardUnreadState(card, 0);
+
+    if (prevUnread > 0) {
+      const navBadge = document.getElementById("sidebar-unread-badge");
+      if (navBadge && typeof window.updateSidebarUnreadCount === "function") {
+        const curNav = parseInt(navBadge.textContent || "0", 10) || 0;
+        window.updateSidebarUnreadCount(Math.max(0, curNav - prevUnread));
+      }
+    }
+  }
+
+  function markConversationRead(convId) {
+    const numId = parseInt(convId, 10);
+    if (!numId || markReadInFlight.has(numId)) return;
+    markReadInFlight.add(numId);
+
+    const formData = new FormData();
+    formData.append("csrfmiddlewaretoken", "{{ csrf_token }}");
+
+    fetch(`/inbox/${numId}/read/`, {
+      method: "POST",
+      headers: { "X-Requested-With": "XMLHttpRequest" },
+      body: formData,
+    })
+    .then(res => res.ok ? res.json() : null)
+    .then(data => {
+      if (data && data.nav_unread_count !== undefined && typeof window.updateSidebarUnreadCount === "function") {
+        window.updateSidebarUnreadCount(data.nav_unread_count);
+      }
+      if (!explicitlyMarkedUnreadConvId || explicitlyMarkedUnreadConvId !== numId) {
+        renderSidebarCardUnreadState(getSidebarCardElement(numId), 0);
+      }
+    })
+    .catch(err => console.debug("Mark read error:", err))
+    .finally(() => {
+      markReadInFlight.delete(numId);
+    });
+  }
+
+  document.addEventListener("visibilitychange", function() {
+    if (document.visibilityState === "visible" && currentConvId) {
+      const activeId = parseInt(currentConvId, 10);
+      if (explicitlyMarkedUnreadConvId === activeId) return;
+      const card = getSidebarCardElement(currentConvId);
+      const unread = card ? (parseInt(card.getAttribute("data-unread-count") || "0", 10) || 0) : 0;
+      const hasBadge = card ? !!card.querySelector(".conv-unread-badge, .rounded-full.bg-brand-600.text-white") : false;
+      if (unread > 0 || hasBadge) {
+        clearCardUnreadBadge(currentConvId);
+        markConversationRead(currentConvId);
+      }
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // SIDEBAR INBOX CARD UPDATER (Real-Time WebSocket)
+  // ─────────────────────────────────────────────────────────────
+  function updateSidebarCard(conv, eventData) {
+    const counts = eventData?.counts || conv?.counts;
+    if (counts) syncInboxTabCounts(counts);
+
+    if (!conv || !conv.id) return;
+    const convId = parseInt(conv.id, 10);
+    const activeId = currentConvId !== null ? parseInt(currentConvId, 10) : null;
+    const isActive = !isNaN(convId) && activeId !== null && convId === activeId;
+
+    if (conv.status && currentStatusFilter && conv.status !== currentStatusFilter) {
+      const staleCard = getSidebarCardElement(convId);
+      if (staleCard) {
+        staleCard.remove();
+        initialListHtml = null;
+        syncConversationEmptyTabState();
+      }
+      return;
     }
 
-    // Move to top of the list (most recent activity)
-    const list = document.getElementById("conversations-list-container");
-    if (list && link.parentNode === list && list.firstChild !== link) {
-      list.insertBefore(link, list.firstChild);
+    const link = getSidebarCardElement(conv.id);
+    if (!link) {
+      if (conv.status && currentStatusFilter && conv.status === currentStatusFilter) {
+        const searchInput = document.getElementById("chat-search-input");
+        const term = searchInput ? searchInput.value.trim() : "";
+        const assigned = (typeof currentSubFilter !== "undefined") ? currentSubFilter : "";
+        fetchInboxListPage(currentStatusFilter, term, assigned, { silent: true });
+      }
+      return;
+    }
+
+    // Update snippet text only when message content was broadcast
+    if (conv.last_body !== undefined) {
+      const snippetEl = link.querySelector("p.text-\\[11px\\]");
+      if (snippetEl) {
+        const prefix = conv.direction === "outbound"
+          ? "<span class='text-gray-400'>You:</span> "
+          : "";
+        snippetEl.innerHTML = prefix + escapeHtml(conv.last_body);
+      }
+    }
+
+    // Update timestamp only when provided
+    if (conv.last_message_at_display) {
+      const timeEl = link.querySelector("span.text-\\[10px\\].text-gray-400");
+      if (timeEl) timeEl.textContent = conv.last_message_at_display;
+    }
+
+    // Keep unread badge visible if user explicitly marked this thread unread; otherwise suppress on active chat
+    const keepExplicitUnread = isActive && explicitlyMarkedUnreadConvId === convId;
+    if (isActive && !keepExplicitUnread) {
+      renderSidebarCardUnreadState(link, 0);
+      if ((parseInt(conv.unread_count, 10) || 0) > 0 && document.visibilityState !== "hidden") {
+        markConversationRead(convId);
+      }
+    } else if (conv.unread_count !== undefined) {
+      renderSidebarCardUnreadState(link, parseInt(conv.unread_count, 10) || 0);
+    }
+
+    // Move to top of the list when a new message arrived
+    if (conv.last_body !== undefined) {
+      const list = document.getElementById("conversations-list-container");
+      if (list && link.parentNode === list && list.firstChild !== link) {
+        list.insertBefore(link, list.firstChild);
+      }
     }
   }
 
@@ -1884,48 +2846,5 @@
     div.appendChild(document.createTextNode(text || ""));
     return div.innerHTML;
   }
-
-  // ─────────────────────────────────────────────────────────────
-  // GLOBAL INBOX WEBSOCKET (ws/inbox/<org_id>/)
-  // ─────────────────────────────────────────────────────────────
-  {% if request.user.organization_id %}
-  const orgId = {{ request.user.organization_id }};
-  const inboxWsScheme = window.location.protocol === "https:" ? "wss://" : "ws://";
-  const inboxWsUrl = `${inboxWsScheme}${window.location.host}/ws/inbox/${orgId}/`;
-  let inboxSocket = null;
-  let inboxReconnectTimer = null;
-
-  function initInboxWebSocket() {
-    if (inboxSocket && (inboxSocket.readyState === WebSocket.OPEN || inboxSocket.readyState === WebSocket.CONNECTING)) return;
-
-    try {
-      inboxSocket = new WebSocket(inboxWsUrl);
-
-      inboxSocket.onmessage = function(e) {
-        try {
-          const data = JSON.parse(e.data);
-          if (data.event === "inbox_update" && data.conversation) {
-            updateSidebarCard(data.conversation);
-          }
-        } catch (err) {
-          console.debug("Inbox WS parse error:", err);
-        }
-      };
-
-      inboxSocket.onclose = function() {
-        clearTimeout(inboxReconnectTimer);
-        inboxReconnectTimer = setTimeout(initInboxWebSocket, 3000);
-      };
-
-      inboxSocket.onerror = function() {
-        inboxSocket.close();
-      };
-    } catch (err) {
-      console.debug("Inbox WS exception:", err);
-    }
-  }
-
-  initInboxWebSocket();
-  {% endif %}
 </script>
 {% endblock %}

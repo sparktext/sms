@@ -3,7 +3,7 @@ from datetime import timedelta
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError, PermissionDenied
-from django.db.models import Q, Count, Prefetch
+from django.db.models import Q, Count, OuterRef, Subquery, Sum
 from django.http import JsonResponse, Http404, HttpResponse
 from django.shortcuts import render, get_object_or_404, redirect
 from django.urls import reverse
@@ -13,10 +13,93 @@ from django.contrib import messages
 
 from contacts.models import Contact
 from core.models import User
-from campaigns.models import CampaignTemplate
+from campaigns.models import Campaign, CampaignTemplate
 from campaigns.services import ensure_default_campaign_templates
 from .models import PhoneNumber, Conversation, Message
 from .services import can_send_manual, send_message
+from .utils import format_chat_timestamp, get_org_status_counts
+
+INITIAL_CHAT_LIMIT = 35
+
+
+def _is_ajax_request(request):
+    """Return True if the request expects a JSON or partial AJAX response."""
+    return (
+        request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        or request.content_type == "application/json"
+    )
+
+
+def _with_last_msg_id(queryset, search_query=""):
+    """Annotate conversations with latest (and optional search-match) message IDs."""
+    latest_msg_subq = (
+        Message.objects.filter(conversation=OuterRef("pk"))
+        .order_by("-created_at", "-id")
+        .values("id")[:1]
+    )
+    qs = queryset.annotate(_last_msg_id=Subquery(latest_msg_subq))
+    if search_query:
+        matching_msg_subq = (
+            Message.objects.filter(conversation=OuterRef("pk"), body__icontains=search_query)
+            .order_by("-created_at", "-id")
+            .values("id")[:1]
+        )
+        qs = qs.annotate(_matching_msg_id=Subquery(matching_msg_subq))
+    return qs
+
+
+def _attach_latest_messages(conversations, attr_name="cached_last_msg"):
+    """Bulk-hydrate each conversation's latest (and search-match) message in one query."""
+    msg_ids = []
+    for conv in conversations:
+        last_id = getattr(conv, "_last_msg_id", None)
+        match_id = getattr(conv, "_matching_msg_id", None)
+        if last_id:
+            msg_ids.append(last_id)
+        if match_id:
+            msg_ids.append(match_id)
+
+    msgs_by_id = Message.objects.in_bulk(set(msg_ids)) if msg_ids else {}
+    for conv in conversations:
+        setattr(conv, attr_name, msgs_by_id.get(getattr(conv, "_last_msg_id", None)))
+        if hasattr(conv, "_matching_msg_id"):
+            conv.cached_matching_msg = msgs_by_id.get(getattr(conv, "_matching_msg_id", None))
+    return conversations
+
+
+def get_recent_thread_slice(conversation, limit=INITIAL_CHAT_LIMIT):
+    """Fetch the latest `limit` messages in chronological order plus pagination flags."""
+    if not conversation:
+        return [], False, None
+    rows = list(
+        conversation.messages.select_related("sent_by")
+        .order_by("-created_at", "-id")[: limit + 1]
+    )
+    has_older = len(rows) > limit
+    if has_older:
+        rows = rows[:limit]
+    rows.reverse()
+    oldest_id = rows[0].id if rows else None
+    return rows, has_older, oldest_id
+
+
+def serialize_chat_message(m):
+    """Serialize a Message instance into JSON-ready chat payload fields."""
+    local_dt = timezone.localtime(m.created_at) if timezone.is_aware(m.created_at) else m.created_at
+    return {
+        "id": m.id,
+        "direction": m.direction,
+        "sender_type": m.sender_type,
+        "sent_by": (m.sent_by.get_full_name() or m.sent_by.email) if m.sent_by else "",
+        "is_ai_assisted": bool(m.is_ai_assisted),
+        "body": m.body,
+        "status": m.status,
+        "error_message": m.error_message or "",
+        "created_at": format_chat_timestamp(m.created_at),
+        "date_iso": m.created_at.isoformat(),
+        "date_key": local_dt.strftime("%Y-%m-%d"),
+        "date_label": local_dt.strftime("%b %d, %Y"),
+    }
 
 
 def _setup_steps(org):
@@ -57,21 +140,11 @@ def dashboard(request):
 
     recent_conversations = []
     if org:
-        from django.db.models import Prefetch
-        recent_conversations = list(
-            Conversation.objects.filter(organization=org)
-            .select_related("contact", "phone_number")
-            .prefetch_related(
-                Prefetch(
-                    "messages",
-                    queryset=Message.objects.order_by("-created_at"),
-                    to_attr="recent_messages",
-                )
-            )
-            .order_by("-last_message_at")[:6]
+        recent_qs = _with_last_msg_id(
+            Conversation.objects.filter(organization=org).select_related("contact", "phone_number")
         )
-        for c in recent_conversations:
-            c.last_msg = c.recent_messages[0] if getattr(c, "recent_messages", None) else None
+        recent_conversations = list(recent_qs.order_by("-last_message_at")[:6])
+        _attach_latest_messages(recent_conversations, attr_name="last_msg")
 
     context = {
         "steps": steps,
@@ -85,11 +158,23 @@ def dashboard(request):
     return render(request, "messaging/dashboard.html", context)
 
 
-def _get_inbox_data(org, status_filter="open", q="", user=None, assigned_filter=""):
-    """Helper to fetch conversations, counts, and active phone numbers for the two-pane inbox."""
+INBOX_PAGE_SIZE = 30
+
+
+def _get_inbox_data(
+    org,
+    status_filter="open",
+    q="",
+    user=None,
+    assigned_filter="",
+    offset=0,
+    limit=INBOX_PAGE_SIZE,
+    include_shell_data=True,
+):
+    """Fetch paginated inbox conversations, counts, and optional modal/quick-reply shell data."""
     valid_statuses = [Conversation.Status.OPEN, Conversation.Status.NEEDS_HUMAN, Conversation.Status.CLOSED]
     conversations_qs = Conversation.objects.filter(organization=org).select_related("contact", "phone_number", "assigned_to")
-    
+
     if status_filter in valid_statuses:
         conversations_qs = conversations_qs.filter(status=status_filter)
 
@@ -97,6 +182,10 @@ def _get_inbox_data(org, status_filter="open", q="", user=None, assigned_filter=
         conversations_qs = conversations_qs.filter(assigned_to=user)
     elif assigned_filter == "unassigned":
         conversations_qs = conversations_qs.filter(assigned_to__isnull=True)
+    elif assigned_filter == "replied":
+        conversations_qs = conversations_qs.filter(last_inbound_at__isnull=False)
+    elif assigned_filter == "unread":
+        conversations_qs = conversations_qs.filter(unread_count__gt=0)
 
     if q:
         conversations_qs = conversations_qs.filter(
@@ -106,53 +195,41 @@ def _get_inbox_data(org, status_filter="open", q="", user=None, assigned_filter=
             Q(messages__body__icontains=q)
         ).distinct()
 
-    conversations_qs = conversations_qs.prefetch_related(
-        Prefetch(
-            "messages",
-            queryset=Message.objects.order_by("-created_at"),
-            to_attr="recent_messages",
-        )
-    )
+    safe_offset = max(0, int(offset or 0))
+    safe_limit = max(1, min(int(limit or INBOX_PAGE_SIZE), 100))
 
-    conversations = list(conversations_qs.order_by("-last_message_at"))
-    for conv in conversations:
-        conv.cached_last_msg = conv.recent_messages[0] if getattr(conv, "recent_messages", None) else None
+    conversations_qs = _with_last_msg_id(conversations_qs, search_query=q).order_by("-last_message_at", "-id")
+    rows = list(conversations_qs[safe_offset : safe_offset + safe_limit + 1])
+    has_more = len(rows) > safe_limit
+    conversations = rows[:safe_limit]
+    _attach_latest_messages(conversations, attr_name="cached_last_msg")
 
-        # Search match identification (Issue #5)
-        if q:
+    # Search match identification (Issue #5)
+    if q:
+        q_lower = q.lower()
+        for conv in conversations:
             contact_text = f"{conv.contact.first_name} {conv.contact.last_name} {conv.contact.phone}".lower()
-            if q.lower() in contact_text:
+            if q_lower in contact_text:
                 conv.search_match_type = "contact"
                 conv.search_match_snippet = ""
-            else:
-                matching_msg = None
-                for m in getattr(conv, "recent_messages", []):
-                    if q.lower() in (m.body or "").lower():
-                        matching_msg = m
-                        break
-                if not matching_msg:
-                    matching_msg = Message.objects.filter(conversation=conv, body__icontains=q).order_by("-created_at").first()
-                if matching_msg:
-                    conv.search_match_type = "message"
-                    conv.search_match_snippet = matching_msg.body
+            elif getattr(conv, "cached_matching_msg", None):
+                conv.search_match_type = "message"
+                conv.search_match_snippet = conv.cached_matching_msg.body
 
-    # Group counts in 1 single SQL query instead of 3
-    status_counts_map = dict(
-        Conversation.objects.filter(organization=org)
-        .values("status")
-        .annotate(c=Count("id"))
-        .values_list("status", "c")
-    )
-    counts = {
-        "open": status_counts_map.get(Conversation.Status.OPEN, 0),
-        "needs_human": status_counts_map.get(Conversation.Status.NEEDS_HUMAN, 0),
-        "closed": status_counts_map.get(Conversation.Status.CLOSED, 0),
+    result = {
+        "conversations": conversations,
+        "has_more_conversations": has_more,
+        "next_conv_offset": safe_offset + len(conversations),
     }
+    if not include_shell_data:
+        return result
+
+    counts = get_org_status_counts(org)
     active_phone_numbers = list(
         PhoneNumber.objects.filter(organization=org, is_active=True).order_by("-is_default", "label", "e164")
     )
-    has_active_number = len(active_phone_numbers) > 0
-    all_contacts = list(Contact.objects.filter(organization=org).order_by("first_name", "last_name", "phone")[:100])
+    total_contacts_count = Contact.objects.filter(organization=org).count()
+    all_contacts = list(Contact.objects.filter(organization=org).order_by("first_name", "last_name", "phone")[:50])
 
     ensure_default_campaign_templates(org)
     quick_replies_qs = CampaignTemplate.objects.filter(
@@ -167,16 +244,23 @@ def _get_inbox_data(org, status_filter="open", q="", user=None, assigned_filter=
         }
         for qr in quick_replies_qs
     ]
-    quick_replies_json = json.dumps(quick_replies_data)
 
-    return conversations, counts, has_active_number, all_contacts, active_phone_numbers, quick_replies_json
+    result.update({
+        "counts": counts,
+        "has_active_number": len(active_phone_numbers) > 0,
+        "all_contacts": all_contacts,
+        "total_contacts_count": total_contacts_count,
+        "active_phone_numbers": active_phone_numbers,
+        "quick_replies_json": json.dumps(quick_replies_data),
+    })
+    return result
 
 
 @login_required
 def inbox(request):
     """
     Inbox view (two-pane WhatsApp style layout):
-    Left pane lists all conversations, right pane shows selected chat or placeholder.
+    Left pane lists paginated conversations, right pane shows selected chat or placeholder.
     """
     org = request.user.organization
     if not org:
@@ -185,22 +269,17 @@ def inbox(request):
     status_filter = request.GET.get("status", "open").strip().lower()
     assigned_filter = request.GET.get("assigned", "").strip().lower()
     q = request.GET.get("q", "").strip()
-    conversations, counts, has_active_number, all_contacts, active_phone_numbers, quick_replies_json = _get_inbox_data(
+    inbox_data = _get_inbox_data(
         org, status_filter, q, user=request.user, assigned_filter=assigned_filter
     )
 
     context = {
-        "conversations": conversations,
+        **inbox_data,
         "conversation": None,
         "chat_messages": [],
         "status_filter": status_filter,
         "assigned_filter": assigned_filter,
         "q": q,
-        "counts": counts,
-        "has_active_number": has_active_number,
-        "active_phone_numbers": active_phone_numbers,
-        "all_contacts": all_contacts,
-        "quick_replies_json": quick_replies_json,
         "is_debug": getattr(settings, "DEBUG", False),
     }
     return render(request, "messaging/inbox.html", context)
@@ -209,9 +288,9 @@ def inbox(request):
 @login_required
 def inbox_search(request):
     """
-    Live asynchronous search endpoint:
+    Live asynchronous search and pagination endpoint:
     Searches contact names, phones, and full historical message content across the organization.
-    Returns rendered HTML conversation item rows for instant replacement in the left pane.
+    Returns rendered HTML conversation item rows for instant replacement or appending in the left pane.
     """
     org = request.user.organization
     if not org:
@@ -220,9 +299,19 @@ def inbox_search(request):
     status_filter = request.GET.get("status", "open").strip().lower()
     assigned_filter = request.GET.get("assigned", "").strip().lower()
     q = request.GET.get("q", "").strip()
+    try:
+        offset = max(0, int(request.GET.get("offset", 0)))
+    except ValueError:
+        offset = 0
 
-    conversations, _, _, _, _, _ = _get_inbox_data(
-        org, status_filter=status_filter, q=q, user=request.user, assigned_filter=assigned_filter
+    inbox_data = _get_inbox_data(
+        org,
+        status_filter=status_filter,
+        q=q,
+        user=request.user,
+        assigned_filter=assigned_filter,
+        offset=offset,
+        include_shell_data=False,
     )
 
     active_id = request.GET.get("active_id")
@@ -234,7 +323,7 @@ def inbox_search(request):
             pass
 
     context = {
-        "conversations": conversations,
+        **inbox_data,
         "conversation": active_conv,
         "status_filter": status_filter,
         "assigned_filter": assigned_filter,
@@ -242,6 +331,48 @@ def inbox_search(request):
         "request": request,
     }
     return render(request, "messaging/inbox_conversation_items.html", context)
+
+
+def _get_org_unread_total(org):
+    """Return total unread messages across open and needs_human conversations for an org."""
+    return (
+        Conversation.objects.filter(
+            organization=org,
+            status__in=[Conversation.Status.OPEN, Conversation.Status.NEEDS_HUMAN],
+        ).aggregate(total=Sum("unread_count"))["total"]
+        or 0
+    )
+
+
+def _mark_conversation_read(conversation, org, force_broadcast=False):
+    """Reset a conversation's unread_count to 0 and broadcast the updated org total."""
+    had_unread = conversation.unread_count > 0
+    if had_unread:
+        Conversation.objects.filter(id=conversation.id, unread_count__gt=0).update(unread_count=0)
+        conversation.unread_count = 0
+
+    total_unread = _get_org_unread_total(org)
+    if had_unread or force_broadcast:
+        try:
+            from .ws_broadcast import broadcast_inbox_event
+            last_msg = conversation.messages.order_by("-created_at", "-id").first()
+            broadcast_inbox_event(
+                org.id,
+                {
+                    "event": "inbox_update",
+                    "conversation": {
+                        "id": conversation.id,
+                        "last_body": last_msg.body if last_msg else "",
+                        "direction": last_msg.direction if last_msg else "",
+                        "last_message_at_display": _timesince_short(conversation.last_message_at),
+                        "unread_count": 0,
+                    },
+                    "nav_unread_count": total_unread,
+                },
+            )
+        except Exception:
+            pass
+    return total_unread
 
 
 @login_required
@@ -262,27 +393,7 @@ def conversation_detail(request, conversation_id):
     )
 
     # Mark conversation as read on open
-    if conversation.unread_count > 0:
-        conversation.unread_count = 0
-        conversation.save(update_fields=["unread_count"])
-        try:
-            from .ws_broadcast import broadcast_inbox_event
-            last_msg = conversation.messages.order_by("-created_at").first()
-            broadcast_inbox_event(
-                org.id,
-                {
-                    "event": "inbox_update",
-                    "conversation": {
-                        "id": conversation.id,
-                        "last_body": last_msg.body if last_msg else "",
-                        "direction": last_msg.direction if last_msg else "",
-                        "last_message_at_display": _timesince_short(conversation.last_message_at),
-                        "unread_count": 0,
-                    },
-                },
-            )
-        except Exception:
-            pass
+    total_unread = _mark_conversation_read(conversation, org)
 
     status_filter = request.GET.get("status", "").strip().lower()
     assigned_filter = request.GET.get("assigned", "").strip().lower()
@@ -291,20 +402,22 @@ def conversation_detail(request, conversation_id):
 
     is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.GET.get("ajax") == "1"
 
-    messages_qs = conversation.messages.select_related("sent_by").order_by("created_at")
-    message_list = list(messages_qs)
+    message_list, has_older_messages, oldest_msg_id = get_recent_thread_slice(conversation)
     can_send, block_reason = can_send_manual(conversation.contact, conversation)
     org_members = list(User.objects.filter(organization=org).order_by("first_name", "email"))
 
     context = {
         "conversation": conversation,
         "chat_messages": message_list,
+        "has_older_messages": has_older_messages,
+        "oldest_msg_id": oldest_msg_id or 0,
         "can_send": can_send,
         "block_reason": block_reason,
         "status_filter": status_filter or conversation.status,
         "assigned_filter": assigned_filter,
         "q": q,
         "org_members": org_members,
+        "nav_unread_count": total_unread,
         "is_debug": getattr(settings, "DEBUG", False),
     }
 
@@ -332,18 +445,10 @@ def conversation_detail(request, conversation_id):
     if status_filter not in valid_statuses:
         status_filter = conversation.status
 
-    conversations, counts, has_active_number, all_contacts, active_phone_numbers, quick_replies_json = _get_inbox_data(
+    inbox_data = _get_inbox_data(
         org, status_filter, q, user=request.user, assigned_filter=assigned_filter
     )
-
-    context.update({
-        "conversations": conversations,
-        "counts": counts,
-        "has_active_number": has_active_number,
-        "active_phone_numbers": active_phone_numbers,
-        "all_contacts": all_contacts,
-        "quick_replies_json": quick_replies_json,
-    })
+    context.update(inbox_data)
     return render(request, "messaging/inbox.html", context)
 
 
@@ -394,7 +499,7 @@ def send_conversation_message(request, conversation_id):
                 "status": "success",
                 "message_id": msg.id,
                 "delivery_status": msg.status,
-                "sent_at": msg.created_at.strftime("%I:%M %p"),
+                "sent_at": format_chat_timestamp(msg.created_at),
                 "body": msg.body,
                 "ai_mode": conversation.ai_mode,
                 "ai_mode_changed": ai_mode_changed,
@@ -418,8 +523,8 @@ def send_conversation_message(request, conversation_id):
 @login_required
 def poll_messages(request, conversation_id):
     """
-    Polling endpoint for fetching new messages in a conversation.
-    Returns JSON list of messages created after `after_id`.
+    Polling and history pagination endpoint for a conversation.
+    Supports `?before_id=<id>&limit=60` (older messages) and `?after_id=<id>` (new messages).
     """
     org = request.user.organization
     if not org:
@@ -427,29 +532,228 @@ def poll_messages(request, conversation_id):
 
     conversation = get_object_or_404(Conversation, id=conversation_id, organization=org)
 
+    before_id_raw = request.GET.get("before_id")
+    if before_id_raw is not None:
+        try:
+            before_id = int(before_id_raw)
+        except ValueError:
+            before_id = 0
+
+        try:
+            limit = int(request.GET.get("limit", 60))
+        except ValueError:
+            limit = 60
+        limit = max(10, min(limit, 100))
+
+        anchor = conversation.messages.filter(id=before_id).values("created_at", "id").first()
+        if anchor:
+            older_qs = conversation.messages.filter(
+                Q(created_at__lt=anchor["created_at"])
+                | Q(created_at=anchor["created_at"], id__lt=anchor["id"])
+            )
+        elif before_id > 0:
+            older_qs = conversation.messages.filter(id__lt=before_id)
+        else:
+            older_qs = conversation.messages.none()
+
+        rows = list(older_qs.select_related("sent_by").order_by("-created_at", "-id")[: limit + 1])
+        has_more = len(rows) > limit
+        if has_more:
+            rows = rows[:limit]
+        rows.reverse()
+
+        oldest_id = rows[0].id if rows else None
+        return JsonResponse(
+            {
+                "messages": [serialize_chat_message(m) for m in rows],
+                "has_more": has_more,
+                "oldest_id": oldest_id,
+            }
+        )
+
     after_id = request.GET.get("after_id", 0)
     try:
         after_id = int(after_id)
     except ValueError:
         after_id = 0
 
-    new_messages = conversation.messages.filter(id__gt=after_id).select_related("sent_by").order_by("created_at")
+    new_messages = (
+        conversation.messages.filter(id__gt=after_id)
+        .select_related("sent_by")
+        .order_by("created_at", "id")
+    )
 
-    data = [
+    return JsonResponse({"messages": [serialize_chat_message(m) for m in new_messages]})
+
+
+@login_required
+@require_POST
+def mark_conversation_read(request, conversation_id):
+    """Mark an open conversation as read and broadcast the updated unread total."""
+    org = request.user.organization
+    if not org:
+        raise PermissionDenied("User is not associated with an organization.")
+
+    conversation = get_object_or_404(Conversation, id=conversation_id, organization=org)
+    total_unread = _mark_conversation_read(conversation, org)
+    return JsonResponse({
+        "status": "success",
+        "unread_count": 0,
+        "nav_unread_count": total_unread,
+    })
+
+
+@login_required
+@require_POST
+def mark_conversation_unread(request, conversation_id):
+    """Explicitly mark a conversation as unread for follow-up triage and broadcast updated count."""
+    org = request.user.organization
+    if not org:
+        raise PermissionDenied("User is not associated with an organization.")
+
+    conversation = get_object_or_404(Conversation, id=conversation_id, organization=org)
+    if conversation.unread_count == 0:
+        conversation.unread_count = 1
+        conversation.save(update_fields=["unread_count"])
+
+    total_unread = _get_org_unread_total(org)
+    try:
+        from .ws_broadcast import broadcast_inbox_event
+        last_msg = conversation.messages.order_by("-created_at", "-id").first()
+        broadcast_inbox_event(
+            org.id,
+            {
+                "event": "inbox_update",
+                "conversation": {
+                    "id": conversation.id,
+                    "last_body": last_msg.body if last_msg else "",
+                    "direction": last_msg.direction if last_msg else "",
+                    "last_message_at_display": _timesince_short(conversation.last_message_at),
+                    "unread_count": conversation.unread_count,
+                },
+                "nav_unread_count": total_unread,
+            },
+        )
+    except Exception:
+        pass
+
+    return JsonResponse({
+        "status": "success",
+        "unread_count": conversation.unread_count,
+        "nav_unread_count": total_unread,
+    })
+
+
+@login_required
+def search_inbox_contacts(request):
+    """Org-scoped live contact search for the + New Chat modal."""
+    org = request.user.organization
+    if not org:
+        return JsonResponse({"contacts": [], "total_count": 0})
+
+    q = request.GET.get("q", "").strip()
+    qs = Contact.objects.filter(organization=org)
+    if q:
+        qs = qs.filter(
+            Q(first_name__icontains=q)
+            | Q(last_name__icontains=q)
+            | Q(phone__icontains=q)
+            | Q(email__icontains=q)
+        )
+    contacts_list = qs.order_by("first_name", "last_name", "phone")[:30]
+
+    data = []
+    for c in contacts_list:
+        full_name = f"{c.first_name} {c.last_name}".strip()
+        initials = (
+            (c.first_name[:1] or c.last_name[:1]).upper()
+            if (c.first_name or c.last_name)
+            else "#FF"
+        )
+        data.append({
+            "id": c.id,
+            "name": full_name or c.phone,
+            "phone": c.phone,
+            "initials": initials,
+            "sms_status": c.sms_status,
+        })
+
+    return JsonResponse({
+        "contacts": data,
+        "total_count": Contact.objects.filter(organization=org).count(),
+    })
+
+
+@login_required
+def global_quick_search(request):
+    """Org-scoped quick-jump search across contacts, conversations, and campaigns."""
+    org = request.user.organization
+    q = request.GET.get("q", "").strip()
+    if not org or not q:
+        return JsonResponse({"contacts": [], "conversations": [], "campaigns": []})
+
+    contacts_qs = (
+        Contact.objects.filter(organization=org)
+        .filter(
+            Q(first_name__icontains=q)
+            | Q(last_name__icontains=q)
+            | Q(phone__icontains=q)
+            | Q(email__icontains=q)
+        )
+        .order_by("first_name", "last_name", "id")[:5]
+    )
+    contacts_data = [
         {
-            "id": m.id,
-            "direction": m.direction,
-            "sender_type": m.sender_type,
-            "sent_by": m.sent_by.get_full_name() or m.sent_by.email if m.sent_by else "",
-            "body": m.body,
-            "status": m.status,
-            "created_at": m.created_at.strftime("%I:%M %p"),
-            "date_iso": m.created_at.isoformat(),
+            "id": c.id,
+            "title": (f"{c.first_name} {c.last_name}".strip() or c.phone),
+            "subtitle": c.phone,
+            "badge": c.get_sms_status_display(),
+            "url": reverse("contacts:detail", kwargs={"contact_id": c.id}),
         }
-        for m in new_messages
+        for c in contacts_qs
     ]
 
-    return JsonResponse({"messages": data})
+    convs_qs = (
+        Conversation.objects.filter(organization=org)
+        .select_related("contact")
+        .filter(
+            Q(contact__first_name__icontains=q)
+            | Q(contact__last_name__icontains=q)
+            | Q(contact__phone__icontains=q)
+        )
+        .order_by("-last_message_at", "-id")[:5]
+    )
+    convs_data = [
+        {
+            "id": conv.id,
+            "title": (f"{conv.contact.first_name} {conv.contact.last_name}".strip() or conv.contact.phone),
+            "subtitle": f"{conv.contact.phone} · {conv.get_status_display()}",
+            "badge": conv.get_status_display(),
+            "url": reverse("messaging:conversation_detail", kwargs={"conversation_id": conv.id}),
+        }
+        for conv in convs_qs
+    ]
+
+    campaigns_qs = (
+        Campaign.objects.filter(organization=org, name__icontains=q)
+        .order_by("-created_at", "-id")[:5]
+    )
+    campaigns_data = [
+        {
+            "id": camp.id,
+            "title": camp.name,
+            "subtitle": f"{camp.get_status_display()} · {camp.total_recipients} recipients",
+            "badge": camp.get_status_display(),
+            "url": reverse("campaigns:detail", kwargs={"campaign_id": camp.id}),
+        }
+        for camp in campaigns_qs
+    ]
+
+    return JsonResponse({
+        "contacts": contacts_data,
+        "conversations": convs_data,
+        "campaigns": campaigns_data,
+    })
 
 
 @login_required
@@ -499,10 +803,39 @@ def update_conversation_status(request, conversation_id):
     if new_status in [Conversation.Status.OPEN, Conversation.Status.NEEDS_HUMAN, Conversation.Status.CLOSED]:
         conversation.status = new_status
         conversation.save(update_fields=["status"])
-        messages.success(request, f"Conversation marked as {conversation.get_status_display()}.")
+        counts = get_org_status_counts(org)
 
-    if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.content_type == "application/json":
-        return JsonResponse({"status": "success", "new_status": conversation.status})
+        try:
+            from messaging.ws_broadcast import broadcast_chat_event, broadcast_inbox_event
+            broadcast_chat_event(
+                conversation.id,
+                {
+                    "event": "status_change",
+                    "conversation_id": conversation.id,
+                    "status": new_status,
+                    "counts": counts,
+                },
+            )
+            broadcast_inbox_event(
+                org.id,
+                {
+                    "event": "inbox_update",
+                    "conversation": {
+                        "id": conversation.id,
+                        "status": new_status,
+                    },
+                    "counts": counts,
+                },
+            )
+        except Exception as exc:
+            logger.warning("Failed to broadcast conversation status update: %s", exc)
+
+        if _is_ajax_request(request):
+            return JsonResponse({"status": "success", "new_status": conversation.status, "counts": counts})
+
+        messages.success(request, f"Conversation marked as {conversation.get_status_display()}.")
+    elif _is_ajax_request(request):
+        return JsonResponse({"status": "success", "new_status": conversation.status, "counts": get_org_status_counts(org)})
 
     return redirect("messaging:conversation_detail", conversation_id=conversation.id)
 
@@ -614,17 +947,8 @@ def ai_assistant_ping(request):
     return JsonResponse({"status": "offline", "base_url": base_url, "model": model})
 
 
-@login_required
-def ai_assistant_settings(request):
-    """
-    Per-organization AI Assistant settings page.
-    Allows configuring AI mode, business knowledge, tone, negative rules,
-    and interactive qualification questions.
-    """
-    org = request.user.organization
-    if not org:
-        raise PermissionDenied("User is not associated with an organization.")
-
+def _get_or_create_ai_config(org):
+    """Fetch or provision default AIAssistantConfig for an organization."""
     from .models import AIAssistantConfig
 
     config, _ = AIAssistantConfig.objects.get_or_create(
@@ -645,53 +969,87 @@ def ai_assistant_settings(request):
             "max_ai_replies_per_hour_per_contact": 6,
         },
     )
+    return config
 
-    if request.method == "POST":
-        mode = request.POST.get("mode", AIAssistantConfig.Mode.OFF).strip()
+
+def _apply_ai_config_form_data(config, data, strict_questions=False):
+    """Apply submitted AI settings form fields onto an AIAssistantConfig instance (without saving)."""
+    from .models import AIAssistantConfig
+
+    if "mode" in data:
+        mode = data.get("mode", AIAssistantConfig.Mode.OFF).strip()
         if mode in AIAssistantConfig.Mode.values:
             config.mode = mode
 
-        config.business_name = request.POST.get("business_name", "").strip()
-        config.business_description = request.POST.get("business_description", "").strip()
-        config.knowledge = request.POST.get("knowledge", "").strip()
-        config.tone = request.POST.get("tone", "").strip()
-        config.never_say = request.POST.get("never_say", "").strip()
-        config.handoff_rules = request.POST.get("handoff_rules", "").strip()
+    if "business_name" in data:
+        config.business_name = data.get("business_name", "").strip()
+    if "business_description" in data:
+        config.business_description = data.get("business_description", "").strip()
+    if "knowledge" in data:
+        config.knowledge = data.get("knowledge", "").strip()
+    if "tone" in data:
+        config.tone = data.get("tone", "").strip()
+    if "never_say" in data:
+        config.never_say = data.get("never_say", "").strip()
+    if "handoff_rules" in data:
+        config.handoff_rules = data.get("handoff_rules", "").strip()
 
+    if "max_reply_chars" in data:
         try:
-            config.max_reply_chars = max(50, min(1600, int(request.POST.get("max_reply_chars", 160))))
+            config.max_reply_chars = max(50, min(1600, int(data.get("max_reply_chars", 160))))
         except (ValueError, TypeError):
             config.max_reply_chars = 160
 
+    if "max_ai_replies_per_hour_per_contact" in data:
         try:
-            config.max_ai_replies_per_hour_per_contact = max(1, min(60, int(request.POST.get("max_ai_replies_per_hour_per_contact", 6))))
+            config.max_ai_replies_per_hour_per_contact = max(
+                1, min(60, int(data.get("max_ai_replies_per_hour_per_contact", 6)))
+            )
         except (ValueError, TypeError):
             config.max_ai_replies_per_hour_per_contact = 6
 
-        # Parse questions list from JSON
-        raw_questions = request.POST.get("qualification_questions_json", "").strip()
-        if raw_questions:
-            try:
-                import json
-                parsed_q = json.loads(raw_questions)
-                if isinstance(parsed_q, list):
-                    clean_q = []
-                    for item in parsed_q:
-                        if isinstance(item, dict) and item.get("key") and item.get("question"):
-                            clean_q.append({
-                                "key": str(item["key"]).strip().lower().replace(" ", "_"),
-                                "question": str(item["question"]).strip(),
-                                "required": bool(item.get("required", False)),
-                            })
-                    config.qualification_questions = clean_q
-            except Exception as exc:
-                messages.error(request, f"Could not parse qualification questions: {exc}")
+    raw_questions = data.get("qualification_questions_json", "").strip()
+    if raw_questions:
+        try:
+            parsed_q = json.loads(raw_questions)
+            if isinstance(parsed_q, list):
+                clean_q = []
+                for item in parsed_q:
+                    if isinstance(item, dict) and item.get("key") and item.get("question"):
+                        clean_q.append({
+                            "key": str(item["key"]).strip().lower().replace(" ", "_"),
+                            "question": str(item["question"]).strip(),
+                            "required": bool(item.get("required", False)),
+                        })
+                config.qualification_questions = clean_q
+        except Exception:
+            if strict_questions:
+                raise
+
+
+@login_required
+def ai_assistant_settings(request):
+    """
+    Per-organization AI Assistant settings page.
+    Allows configuring AI mode, business knowledge, tone, negative rules,
+    and interactive qualification questions.
+    """
+    org = request.user.organization
+    if not org:
+        raise PermissionDenied("User is not associated with an organization.")
+
+    config = _get_or_create_ai_config(org)
+
+    if request.method == "POST":
+        try:
+            _apply_ai_config_form_data(config, request.POST, strict_questions=True)
+        except Exception as exc:
+            messages.error(request, f"Could not parse qualification questions: {exc}")
 
         config.save()
         messages.success(request, "AI Assistant settings saved successfully.")
         return redirect("messaging:ai_assistant_settings")
 
-    import json
     questions_json_str = json.dumps(config.qualification_questions or [], indent=2)
 
     context = {
@@ -699,6 +1057,41 @@ def ai_assistant_settings(request):
         "questions_json": questions_json_str,
     }
     return render(request, "messaging/ai_assistant_settings.html", context)
+
+
+@login_required
+@require_POST
+def ai_assistant_sandbox_test(request):
+    """Simulate an inbound customer SMS against the current (or unsaved form) AI Assistant settings."""
+    org = request.user.organization
+    if not org:
+        raise PermissionDenied("User is not associated with an organization.")
+
+    test_message = request.POST.get("test_message", "").strip()
+    if not test_message:
+        return JsonResponse({"status": "error", "error": "Please enter a sample customer message."}, status=400)
+
+    from .models import AIAssistantConfig
+    from .ai.pipeline import simulate_ai_reply
+
+    saved_config = _get_or_create_ai_config(org)
+    temp_config = AIAssistantConfig(
+        organization=org,
+        mode=saved_config.mode,
+        business_name=saved_config.business_name,
+        business_description=saved_config.business_description,
+        knowledge=saved_config.knowledge,
+        tone=saved_config.tone,
+        never_say=saved_config.never_say,
+        handoff_rules=saved_config.handoff_rules,
+        max_reply_chars=saved_config.max_reply_chars,
+        max_ai_replies_per_hour_per_contact=saved_config.max_ai_replies_per_hour_per_contact,
+        qualification_questions=list(saved_config.qualification_questions or []),
+    )
+    _apply_ai_config_form_data(temp_config, request.POST, strict_questions=False)
+
+    result = simulate_ai_reply(temp_config, test_message)
+    return JsonResponse(result)
 
 
 @login_required
@@ -737,7 +1130,7 @@ def handle_ai_draft_action(request, conversation_id):
                     "status": "success",
                     "message_id": msg.id,
                     "body": msg.body,
-                    "sent_at": msg.created_at.strftime("%I:%M %p"),
+                    "sent_at": format_chat_timestamp(msg.created_at),
                 })
 
             messages.success(request, "AI draft sent.")
@@ -776,7 +1169,7 @@ def resume_ai_conversation(request, conversation_id):
     conversation.save(update_fields=["status", "handoff_reason"])
 
     # Log system note
-    Message.objects.create(
+    sys_msg = Message.objects.create(
         conversation=conversation,
         organization=org,
         direction=Message.Direction.OUTBOUND,
@@ -785,8 +1178,46 @@ def resume_ai_conversation(request, conversation_id):
         status=Message.Status.DELIVERED,
     )
 
+    counts = get_org_status_counts(org)
+
+    try:
+        from messaging.ws_broadcast import broadcast_chat_event, broadcast_inbox_event
+        broadcast_chat_event(
+            conversation.id,
+            {
+                "event": "status_change",
+                "conversation_id": conversation.id,
+                "status": "open",
+                "counts": counts,
+                "message": {
+                    "id": sys_msg.id,
+                    "body": sys_msg.body,
+                    "direction": sys_msg.direction,
+                    "sender_type": sys_msg.sender_type,
+                    "created_at": format_chat_timestamp(sys_msg.created_at),
+                    "status": sys_msg.status,
+                },
+            },
+        )
+        broadcast_inbox_event(
+            org.id,
+            {
+                "event": "inbox_update",
+                "conversation": {
+                    "id": conversation.id,
+                    "status": "open",
+                    "last_body": sys_msg.body,
+                    "direction": sys_msg.direction,
+                    "last_message_at_display": "just now",
+                },
+                "counts": counts,
+            },
+        )
+    except Exception as exc:
+        logger.warning("Failed to broadcast resume AI status change: %s", exc)
+
     if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.content_type == "application/json":
-        return JsonResponse({"status": "success"})
+        return JsonResponse({"status": "success", "new_status": conversation.status, "counts": counts})
 
     messages.success(request, "Conversation marked Open and resumed with AI Assistant.")
     return redirect("messaging:conversation_detail", conversation_id=conversation.id)
@@ -822,6 +1253,15 @@ def update_conversation_ai_mode(request, conversation_id):
                 body=f"Human agent {request.user.first_name or request.user.email} took over. AI paused for this chat.",
                 status=Message.Status.DELIVERED,
             )
+
+        if _is_ajax_request(request):
+            return JsonResponse({
+                "status": "success",
+                "ai_mode": conversation.ai_mode,
+                "label": label,
+            })
+
+        if new_mode == Conversation.AIMode.OFF:
             messages.info(request, "AI Assistant turned off for this chat. You have taken over.")
         elif new_mode == Conversation.AIMode.SUGGEST:
             messages.info(request, "Switched to Suggest Mode (Gemma will draft replies for your approval).")
@@ -829,13 +1269,6 @@ def update_conversation_ai_mode(request, conversation_id):
             messages.success(request, "Switched to Auto Mode (AI will reply automatically).")
         else:
             messages.success(request, "AI mode set to Business Default.")
-
-        if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.content_type == "application/json":
-            return JsonResponse({
-                "status": "success",
-                "ai_mode": conversation.ai_mode,
-                "label": label,
-            })
 
     return redirect("messaging:conversation_detail", conversation_id=conversation.id)
 

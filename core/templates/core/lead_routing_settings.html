@@ -1,9 +1,14 @@
 {% extends "messaging/base_app.html" %}
 
 {% block title %}Lead Routing & Distribution · SparkText{% endblock %}
-
-{% block page_title %}Settings{% endblock %}
-{% block page_subtitle %}Organization configuration and sales lead distribution{% endblock %}
+{% block global_breadcrumb %}
+<a href="{% url 'company_profile' %}" class="font-medium text-gray-500 hover:text-gray-900 transition">Settings</a>
+<span class="text-gray-300">/</span>
+<span class="font-semibold text-gray-800 truncate">Lead Routing</span>
+{% endblock %}
+{% block page_header_class %}max-w-5xl w-full mx-auto{% endblock %}
+{% block header_title %}Settings{% endblock %}
+{% block header_subtitle %}Organization configuration and sales lead distribution{% endblock %}
 
 {% block content %}
 <div class="max-w-5xl mx-auto space-y-6 pb-12">
@@ -165,31 +170,11 @@
           </div>
         </div>
 
-        <div class="border-t border-gray-100 pt-4">
-          <!-- Availability Toggle Requirement -->
-          <label class="flex items-start gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              name="route_only_available"
-              value="1"
-              class="mt-1 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
-              {% if org.route_only_available %}checked{% endif %}
-              {% if not is_admin %}disabled{% endif %}
-            >
-            <div>
-              <span class="text-xs font-bold text-gray-900 block">Respect "Available for Leads" Status</span>
-              <p class="text-[11px] text-gray-500">
-                Only route to team members currently toggled <strong>🟢 Available</strong>. Agents who are on lunch break, in client meetings, or offline (<strong>☕ Away</strong>) are automatically bypassed.
-              </p>
-            </div>
-          </label>
-        </div>
-
         <!-- Safe Fallback Callout -->
         <div class="p-3.5 rounded-xl bg-amber-50/70 border border-amber-200 text-amber-900 text-xs flex items-start gap-2.5">
           <span class="text-base flex-shrink-0">💡</span>
           <p class="leading-relaxed">
-            <strong>Safe Fallback Protection:</strong> If all sales reps reach their maximum cap or are marked Away, incoming qualified leads are safely held in the unassigned <strong>Needs Human</strong> queue so no customer is ever neglected or dropped.
+            <strong>Availability &amp; Safe Fallback Protection:</strong> Leads are strictly routed only to team members toggled <strong>🟢 Available</strong>. If all sales reps are marked Away or reach their maximum capacity, incoming qualified leads are safely held in the unassigned <strong>Needs Human</strong> queue so no customer is ever neglected or dropped.
           </p>
         </div>
       </div>
@@ -317,10 +302,10 @@
       if (data.status === "success") {
         window.location.reload();
       } else {
-        alert(data.message || "Failed to update availability.");
+        window.showAppToast(data.message || "Failed to update availability.", "error");
       }
     } catch (e) {
-      alert("Error: " + e.message);
+      window.showAppToast("Error: " + e.message, "error");
     }
   }
 </script>

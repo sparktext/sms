@@ -1,21 +1,48 @@
 {% extends "messaging/base_app.html" %}
 
-{% block title %}Create Campaign - SparkText{% endblock %}
+{% block title %}{% if is_edit %}Edit Campaign: {{ campaign.name }}{% else %}Create Campaign{% endif %} - SparkText{% endblock %}
+{% block global_breadcrumb %}
+<a href="{% url 'campaigns:list' %}" class="font-medium text-gray-500 hover:text-gray-900 transition">Campaigns</a>
+<span class="text-gray-300">/</span>
+<span class="font-semibold text-gray-800 truncate">{% if is_edit %}{{ campaign.name }}{% else %}New Campaign{% endif %}</span>
+{% endblock %}
+{% block page_header_class %}max-w-4xl{% endblock %}
 
-{% block header_title %}Create SMS Campaign{% endblock %}
-{% block header_subtitle %}Target subscriber lists with personalized, TCPA-compliant broadcasts{% endblock %}
-
-{% block header_actions %}
+{% block header_back %}
 <a
-  href="{% url 'campaigns:list' %}"
-  class="px-3.5 py-2 text-xs font-semibold text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 rounded-xl transition shadow-2xs cursor-pointer"
+  href="{% if is_edit %}{% url 'campaigns:detail' campaign.id %}{% else %}{% url 'campaigns:list' %}{% endif %}"
+  title="Back"
+  aria-label="Back"
+  class="inline-flex items-center justify-center w-9 h-9 rounded-xl border border-gray-200 bg-white text-gray-500 hover:text-gray-900 hover:bg-gray-50 hover:border-gray-300 transition shadow-2xs shrink-0"
 >
-  ← Cancel & Back
+  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+  </svg>
 </a>
 {% endblock %}
 
+{% block header_title %}{% if is_edit %}Edit Campaign: {{ campaign.name }}{% else %}Create SMS Campaign{% endif %}{% endblock %}
+{% block header_subtitle %}{% if is_edit %}Update targeting, message copy, AI playbook, or dispatch timing{% else %}Target subscriber lists with personalized, TCPA-compliant broadcasts{% endif %}{% endblock %}
+
+{% block header_actions %}
+<div class="flex items-center gap-2">
+  <button
+    type="submit"
+    form="campaign-form"
+    name="save_draft"
+    value="1"
+    formnovalidate
+    class="px-3.5 py-2 text-xs font-semibold text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 rounded-xl transition shadow-2xs cursor-pointer flex items-center gap-1.5"
+    title="Save campaign progress as a draft without broadcasting"
+  >
+    <span>💾</span>
+    <span>Save Draft</span>
+  </button>
+</div>
+{% endblock %}
+
 {% block content %}
-<form id="campaign-form" method="post" action="{% url 'campaigns:create' %}" class="max-w-4xl space-y-6">
+<form id="campaign-form" method="post" action="{% if is_edit %}{% url 'campaigns:edit' campaign.id %}{% else %}{% url 'campaigns:create' %}{% endif %}" class="max-w-4xl space-y-6">
   {% csrf_token %}
 
   <!-- CARD 1: Basic Campaign Info -->
@@ -38,6 +65,7 @@
           id="campaign-name"
           name="name"
           required
+          value="{% if campaign %}{{ campaign.name }}{% endif %}"
           placeholder="e.g. Q4 Auto Policy Review & Discounts"
           class="w-full px-3.5 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900"
         />
@@ -54,7 +82,7 @@
           class="w-full px-3 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900 bg-white"
         >
           {% for p in phone_numbers %}
-          <option value="{{ p.id }}" {% if p.is_default %}selected{% endif %}>{{ p.e164 }}{% if p.label %} ({{ p.label }}){% endif %}{% if p.is_default %} ★ Default Primary{% endif %}</option>
+          <option value="{{ p.id }}" {% if campaign and campaign.phone_number_id == p.id %}selected{% elif not campaign and p.is_default %}selected{% endif %}>{{ p.e164 }}{% if p.label %} ({{ p.label }}){% endif %}{% if p.is_default %} ★ Default Primary{% endif %}</option>
           {% endfor %}
         </select>
       </div>
@@ -93,6 +121,7 @@
             type="checkbox"
             name="lists"
             value="{{ lst.id }}"
+            {% if campaign and lst.id in campaign_list_ids %}checked{% endif %}
             onchange="recalculateAudience()"
             class="rounded border-gray-300 text-brand-600 focus:ring-brand-500 cursor-pointer"
           />
@@ -124,9 +153,9 @@
           onchange="recalculateAudience()"
           class="w-full px-3 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900 bg-white"
         >
-          <option value="__all__">All Stages (No stage filter)</option>
+          <option value="__all__" {% if not campaign or not campaign.filter_criteria.stage %}selected{% endif %}>All Stages (No stage filter)</option>
           {% for st in stage_options %}
-          <option value="{{ st }}">{{ st }}</option>
+          <option value="{{ st }}" {% if campaign and campaign.filter_criteria.stage == st %}selected{% endif %}>{{ st }}</option>
           {% endfor %}
         </select>
       </div>
@@ -189,7 +218,7 @@
             data-body="{{ st.body }}"
             {% if selected_template and selected_template.id == st.id %}selected{% endif %}
           >
-            {{ st.name }} ({{ st.get_category_display }})
+            {{ st.name }} ({{ st.category_display }})
           </option>
           {% endfor %}
         </select>
@@ -257,7 +286,7 @@
         oninput="updateMessageMetrics()"
         placeholder="Hi &#123;&#123; first_name &#125;&#125;, this is &#123;&#123; business_name &#125;&#125;. We are offering exclusive coverage reviews this month! Reply YES to learn more."
         class="w-full px-3.5 py-2.5 text-xs sm:text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900 transition leading-relaxed resize-none"
-      ></textarea>
+      >{% if campaign %}{{ campaign.message_template }}{% endif %}</textarea>
 
       <div class="flex items-center justify-between text-[11px] text-gray-400 font-mono mt-1 px-1">
         <div id="char-counter">0 / 1600 characters · 1 segment</div>
@@ -279,11 +308,123 @@
     </div>
   </div>
 
-  <!-- CARD 4: Scheduling & Dispatch -->
+  <!-- CARD 4: AI Assistant Playbook & Campaign Goal -->
+  <div class="bg-white rounded-2xl border border-gray-200 p-5 shadow-2xs space-y-4">
+    <div class="border-b border-gray-100 pb-3 flex items-center justify-between">
+      <div>
+        <h3 class="text-sm font-bold text-gray-900 flex items-center gap-2">
+          <span class="w-6 h-6 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center text-xs font-bold">4</span>
+          <span>🤖 AI Assistant Playbook & Goal</span>
+        </h3>
+        <p class="text-xs text-gray-500 mt-0.5">Determine how your AI Assistant handles customer replies to this specific broadcast</p>
+      </div>
+      <span class="text-[11px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-100 px-2.5 py-0.5 rounded-full">
+        Per-Campaign Playbook
+      </span>
+    </div>
+
+    <!-- AI Mode Selection Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <!-- 1. Default -->
+      <label class="cursor-pointer border rounded-xl p-3.5 flex flex-col justify-between transition hover:border-indigo-300 {% if not campaign or campaign.ai_mode == 'default' %}border-indigo-600 bg-indigo-50/40 ring-1 ring-indigo-500/20{% else %}border-gray-200 bg-white{% endif %}" id="ai-card-default">
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="font-bold text-xs text-gray-900">Default AI Assistant</span>
+            <input type="radio" name="ai_mode" value="default" {% if not campaign or campaign.ai_mode == 'default' %}checked{% endif %} onchange="toggleAiPlaybookMode('default')" class="text-brand-600 focus:ring-brand-500">
+          </div>
+          <p class="text-[11px] text-gray-500 leading-relaxed">Uses your standard company knowledge base and global qualification questions from AI Assistant settings.</p>
+        </div>
+      </label>
+
+      <!-- 2. Custom -->
+      <label class="cursor-pointer border rounded-xl p-3.5 flex flex-col justify-between transition hover:border-indigo-300 {% if campaign and campaign.ai_mode == 'custom' %}border-indigo-600 bg-indigo-50/40 ring-1 ring-indigo-500/20{% else %}border-gray-200 bg-white{% endif %}" id="ai-card-custom">
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="font-bold text-xs text-gray-900">Custom Campaign Playbook</span>
+            <input type="radio" name="ai_mode" value="custom" {% if campaign and campaign.ai_mode == 'custom' %}checked{% endif %} onchange="toggleAiPlaybookMode('custom')" class="text-brand-600 focus:ring-brand-500">
+          </div>
+          <p class="text-[11px] text-gray-500 leading-relaxed">Define a specific objective, custom qualification questions, and promo offer details for replies to this broadcast.</p>
+        </div>
+      </label>
+
+      <!-- 3. Off -->
+      <label class="cursor-pointer border rounded-xl p-3.5 flex flex-col justify-between transition hover:border-slate-300 {% if campaign and campaign.ai_mode == 'off' %}border-slate-600 bg-slate-50/60 ring-1 ring-slate-500/20{% else %}border-gray-200 bg-white{% endif %}" id="ai-card-off">
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="font-bold text-xs text-gray-900">Human Takeover Only</span>
+            <input type="radio" name="ai_mode" value="off" {% if campaign and campaign.ai_mode == 'off' %}checked{% endif %} onchange="toggleAiPlaybookMode('off')" class="text-brand-600 focus:ring-brand-500">
+          </div>
+          <p class="text-[11px] text-gray-500 leading-relaxed">Turn AI off for replies to this campaign. All incoming replies route directly to sales reps in the inbox.</p>
+        </div>
+      </label>
+    </div>
+
+    <!-- Hidden input holding JSON for custom questions -->
+    <input type="hidden" name="ai_qualification_questions_json" id="ai_qualification_questions_json" value="" />
+
+    <!-- Custom Playbook Container (visible only when 'custom' is active) -->
+    <div id="custom-ai-playbook-section" class="{% if not campaign or campaign.ai_mode != 'custom' %}hidden {% endif %}space-y-4 pt-2 border-t border-gray-100">
+      <!-- 1. Campaign Objective / Goal -->
+      <div>
+        <label for="ai-campaign-goal" class="block text-xs font-bold text-gray-700 mb-1">
+          🎯 Campaign Objective / Goal
+        </label>
+        <input
+          type="text"
+          id="ai-campaign-goal"
+          name="ai_campaign_goal"
+          value="{% if campaign %}{{ campaign.ai_campaign_goal|default:'' }}{% endif %}"
+          placeholder="e.g. Qualify homeowners for switching insurance, compare deductibles, and bundle savings."
+          class="w-full px-3.5 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-gray-900"
+        />
+        <p class="text-[11px] text-gray-400 mt-1">The AI will steer the conversation toward this outcome while keeping ultra-short 1-line replies.</p>
+      </div>
+
+      <!-- 2. Dynamic Lead Qualification Questions Table -->
+      <div class="border border-gray-200 rounded-xl overflow-hidden bg-gray-50/50">
+        <div class="p-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+          <div>
+            <h4 class="text-xs font-bold text-gray-800 flex items-center gap-1.5">
+              <span>📋</span> Campaign Qualification Questions
+            </h4>
+            <p class="text-[11px] text-gray-500">Collected one at a time. Contact stage upgrades to <strong>Qualified</strong> when all required questions are answered.</p>
+          </div>
+          <button
+            type="button"
+            onclick="addCampaignQuestion()"
+            class="px-2.5 py-1 text-xs font-semibold text-brand-700 bg-white hover:bg-brand-50 border border-brand-200 rounded-lg shadow-2xs transition flex items-center gap-1 cursor-pointer"
+          >
+            <span>+</span> Add Question
+          </button>
+        </div>
+
+        <div id="campaign-questions-container" class="divide-y divide-gray-100">
+          <!-- Dynamically populated via JS -->
+        </div>
+      </div>
+
+      <!-- 3. Special Instructions & Offers -->
+      <div>
+        <label for="ai-special-instructions" class="block text-xs font-bold text-gray-700 mb-1">
+          💡 Special Instructions, Promo Offers & Constraints
+        </label>
+        <textarea
+          id="ai-special-instructions"
+          name="ai_special_instructions"
+          rows="3"
+          placeholder="e.g. Remind customers they can save an average of $450/year. Mention we have a local Millbrae office and can complete a quote over text in under 10 minutes. Only valid for California addresses."
+          class="w-full px-3.5 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-gray-900"
+        >{% if campaign %}{{ campaign.ai_special_instructions|default:'' }}{% endif %}</textarea>
+        <p class="text-[11px] text-gray-400 mt-1">Specific guidelines for the AI assistant when answering questions about this campaign's offer.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- CARD 5: Scheduling & Dispatch -->
   <div class="bg-white rounded-2xl border border-gray-200 p-5 shadow-2xs space-y-4">
     <div class="border-b border-gray-100 pb-3">
       <h3 class="text-sm font-bold text-gray-900 flex items-center gap-2">
-        <span class="w-6 h-6 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center text-xs font-bold">4</span>
+        <span class="w-6 h-6 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center text-xs font-bold">5</span>
         <span>Dispatch Timing</span>
       </h3>
       <p class="text-xs text-gray-500 mt-0.5">Send immediately or schedule for a specific date and time</p>
@@ -296,7 +437,7 @@
           type="radio"
           name="timing"
           value="immediate"
-          checked
+          {% if not is_edit or campaign.status != 'scheduled' %}checked{% endif %}
           onchange="toggleScheduleInput()"
           class="text-brand-600 focus:ring-brand-500"
         />
@@ -313,6 +454,7 @@
           name="timing"
           value="scheduled"
           id="radio-scheduled"
+          {% if is_edit and campaign.status == 'scheduled' %}checked{% endif %}
           onchange="toggleScheduleInput()"
           class="text-brand-600 focus:ring-brand-500"
         />
@@ -323,7 +465,7 @@
       </label>
 
       <!-- DateTime Picker Box -->
-      <div id="schedule-picker-box" class="hidden pl-8 pt-1">
+      <div id="schedule-picker-box" class="{% if not is_edit or campaign.status != 'scheduled' %}hidden {% endif %}pl-8 pt-1">
         <label for="scheduled-at" class="block text-xs font-bold text-gray-700 mb-1">
           Dispatch Date & Time <span class="text-rose-500">*</span>
         </label>
@@ -332,6 +474,7 @@
           id="scheduled-at"
           name="scheduled_at"
           min="{{ now_iso }}"
+          value="{% if is_edit and campaign.scheduled_at %}{{ campaign_scheduled_iso }}{% endif %}"
           oninput="updateScheduledIso()"
           class="px-3.5 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900 bg-white"
         />
@@ -344,17 +487,30 @@
   <!-- Form Actions -->
   <div class="flex items-center justify-end gap-3 pt-2">
     <a
-      href="{% url 'campaigns:list' %}"
+      href="{% if is_edit %}{% url 'campaigns:detail' campaign.id %}{% else %}{% url 'campaigns:list' %}{% endif %}"
       class="px-4 py-2 text-xs font-semibold text-gray-600 hover:text-gray-900 rounded-xl transition"
     >
       Cancel
     </a>
+
+    <button
+      type="submit"
+      name="save_draft"
+      value="1"
+      formnovalidate
+      class="px-4 py-2.5 text-xs font-semibold text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 rounded-xl transition shadow-2xs cursor-pointer flex items-center gap-1.5"
+      title="Save campaign progress as a draft without broadcasting"
+    >
+      <span>💾</span>
+      <span>Save as Draft</span>
+    </button>
+
     <button
       type="submit"
       id="submit-campaign-btn"
       class="px-5 py-2.5 text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs cursor-pointer flex items-center gap-2"
     >
-      <span>Launch Campaign</span>
+      <span>{% if is_edit %}{% if campaign.status == 'scheduled' %}Save & Schedule{% else %}Save & Launch{% endif %}{% else %}Launch Campaign{% endif %}</span>
       <span>→</span>
     </button>
   </div>
@@ -474,6 +630,139 @@
       .catch(err => console.debug("Audience calc error:", err));
   }
 
+  // AI Playbook State & Handlers
+  let defaultQuestions = [];
+  try {
+    defaultQuestions = {{ default_questions_json|safe }};
+  } catch(e) {
+    defaultQuestions = [];
+  }
+  let campaignQuestions = [];
+  try {
+    campaignQuestions = {{ campaign_questions_json|default:"[]"|safe }};
+  } catch(e) {
+    campaignQuestions = [];
+  }
+
+  function toggleAiPlaybookMode(mode) {
+    const customSection = document.getElementById("custom-ai-playbook-section");
+    const cardDefault = document.getElementById("ai-card-default");
+    const cardCustom = document.getElementById("ai-card-custom");
+    const cardOff = document.getElementById("ai-card-off");
+
+    if (cardDefault) cardDefault.className = "cursor-pointer border rounded-xl p-3.5 flex flex-col justify-between transition hover:border-indigo-300 border-gray-200 bg-white";
+    if (cardCustom) cardCustom.className = "cursor-pointer border rounded-xl p-3.5 flex flex-col justify-between transition hover:border-indigo-300 border-gray-200 bg-white";
+    if (cardOff) cardOff.className = "cursor-pointer border rounded-xl p-3.5 flex flex-col justify-between transition hover:border-slate-300 border-gray-200 bg-white";
+
+    if (mode === "custom") {
+      if (cardCustom) cardCustom.className = "cursor-pointer border rounded-xl p-3.5 flex flex-col justify-between transition hover:border-indigo-300 border-indigo-600 bg-indigo-50/40 ring-1 ring-indigo-500/20";
+      if (customSection) customSection.classList.remove("hidden");
+      if (campaignQuestions.length === 0) {
+        campaignQuestions = JSON.parse(JSON.stringify(defaultQuestions || []));
+        renderCampaignQuestions();
+      }
+    } else {
+      if (customSection) customSection.classList.add("hidden");
+      if (mode === "default" && cardDefault) {
+        cardDefault.className = "cursor-pointer border rounded-xl p-3.5 flex flex-col justify-between transition hover:border-indigo-300 border-indigo-600 bg-indigo-50/40 ring-1 ring-indigo-500/20";
+      } else if (mode === "off" && cardOff) {
+        cardOff.className = "cursor-pointer border rounded-xl p-3.5 flex flex-col justify-between transition hover:border-slate-400 border-slate-900 bg-slate-50/60 ring-1 ring-slate-900/20";
+      }
+    }
+  }
+
+  function renderCampaignQuestions() {
+    const container = document.getElementById("campaign-questions-container");
+    if (!container) return;
+    container.innerHTML = "";
+
+    if (campaignQuestions.length === 0) {
+      container.innerHTML = `
+        <div class="p-4 text-center text-xs text-gray-400">
+          No custom questions yet. Click <strong>+ Add Question</strong> to define qualification questions for this campaign.
+        </div>
+      `;
+      syncCampaignQuestions();
+      return;
+    }
+
+    campaignQuestions.forEach((q, idx) => {
+      const row = document.createElement("div");
+      row.className = "p-3 bg-white flex flex-col sm:flex-row items-start sm:items-center gap-3";
+      row.innerHTML = `
+        <div class="w-full sm:w-1/4">
+          <label class="block text-[10px] text-gray-400 font-bold mb-0.5">FIELD KEY</label>
+          <input
+            type="text"
+            value="${escapeHtml(q.key || '')}"
+            oninput="updateCampaignQuestion(${idx}, 'key', this.value)"
+            placeholder="e.g. roof_age"
+            class="w-full text-xs font-mono px-2.5 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 text-gray-900"
+          />
+        </div>
+        <div class="w-full sm:flex-1">
+          <label class="block text-[10px] text-gray-400 font-bold mb-0.5">QUESTION FOR THE AI TO ASK</label>
+          <input
+            type="text"
+            value="${escapeHtml(q.question || '')}"
+            oninput="updateCampaignQuestion(${idx}, 'question', this.value)"
+            placeholder="e.g. How old is your home's roof?"
+            class="w-full text-xs px-2.5 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 text-gray-900"
+          />
+        </div>
+        <div class="flex items-center gap-3 pt-2 sm:pt-4">
+          <label class="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer select-none whitespace-nowrap">
+            <input
+              type="checkbox"
+              ${q.required ? 'checked' : ''}
+              onchange="updateCampaignQuestion(${idx}, 'required', this.checked)"
+              class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+            />
+            <span>Required for Stage</span>
+          </label>
+          <button
+            type="button"
+            onclick="removeCampaignQuestion(${idx})"
+            class="text-gray-400 hover:text-rose-600 transition p-1 cursor-pointer"
+            title="Remove Question"
+          >
+            🗑
+          </button>
+        </div>
+      `;
+      container.appendChild(row);
+    });
+    syncCampaignQuestions();
+  }
+
+  function addCampaignQuestion() {
+    campaignQuestions.push({ key: "", question: "", required: true });
+    renderCampaignQuestions();
+  }
+
+  function removeCampaignQuestion(idx) {
+    campaignQuestions.splice(idx, 1);
+    renderCampaignQuestions();
+  }
+
+  function updateCampaignQuestion(idx, field, val) {
+    if (campaignQuestions[idx]) {
+      campaignQuestions[idx][field] = val;
+      syncCampaignQuestions();
+    }
+  }
+
+  function syncCampaignQuestions() {
+    const hidden = document.getElementById("ai_qualification_questions_json");
+    if (hidden) {
+      hidden.value = JSON.stringify(campaignQuestions);
+    }
+  }
+
+  function escapeHtml(str) {
+    return (str || "").replace(/"/g, "&quot;");
+  }
+
   function updateScheduledIso() {
     const input = document.getElementById("scheduled-at");
     const isoInput = document.getElementById("scheduled-at-iso");
@@ -487,12 +776,26 @@
 
   // Initialize on page load
   document.addEventListener("DOMContentLoaded", function() {
+    {% if not is_edit %}
     const picker = document.getElementById("template-preset-picker");
     if (picker && picker.value) {
       applyTemplatePreset(picker);
     } else {
       updateMessageMetrics();
     }
+    {% else %}
+    updateMessageMetrics();
+    {% endif %}
+
+    {% if is_edit %}
+    renderCampaignQuestions();
+    {% if campaign.ai_mode == 'custom' %}
+    toggleAiPlaybookMode('custom');
+    {% elif campaign.ai_mode == 'off' %}
+    toggleAiPlaybookMode('off');
+    {% endif %}
+    {% endif %}
+
     recalculateAudience();
 
     document.getElementById("campaign-form")?.addEventListener("submit", function() {

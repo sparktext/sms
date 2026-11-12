@@ -1,7 +1,12 @@
 {% extends "messaging/base_app.html" %}
 
 {% block title %}Team Members · Settings · SparkText{% endblock %}
-
+{% block global_breadcrumb %}
+<a href="{% url 'company_profile' %}" class="font-medium text-gray-500 hover:text-gray-900 transition">Settings</a>
+<span class="text-gray-300">/</span>
+<span class="font-semibold text-gray-800 truncate">Team Members</span>
+{% endblock %}
+{% block page_header_class %}max-w-5xl w-full mx-auto{% endblock %}
 {% block header_title %}Settings{% endblock %}
 {% block header_subtitle %}Manage team member access, roles, and invite new staff to your organization{% endblock %}
 
@@ -24,10 +29,10 @@
 <div class="max-w-5xl mx-auto space-y-6 pb-12">
 
   <!-- Settings Sub-navigation Tabs -->
-  <div class="flex items-center gap-2 border-b border-gray-200 pb-3">
+  <div class="flex items-center gap-2 border-b border-gray-200 pb-3 overflow-x-auto">
     <a
       href="{% url 'company_profile' %}"
-      class="px-3.5 py-1.5 text-xs font-semibold rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition"
+      class="px-3.5 py-1.5 text-xs font-semibold rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition whitespace-nowrap shrink-0"
     >
       🏢 Company Profile
     </a>
@@ -452,10 +457,10 @@
         document.getElementById("invite-result-container").classList.remove("hidden");
         document.getElementById("invite-link-input").value = data.invite.invite_url;
       } else {
-        alert(data.message || "Failed to create invitation.");
+        window.showAppToast(data.message || "Failed to create invitation.", "error");
       }
     } catch (err) {
-      alert("Network error creating invitation.");
+      window.showAppToast("Network error creating invitation.", "error");
     } finally {
       btn.disabled = false;
       btn.textContent = "Generate Invite Link";
@@ -490,7 +495,12 @@
   }
 
   async function revokeInvite(inviteId) {
-    if (!confirm("Revoke this pending invitation?")) return;
+    const confirmed = await window.showAppConfirm({
+      title: "Revoke Invitation",
+      message: "Revoke this pending invitation?",
+      confirmText: "Revoke",
+    });
+    if (!confirmed) return;
     const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value;
     const formData = new FormData();
     formData.append("csrfmiddlewaretoken", csrfToken);
@@ -507,11 +517,12 @@
       const data = await resp.json();
       if (resp.ok && data.status === "success") {
         document.getElementById(`invite-row-${inviteId}`)?.remove();
+        window.showAppToast("Invitation revoked.", "success");
       } else {
-        alert(data.message || "Failed to revoke invitation.");
+        window.showAppToast(data.message || "Failed to revoke invitation.", "error");
       }
     } catch (err) {
-      alert("Error revoking invitation.");
+      window.showAppToast("Error revoking invitation.", "error");
     }
   }
 
@@ -549,17 +560,20 @@
         closeRoleModal();
         window.location.reload();
       } else {
-        alert(data.message || "Failed to update role.");
+        window.showAppToast(data.message || "Failed to update role.", "error");
       }
     } catch (err) {
-      alert("Error updating role.");
+      window.showAppToast("Error updating role.", "error");
     }
   }
 
   async function removeMember(userId, email) {
-    if (!confirm(`Are you sure you want to remove ${email} from your organization? They will immediately lose access.`)) {
-      return;
-    }
+    const confirmed = await window.showAppConfirm({
+      title: "Remove Team Member",
+      message: `Are you sure you want to remove ${email} from your organization? They will immediately lose access.`,
+      confirmText: "Remove Member",
+    });
+    if (!confirmed) return;
     const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value;
     const formData = new FormData();
     formData.append("csrfmiddlewaretoken", csrfToken);
@@ -577,10 +591,10 @@
       if (resp.ok && data.status === "success") {
         window.location.reload();
       } else {
-        alert(data.message || "Failed to remove member.");
+        window.showAppToast(data.message || "Failed to remove member.", "error");
       }
     } catch (err) {
-      alert("Error removing member.");
+      window.showAppToast("Error removing member.", "error");
     }
   }
 </script>

@@ -173,7 +173,18 @@ ADDITIONAL HANDOFF CRITERIA:
 \"\"\"
 """
 
-    # 3. Customer Profile Context
+    # 3. Campaign Specific Playbook & Goal (if custom campaign active)
+    campaign_section = ""
+    if conversation.last_campaign and conversation.last_campaign.ai_mode == "custom":
+        camp = conversation.last_campaign
+        parts = [f"ACTIVE CAMPAIGN PLAYBOOK & GOAL (Broadcast: '{camp.name}'):"]
+        if camp.ai_campaign_goal:
+            parts.append(f"- PRIMARY OBJECTIVE: {camp.ai_campaign_goal}")
+        if camp.ai_special_instructions:
+            parts.append(f"- SPECIAL CAMPAIGN OFFERS / INSTRUCTIONS:\n{camp.ai_special_instructions}")
+        campaign_section = "\n" + "\n".join(parts) + "\n"
+
+    # 4. Customer Profile Context
     contact = conversation.contact
     contact_name = f"{contact.first_name} {contact.last_name}".strip() if (contact.first_name or contact.last_name) else "Customer"
     customer_section = f"""
@@ -182,8 +193,11 @@ CUSTOMER CONTEXT:
 - Phone Number: {contact.phone}
 """
 
-    # 4. Qualification Questions
-    all_questions = config.qualification_questions if isinstance(config.qualification_questions, list) else []
+    # 5. Qualification Questions (use campaign-specific questions if defined, else fallback to business defaults)
+    if conversation.last_campaign and conversation.last_campaign.ai_mode == "custom" and conversation.last_campaign.ai_qualification_questions:
+        all_questions = conversation.last_campaign.ai_qualification_questions
+    else:
+        all_questions = config.qualification_questions if isinstance(config.qualification_questions, list) else []
     current_answers = conversation.qualification_answers if isinstance(conversation.qualification_answers, dict) else {}
 
     unanswered = []
@@ -221,7 +235,7 @@ CUSTOMER CONTEXT:
                 "All qualification questions have been collected! In 1 short friendly sentence, thank the customer and let them know a licensed agent will follow up with their quote options shortly, and set 'needs_human': true to hand off to our team.\n"
             )
 
-    return rules_section + business_section + customer_section + qualification_section
+    return rules_section + business_section + campaign_section + customer_section + qualification_section
 
 
 def build_conversation_messages(conversation: Conversation, max_messages: int = 20) -> List[Dict[str, str]]:

@@ -6,11 +6,14 @@ app_name = "contacts"
 urlpatterns = [
     # Contacts List & Core Operations
     path("contacts/", views.contacts_list, name="list"),
+    path("contacts/export/", views.export_contacts_csv, name="export_contacts"),
     path("contacts/new/", views.add_contact, name="add"),
     path("contacts/bulk-action/", views.contacts_bulk_action, name="bulk_action"),
     path("contacts/<int:contact_id>/", views.contact_detail, name="detail"),
     path("contacts/<int:contact_id>/edit/", views.edit_contact, name="edit"),
     path("contacts/<int:contact_id>/delete/", views.delete_contact, name="delete"),
+    path("contacts/<int:contact_id>/send/", views.send_contact_message, name="send_message"),
+    path("contacts/<int:contact_id>/summary/", views.summarize_contact_conversation, name="summarize_conversation"),
 
     # CSV Import
     path("contacts/import/preview/", views.import_preview, name="import_preview"),

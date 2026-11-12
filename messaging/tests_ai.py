@@ -621,3 +621,67 @@ class AIAssistantTests(TestCase):
         self.assertIsNotNone(takeover_note)
         self.assertIn("took over", takeover_note.body)
 
+    def test_campaign_custom_ai_playbook_prompt_and_qualification(self):
+        """Custom campaign playbook overrides goal, questions, and special instructions."""
+        from campaigns.models import Campaign
+        campaign = Campaign.objects.create(
+            organization=self.org_a,
+            name="Fall Homeowners Bundle",
+            phone_number=self.phone_a,
+            message_template="Hi {{ first_name }}, check our home bundle!",
+            ai_mode=Campaign.AIMode.CUSTOM,
+            ai_campaign_goal="Qualify homeowners for umbrella and flood coverage.",
+            ai_qualification_questions=[
+                {"key": "roof_age", "question": "How old is your roof?", "required": True},
+                {"key": "home_sqft", "question": "What is the square footage?", "required": False},
+            ],
+            ai_special_instructions="Mention our $450 bundle discount and local Millbrae office.",
+        )
+        self.conv_a.last_campaign = campaign
+        self.conv_a.save()
+
+        # 1. System prompt includes custom campaign section and questions
+        prompt = build_system_prompt(self.config_a, self.conv_a)
+        self.assertIn("ACTIVE CAMPAIGN PLAYBOOK & GOAL (Broadcast: 'Fall Homeowners Bundle')", prompt)
+        self.assertIn("Qualify homeowners for umbrella and flood coverage", prompt)
+        self.assertIn("Mention our $450 bundle discount", prompt)
+        self.assertIn("How old is your roof?", prompt)
+        self.assertNotIn("What service do you need?", prompt)  # Global question overridden
+
+        # 2. Filter collected answers respects campaign-specific question keys
+        extracted = {"roof_age": "5 years", "service_type": "plumbing", "unrelated": "foo"}
+        filtered = filter_collected_answers(extracted, self.config_a, campaign=campaign)
+        self.assertEqual(filtered, {"roof_age": "5 years"})
+
+        # 3. Validation allows offer mentioned in campaign special instructions ($450)
+        valid, err = validate_reply_content(
+            {"reply": "We offer a $450 bundle discount for Millbrae homeowners!"},
+            self.config_a,
+            campaign=campaign,
+        )
+        self.assertTrue(valid, err)
+
+    def test_campaign_off_mode_blocks_ai_replies(self):
+        """When campaign ai_mode='off', can_run_ai skips AI processing for customer replies."""
+        from campaigns.models import Campaign
+        campaign = Campaign.objects.create(
+            organization=self.org_a,
+            name="VIP Human Outreach",
+            phone_number=self.phone_a,
+            message_template="Hi {{ first_name }}, reach out to our team directly.",
+            ai_mode=Campaign.AIMode.OFF,
+        )
+        self.conv_a.last_campaign = campaign
+        self.conv_a.save()
+
+        msg = Message.objects.create(
+            organization=self.org_a,
+            conversation=self.conv_a,
+            direction=Message.Direction.INBOUND,
+            body="Can someone call me please?",
+        )
+        allowed, reason = can_run_ai(self.config_a, self.conv_a, msg)
+        self.assertFalse(allowed)
+        self.assertIn("Human Takeover mode", reason)
+
+

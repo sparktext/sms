@@ -187,3 +187,108 @@ class TelnyxIntegrationTests(TestCase):
         self.assertEqual(msg.status, Message.Status.DELIVERED)
         self.assertIsNotNone(msg.delivered_at)
 
+    def test_telnyx_message_finalized_outcomes_and_sms_endpoint(self):
+        """Telnyx v2 sends terminal delivery state inside message.finalized -> payload.to[0].status."""
+        # 1. message.finalized + to[0].status='delivered' on /webhooks/telnyx/status/
+        msg_del = Message.objects.create(
+            conversation=self.conversation,
+            organization=self.org,
+            direction=Message.Direction.OUTBOUND,
+            sender_type=Message.SenderType.HUMAN,
+            body="Finalized delivered",
+            status=Message.Status.SENT,
+            provider="telnyx",
+            provider_message_sid="telnyx_fin_del_1",
+        )
+        res1 = self.client.post(
+            "/webhooks/telnyx/status/",
+            data=json.dumps({
+                "data": {
+                    "event_type": "message.finalized",
+                    "payload": {
+                        "id": "telnyx_fin_del_1",
+                        "to": [{"phone_number": "+16614603931", "status": "delivered"}],
+                        "errors": [],
+                    },
+                }
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(res1.status_code, 200)
+        msg_del.refresh_from_db()
+        self.assertEqual(msg_del.status, Message.Status.DELIVERED)
+        self.assertIsNotNone(msg_del.delivered_at)
+
+        # 2. message.finalized + delivery_failed posted to /webhooks/telnyx/sms/ (profile webhook)
+        msg_fail = Message.objects.create(
+            conversation=self.conversation,
+            organization=self.org,
+            direction=Message.Direction.OUTBOUND,
+            sender_type=Message.SenderType.AI,
+            body="Finalized failed",
+            status=Message.Status.SENT,
+            provider="telnyx",
+            provider_message_sid="telnyx_fin_fail_2",
+        )
+        res2 = self.client.post(
+            "/webhooks/telnyx/sms/",
+            data=json.dumps({
+                "data": {
+                    "event_type": "message.finalized",
+                    "payload": {
+                        "id": "telnyx_fin_fail_2",
+                        "to": [{"phone_number": "+16614603931", "status": "delivery_failed"}],
+                        "errors": [{"code": "40003", "detail": "Blocked as spam by carrier"}],
+                    },
+                }
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(res2.status_code, 200)
+        msg_fail.refresh_from_db()
+        self.assertEqual(msg_fail.status, Message.Status.UNDELIVERED)
+        self.assertEqual(msg_fail.error_code, "40003")
+        self.assertIn("Blocked as spam", msg_fail.error_message)
+
+        # 3. message.finalized + delivery_unconfirmed keeps status as SENT (does not falsely mark delivered/failed)
+        msg_unconf = Message.objects.create(
+            conversation=self.conversation,
+            organization=self.org,
+            direction=Message.Direction.OUTBOUND,
+            sender_type=Message.SenderType.HUMAN,
+            body="Finalized unconfirmed",
+            status=Message.Status.SENT,
+            provider="telnyx",
+            provider_message_sid="telnyx_fin_unconf_3",
+        )
+        res3 = self.client.post(
+            "/webhooks/telnyx/status/",
+            data=json.dumps({
+                "data": {
+                    "event_type": "message.finalized",
+                    "payload": {
+                        "id": "telnyx_fin_unconf_3",
+                        "to": [{"phone_number": "+16614603931", "status": "delivery_unconfirmed"}],
+                        "errors": [],
+                    },
+                }
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(res3.status_code, 200)
+        msg_unconf.refresh_from_db()
+        self.assertEqual(msg_unconf.status, Message.Status.SENT)
+        self.assertIsNone(msg_unconf.delivered_at)
+
+        # 4. Inbox chat pane renders date divider, date+time timestamp, and status DOM hooks
+        self.client.force_login(self.user)
+        inbox_resp = self.client.get(f"/inbox/{self.conversation.id}/")
+        self.assertEqual(inbox_resp.status_code, 200)
+        inbox_html = inbox_resp.content.decode("utf-8")
+        self.assertIn(f'id="msg-status-{msg_del.id}"', inbox_html)
+        self.assertIn(msg_del.created_at.strftime("%b %d, %I:%M %p"), inbox_html)
+        self.assertIn(msg_del.created_at.strftime("%b %d, %Y"), inbox_html)
+        self.assertIn("✕ Undelivered", inbox_html)
+        self.assertIn("Blocked as spam by carrier", inbox_html)
+        self.assertIn('id="global-breadcrumb-conv"', inbox_html)
+

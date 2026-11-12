@@ -1,17 +1,23 @@
 {% extends "messaging/base_app.html" %}
 
 {% block title %}Settings & Phone Numbers - SparkText{% endblock %}
-{% block header_title %}Settings & Phone Numbers{% endblock %}
+{% block global_breadcrumb %}
+<a href="{% url 'company_profile' %}" class="font-medium text-gray-500 hover:text-gray-900 transition">Settings</a>
+<span class="text-gray-300">/</span>
+<span class="font-semibold text-gray-800 truncate">Phone Numbers</span>
+{% endblock %}
+{% block page_header_class %}max-w-5xl w-full mx-auto{% endblock %}
+{% block header_title %}Settings{% endblock %}
 {% block header_subtitle %}Manage your provisioned numbers, choose your primary default sending line, and configure carrier routes{% endblock %}
 
 {% block content %}
 <div class="max-w-5xl mx-auto space-y-6 pb-12">
 
   <!-- Settings Sub-navigation Tabs -->
-  <div class="flex items-center gap-2 border-b border-gray-200 pb-3">
+  <div class="flex items-center gap-2 border-b border-gray-200 pb-3 overflow-x-auto">
     <a
       href="{% url 'company_profile' %}"
-      class="px-3.5 py-1.5 text-xs font-semibold rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition"
+      class="px-3.5 py-1.5 text-xs font-semibold rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition whitespace-nowrap shrink-0"
     >
       🏢 Company Profile
     </a>

@@ -4,6 +4,7 @@ from typing import Tuple, Optional
 from django.conf import settings
 from django.core.exceptions import ValidationError, PermissionDenied
 from django.db import transaction
+from django.db.models import Sum
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
@@ -157,6 +158,7 @@ def send_message(
     # Real-time WebSocket broadcast to open conversation windows
     try:
         from .ws_broadcast import broadcast_chat_event, broadcast_inbox_event
+        from .utils import format_chat_timestamp
         broadcast_chat_event(
             conversation.id,
             {
@@ -166,12 +168,19 @@ def send_message(
                     "body": message.body,
                     "direction": message.direction,
                     "sender_type": message.sender_type,
-                    "created_at": (message.sent_at or timezone.now()).strftime("%I:%M %p"),
+                    "created_at": format_chat_timestamp(message.sent_at or message.created_at),
                     "status": message.status,
                 },
             },
         )
         # Real-time WebSocket broadcast to sidebar inbox list
+        total_unread = (
+            Conversation.objects.filter(
+                organization_id=conversation.organization_id,
+                status__in=[Conversation.Status.OPEN, Conversation.Status.NEEDS_HUMAN],
+            ).aggregate(total=Sum("unread_count"))["total"]
+            or 0
+        )
         broadcast_inbox_event(
             conversation.organization_id,
             {
@@ -183,6 +192,7 @@ def send_message(
                     "last_message_at_display": "just now",
                     "unread_count": conversation.unread_count,
                 },
+                "nav_unread_count": total_unread,
             },
         )
     except Exception as exc:

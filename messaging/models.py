@@ -127,6 +127,14 @@ class Conversation(models.Model):
         default=AIMode.DEFAULT,
         help_text=_("Per-conversation AI mode override"),
     )
+    last_campaign = models.ForeignKey(
+        "campaigns.Campaign",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="conversations",
+        help_text=_("The most recent broadcast campaign this conversation originated from or received"),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     def get_effective_ai_mode(self, config=None) -> str:

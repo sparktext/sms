@@ -174,18 +174,54 @@ def process_campaign_batch(campaign: Campaign, limit: int = 50) -> int:
         campaign.started_at = timezone.now()
         campaign.save(update_fields=["status", "started_at"])
 
-    pending_recipients = (
+    # Atomically claim pending recipients for this batch using select_for_update
+    # and mark them as QUEUED so concurrent workers or requests never process the same recipients.
+    with transaction.atomic():
+        pending_ids = list(
+            CampaignRecipient.objects.select_for_update(skip_locked=True)
+            .filter(
+                campaign=campaign,
+                status=CampaignRecipient.Status.PENDING,
+            )
+            .order_by("id")
+            .values_list("id", flat=True)[:limit]
+        )
+        if not pending_ids:
+            # Check if all recipients have finished
+            remaining = CampaignRecipient.objects.filter(
+                campaign=campaign,
+                status__in=[CampaignRecipient.Status.PENDING, CampaignRecipient.Status.QUEUED],
+            ).count()
+            if remaining == 0 and campaign.status == Campaign.Status.SENDING:
+                campaign.status = Campaign.Status.COMPLETED
+                campaign.completed_at = timezone.now()
+                campaign.save(update_fields=["status", "completed_at"])
+                try:
+                    from .ws_broadcast import broadcast_campaign_progress
+                    broadcast_campaign_progress(campaign, [])
+                except Exception:
+                    pass
+            return 0
+
+        CampaignRecipient.objects.filter(id__in=pending_ids).update(
+            status=CampaignRecipient.Status.QUEUED
+        )
+
+    # Fetch only the claimed QUEUED recipients
+    recipients = (
         CampaignRecipient.objects.filter(
+            id__in=pending_ids,
             campaign=campaign,
-            status=CampaignRecipient.Status.PENDING,
+            status=CampaignRecipient.Status.QUEUED,
         )
         .select_related("contact")
-        .order_by("id")[:limit]
+        .order_by("id")
     )
 
     processed = 0
+    recipient_updates = []
 
-    for recip in pending_recipients:
+    for recip in recipients:
         contact = recip.contact
 
         # Re-check consent before dispatch (in case contact opted out since creation)
@@ -195,6 +231,15 @@ def process_campaign_batch(campaign: Campaign, limit: int = 50) -> int:
             recip.save(update_fields=["status", "skip_reason"])
             campaign.skipped_count += 1
             processed += 1
+            recipient_updates.append({
+                "id": recip.id,
+                "status": recip.status,
+                "status_display": recip.get_status_display(),
+                "sent_at": "",
+                "conversation_id": None,
+                "error_message": "",
+                "skip_reason": recip.skip_reason,
+            })
             continue
 
         # Get or create 2-way conversation for this contact and sender phone number
@@ -202,8 +247,11 @@ def process_campaign_batch(campaign: Campaign, limit: int = 50) -> int:
             organization=campaign.organization,
             contact=contact,
             phone_number=campaign.phone_number,
-            defaults={"status": Conversation.Status.OPEN},
+            defaults={"status": Conversation.Status.OPEN, "last_campaign": campaign},
         )
+        if conversation.last_campaign_id != campaign.id:
+            conversation.last_campaign = campaign
+            conversation.save(update_fields=["last_campaign"])
 
         try:
             msg = send_message(
@@ -231,6 +279,15 @@ def process_campaign_batch(campaign: Campaign, limit: int = 50) -> int:
             campaign.failed_count += 1
 
         processed += 1
+        recipient_updates.append({
+            "id": recip.id,
+            "status": recip.status,
+            "status_display": recip.get_status_display(),
+            "sent_at": recip.sent_at.strftime("%b %d, %I:%M %p") if recip.sent_at else "",
+            "conversation_id": recip.message.conversation_id if recip.message else (conversation.id if conversation else None),
+            "error_message": recip.error_message,
+            "skip_reason": recip.skip_reason,
+        })
 
     # Check if all recipients have finished
     remaining = CampaignRecipient.objects.filter(
@@ -244,6 +301,13 @@ def process_campaign_batch(campaign: Campaign, limit: int = 50) -> int:
         campaign.save(update_fields=["status", "completed_at", "sent_count", "delivered_count", "failed_count", "skipped_count"])
     else:
         campaign.save(update_fields=["sent_count", "delivered_count", "failed_count", "skipped_count"])
+
+    # Broadcast real-time progress update to all WebSocket viewers on /campaigns/<id>/
+    try:
+        from .ws_broadcast import broadcast_campaign_progress
+        broadcast_campaign_progress(campaign, recipient_updates)
+    except Exception as exc:
+        logger.warning("Failed to broadcast campaign progress for %s: %s", campaign.id, exc)
 
     return processed
 
@@ -266,6 +330,12 @@ def cancel_campaign(campaign: Campaign) -> bool:
         status=CampaignRecipient.Status.SKIPPED,
         skip_reason="Campaign cancelled by user",
     )
+
+    try:
+        from .ws_broadcast import broadcast_campaign_progress
+        broadcast_campaign_progress(campaign)
+    except Exception as exc:
+        logger.warning("Failed to broadcast campaign cancellation for %s: %s", campaign.id, exc)
 
     return True
 
@@ -335,10 +405,30 @@ DEFAULT_CAMPAIGN_TEMPLATES: List[Dict[str, Any]] = [
 
 def ensure_default_campaign_templates(organization):
     """
-    Ensures the organization has pre-loaded starter campaign templates.
+    Ensures starter categories and templates are initialized ONCE per organization.
+    If the organization later deletes or renames any categories (including defaults),
+    we respect those changes permanently instead of resurrecting deleted defaults.
     """
-    from .models import CampaignTemplate
-    if not CampaignTemplate.objects.filter(organization=organization).exists():
+    from .models import CampaignTemplate, TemplateCategory
+    from core.models import Organization
+
+    # Check fresh DB flag to avoid stale in-memory instances re-seeding
+    is_seeded = Organization.objects.filter(id=organization.id, templates_seeded=True).exists()
+    if is_seeded:
+        return
+
+    has_templates = CampaignTemplate.objects.filter(organization=organization).exists()
+    has_categories = TemplateCategory.objects.filter(organization=organization).exists()
+
+    if not has_templates and not has_categories:
+        # Brand new workspace: create starter categories
+        for idx, (slug, name) in enumerate(CampaignTemplate.Category.choices):
+            TemplateCategory.objects.get_or_create(
+                organization=organization,
+                slug=slug,
+                defaults={"name": str(name), "order": idx + 1},
+            )
+        # Create starter templates
         created_list = []
         for item in DEFAULT_CAMPAIGN_TEMPLATES:
             created_list.append(
@@ -351,6 +441,33 @@ def ensure_default_campaign_templates(organization):
                 )
             )
         CampaignTemplate.objects.bulk_create(created_list)
+    elif has_templates and not has_categories:
+        # Backfill existing workspace categories once
+        standard_labels = dict(CampaignTemplate.Category.choices)
+        existing_slugs = list(
+            CampaignTemplate.objects.filter(organization=organization)
+            .values_list("category", flat=True)
+            .distinct()
+        )
+        order_idx = 1
+        for slug, label in CampaignTemplate.Category.choices:
+            TemplateCategory.objects.get_or_create(
+                organization=organization,
+                slug=slug,
+                defaults={"name": str(label), "order": order_idx},
+            )
+            order_idx += 1
+        for slug in existing_slugs:
+            if slug and slug not in standard_labels:
+                TemplateCategory.objects.get_or_create(
+                    organization=organization,
+                    slug=slug,
+                    defaults={"name": slug.replace("_", " ").title(), "order": order_idx},
+                )
+                order_idx += 1
+
+    Organization.objects.filter(id=organization.id).update(templates_seeded=True)
+    organization.templates_seeded = True
 
 
 # Alias

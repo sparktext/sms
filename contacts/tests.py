@@ -496,6 +496,21 @@ class ContactsViewAndTemplateTests(TestCase):
         self.assertContains(resp_q, "Bob")
         self.assertNotContains(resp_q, "Alice")
 
+        # Full-name search + live partial response
+        resp_full = self.client.get("/contacts/?q=Alice+Smith")
+        self.assertEqual(resp_full.status_code, 200)
+        self.assertContains(resp_full, "Alice")
+        self.assertNotContains(resp_full, "Bob")
+        self.assertContains(resp_full, 'oninput="scheduleContactsSearch()"')
+        self.assertContains(resp_full, 'id="contacts-table-container"')
+
+        resp_partial = self.client.get("/contacts/?partial=1&q=Alice+Smith", HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+        self.assertEqual(resp_partial.status_code, 200)
+        self.assertTemplateUsed(resp_partial, "contacts/partials/contacts_table.html")
+        self.assertContains(resp_partial, "Alice")
+        self.assertNotContains(resp_partial, "Bob")
+        self.assertNotContains(resp_partial, "<header")
+
     def test_add_contact_ajax_success(self):
         resp = self.client.post(
             "/contacts/new/",
@@ -639,6 +654,8 @@ class ContactsViewAndTemplateTests(TestCase):
         resp_idx = self.client.get("/contacts/lists/")
         self.assertEqual(resp_idx.status_code, 200)
         self.assertContains(resp_idx, "VIP Premium")
+        self.assertContains(resp_idx, "Active Lists")
+        self.assertContains(resp_idx, "Opted In Reach")
 
         # Delete
         resp_d = self.client.post(f"/contacts/lists/{cl_id}/delete/", HTTP_X_REQUESTED_WITH="XMLHttpRequest")
@@ -814,6 +831,397 @@ class ContactsViewAndTemplateTests(TestCase):
         self.assertNotEqual(data["api_key"], old_key)
         self.org.refresh_from_db()
         self.assertEqual(self.org.api_key, data["api_key"])
+
+    def test_export_contacts_csv(self):
+        """Export contacts view streams valid CSV with correct headers and contact data."""
+        self.client.login(username=self.user.email, password="password123")
+        Contact.objects.create(
+            organization=self.org,
+            phone="+14155552671",
+            first_name="ExportTest",
+            last_name="User",
+            email="export@example.com",
+            sms_status=Contact.SMSStatus.OPTED_IN,
+            custom_fields={"stage": "Qualified"},
+        )
+        resp = self.client.get("/contacts/export/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp["Content-Type"], "text/csv")
+        self.assertIn("sparktext_contacts_", resp["Content-Disposition"])
+        content = resp.content.decode("utf-8")
+        self.assertIn("Phone,First Name,Last Name,Email,SMS Status,Stage,Lists,Created At (UTC)", content)
+        self.assertIn("+14155552671,ExportTest,User,export@example.com,Opted In,Qualified", content)
+
+    @override_settings(MESSAGING_PROVIDER="fake")
+    def test_contact_detail_conversation_history_and_inline_reply(self):
+        from messaging.models import PhoneNumber, Conversation, Message
+
+        phone_num = PhoneNumber.objects.create(
+            organization=self.org,
+            e164="+14155550100",
+            label="Main Sales",
+            is_active=True,
+            is_default=True,
+        )
+        contact = Contact.objects.create(
+            organization=self.org,
+            phone="+16505553322",
+            first_name="Alex",
+            last_name="Taylor",
+            sms_status=Contact.SMSStatus.OPTED_IN,
+        )
+        conv = Conversation.objects.create(
+            organization=self.org,
+            contact=contact,
+            phone_number=phone_num,
+            status=Conversation.Status.OPEN,
+            unread_count=2,
+        )
+
+        Message.objects.create(
+            conversation=conv,
+            organization=self.org,
+            direction=Message.Direction.OUTBOUND,
+            sender_type=Message.SenderType.CAMPAIGN,
+            body="Fall promo broadcast!",
+            status=Message.Status.DELIVERED,
+        )
+        Message.objects.create(
+            conversation=conv,
+            organization=self.org,
+            direction=Message.Direction.INBOUND,
+            sender_type=Message.SenderType.CUSTOMER,
+            body="Tell me more about auto rates.",
+            status=Message.Status.RECEIVED,
+        )
+        Message.objects.create(
+            conversation=conv,
+            organization=self.org,
+            direction=Message.Direction.OUTBOUND,
+            sender_type=Message.SenderType.AI,
+            body="What is your ZIP code?",
+            status=Message.Status.DELIVERED,
+        )
+
+        # 1. GET contact detail renders the full conversation history & inline reply form
+        get_resp = self.client.get(f"/contacts/{contact.id}/")
+        self.assertEqual(get_resp.status_code, 200)
+        self.assertContains(get_resp, "Conversation History")
+        self.assertContains(get_resp, "3 messages")
+        self.assertContains(get_resp, "Fall promo broadcast!")
+        self.assertContains(get_resp, "Tell me more about auto rates.")
+        self.assertContains(get_resp, "What is your ZIP code?")
+        self.assertContains(get_resp, 'id="contact-reply-form"')
+
+        # 2. POST inline reply via AJAX sends SMS, pauses AI, and clears unread count
+        post_resp = self.client.post(
+            f"/contacts/{contact.id}/send/",
+            data={"conversation_id": conv.id, "body": "Hi Alex, calling you shortly!"},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(post_resp.status_code, 200)
+        pdata = post_resp.json()
+        self.assertEqual(pdata["status"], "success")
+        self.assertEqual(pdata["message"]["body"], "Hi Alex, calling you shortly!")
+        self.assertTrue(pdata["ai_mode_changed"])
+
+        conv.refresh_from_db()
+        self.assertEqual(conv.ai_mode, Conversation.AIMode.OFF)
+        self.assertEqual(conv.unread_count, 0)
+
+        # 3. Sending first ever message to a fresh contact with no existing conversation creates one cleanly
+        fresh_contact = Contact.objects.create(
+            organization=self.org,
+            phone="+16505554499",
+            first_name="Sam",
+            sms_status=Contact.SMSStatus.OPTED_IN,
+        )
+        first_resp = self.client.post(
+            f"/contacts/{fresh_contact.id}/send/",
+            data={"body": "Welcome Sam!"},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(first_resp.status_code, 200)
+        fdata = first_resp.json()
+        self.assertEqual(fdata["status"], "success")
+        self.assertTrue(Conversation.objects.filter(contact=fresh_contact, organization=self.org).exists())
+
+        # 4. Opted-out contact shows block notice and rejects reply
+        opted_out_contact = Contact.objects.create(
+            organization=self.org,
+            phone="+16505558800",
+            first_name="Blocked",
+            sms_status=Contact.SMSStatus.OPTED_OUT,
+        )
+        blocked_get = self.client.get(f"/contacts/{opted_out_contact.id}/")
+        self.assertContains(blocked_get, "Sending Currently Blocked")
+        self.assertNotContains(blocked_get, 'id="contact-reply-form"')
+
+        blocked_post = self.client.post(
+            f"/contacts/{opted_out_contact.id}/send/",
+            data={"body": "Trying to send"},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(blocked_post.status_code, 400)
+
+    @override_settings(AI_CLIENT="fake", MESSAGING_PROVIDER="fake")
+    def test_contact_conversation_summary_and_ai_endpoint(self):
+        from messaging.models import PhoneNumber, Conversation, Message
+        from messaging.ai.fake_client import FakeAIClient
+
+        FakeAIClient.reset()
+
+        phone_num = PhoneNumber.objects.create(
+            organization=self.org,
+            e164="+14155550199",
+            is_active=True,
+        )
+        contact = Contact.objects.create(
+            organization=self.org,
+            phone="+16505557788",
+            first_name="Maya",
+            sms_status=Contact.SMSStatus.OPTED_IN,
+            custom_fields={"stage": "Qualified"},
+        )
+        conv = Conversation.objects.create(
+            organization=self.org,
+            contact=contact,
+            phone_number=phone_num,
+            status=Conversation.Status.NEEDS_HUMAN,
+            handoff_reason="Requested custom commercial quote",
+            qualification_answers={"coverage_type": "Auto & Home", "zip_code": "94030"},
+        )
+        Message.objects.create(
+            conversation=conv,
+            organization=self.org,
+            direction=Message.Direction.INBOUND,
+            sender_type=Message.SenderType.CUSTOMER,
+            body="Looking for auto and home bundle in 94030.",
+            status=Message.Status.RECEIVED,
+        )
+        Message.objects.create(
+            conversation=conv,
+            organization=self.org,
+            direction=Message.Direction.OUTBOUND,
+            sender_type=Message.SenderType.AI,
+            body="Great, passing this to our licensed rep for your custom bundle quote!",
+            status=Message.Status.DELIVERED,
+        )
+
+        # 1. GET contact detail renders the Conversation Summary card with metrics & qualification answers
+        resp = self.client.get(f"/contacts/{contact.id}/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Conversation Summary")
+        self.assertContains(resp, "Auto &amp; Home")
+        self.assertContains(resp, "94030")
+        self.assertContains(resp, "Requested custom commercial quote")
+        self.assertContains(resp, "generateContactAiSummary()")
+        self.assertNotContains(resp, "Latest Exchange")
+
+        # 2. On-demand AI summary endpoint with FakeAIClient response
+        FakeAIClient.push_response("- Customer wants Auto & Home bundle.\n- ZIP: 94030.\n- Next: Send personalized bundle quote.")
+        sum_resp = self.client.post(
+            f"/contacts/{contact.id}/summary/",
+            data={"conversation_id": conv.id},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(sum_resp.status_code, 200)
+        sdata = sum_resp.json()
+        self.assertEqual(sdata["status"], "success")
+        self.assertEqual(sdata["source"], "ai")
+        self.assertIn("Auto & Home bundle", sdata["summary"])
+
+        # 3. Fallback extractive summary when LLM raises an exception (e.g. offline)
+        FakeAIClient.push_response(RuntimeError("Connection refused"))
+        fallback_resp = self.client.post(
+            f"/contacts/{contact.id}/summary/",
+            data={"conversation_id": conv.id},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(fallback_resp.status_code, 200)
+        fdata = fallback_resp.json()
+        self.assertEqual(fdata["status"], "success")
+        self.assertEqual(fdata["source"], "instant")
+        self.assertIn("2 total message(s)", fdata["summary"])
+
+    def test_contact_detail_stage_status_and_assignee_controls(self):
+        from messaging.models import PhoneNumber, Conversation, Message
+
+        phone_num = PhoneNumber.objects.create(
+            organization=self.org,
+            e164="+14155550188",
+            is_active=True,
+        )
+        contact = Contact.objects.create(
+            organization=self.org,
+            phone="+16505558899",
+            first_name="Liam",
+            sms_status=Contact.SMSStatus.OPTED_IN,
+            custom_fields={"stage": "Intake"},
+        )
+        conv = Conversation.objects.create(
+            organization=self.org,
+            contact=contact,
+            phone_number=phone_num,
+            status=Conversation.Status.NEEDS_HUMAN,
+        )
+        Message.objects.create(
+            conversation=conv,
+            organization=self.org,
+            direction=Message.Direction.INBOUND,
+            sender_type=Message.SenderType.CUSTOMER,
+            body="Can you send me an updated quote?",
+            status=Message.Status.RECEIVED,
+        )
+
+        # 1. GET renders interactive stage, conv status, assignee controls, and fixed draft-action URL
+        resp = self.client.get(f"/contacts/{contact.id}/")
+        self.assertEqual(resp.status_code, 200)
+        html = resp.content.decode("utf-8")
+        self.assertIn('id="contact-stage-select"', html)
+        self.assertIn('id="contact-conv-status-select"', html)
+        self.assertIn('id="contact-assign-select"', html)
+        self.assertIn("/draft-action/", html)
+        self.assertNotIn("/ai-draft/", html)
+        # 60px global header carries rep availability; page header in <main> has icon-only Back arrow before contact title
+        header_idx = html.index("<header")
+        main_idx = html.index("<main")
+        self.assertIn("h-[60px]", html[header_idx:main_idx])
+        self.assertIn('id="nav-availability-btn"', html[header_idx:main_idx])
+        self.assertNotIn('id="nav-availability-btn"', html[main_idx:])
+        self.assertIn('aria-label="Back to Contacts"', html[main_idx:])
+        self.assertNotIn("← Back to Contacts", html)
+        self.assertLess(
+            html.index('aria-label="Back to Contacts"', main_idx),
+            html.index("Liam", main_idx),
+        )
+        # Name & metadata row sits below the top back arrow + right-side action toolbar
+        self.assertLess(
+            html.index("Message Contact", main_idx),
+            html.index("Liam", main_idx),
+        )
+        # Right column (Consent Status & Conversation Summary) streams in HTML before long Conversation History thread
+        self.assertLess(html.index("Consent Status", main_idx), html.index("Conversation History", main_idx))
+        self.assertLess(html.index("Conversation Summary", main_idx), html.index("Conversation History", main_idx))
+        self.assertIn("lg:col-start-3 lg:row-start-1 lg:row-span-2", html[main_idx:])
+        self.assertIn("lg:col-span-2 lg:col-start-1 lg:row-start-2", html[main_idx:])
+        # Non-standard custom stage is preserved in the dropdown
+        self.assertRegex(html, r'<option[^>]*value="Intake"[^>]*selected')
+
+        # 2. Update lead stage via AJAX
+        stage_resp = self.client.post(
+            f"/contacts/{contact.id}/stage/",
+            data={"stage": "Quote Sent"},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(stage_resp.status_code, 200)
+        self.assertEqual(stage_resp.json()["status"], "success")
+        self.assertEqual(stage_resp.json()["stage"], "Quote Sent")
+        contact.refresh_from_db()
+        self.assertEqual(contact.custom_fields.get("stage"), "Quote Sent")
+
+        # 3. Assign rep via AJAX
+        assign_resp = self.client.post(
+            f"/inbox/{conv.id}/assign/",
+            data={"assigned_to_id": str(self.user.id)},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(assign_resp.status_code, 200)
+        self.assertEqual(assign_resp.json()["status"], "success")
+        conv.refresh_from_db()
+        self.assertEqual(conv.assigned_to_id, self.user.id)
+
+        # 4. Update conversation status via AJAX
+        status_resp = self.client.post(
+            f"/inbox/{conv.id}/status/",
+            data={"status": "closed"},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(status_resp.status_code, 200)
+        self.assertEqual(status_resp.json()["status"], "success")
+        self.assertEqual(status_resp.json()["new_status"], "closed")
+        conv.refresh_from_db()
+        self.assertEqual(conv.status, Conversation.Status.CLOSED)
+
+        # 5. Subsequent GET reflects all persisted updates
+        updated_resp = self.client.get(f"/contacts/{contact.id}/")
+        self.assertEqual(updated_resp.status_code, 200)
+        updated_html = updated_resp.content.decode("utf-8")
+        self.assertRegex(updated_html, r'<option[^>]*value="Quote Sent"[^>]*selected')
+        self.assertRegex(updated_html, r'<option[^>]*value="closed"[^>]*selected')
+        self.assertRegex(updated_html, rf'<option[^>]*value="{self.user.id}"[^>]*selected')
+
+        # 6. Contact with 0 messages still renders the interactive Lead Stage dropdown
+        empty_contact = Contact.objects.create(
+            organization=self.org,
+            phone="+16505559900",
+            first_name="Nora",
+            sms_status=Contact.SMSStatus.OPTED_IN,
+            custom_fields={"stage": "New Lead"},
+        )
+        empty_resp = self.client.get(f"/contacts/{empty_contact.id}/")
+        self.assertEqual(empty_resp.status_code, 200)
+        empty_html = empty_resp.content.decode("utf-8")
+        self.assertIn('id="contact-stage-select"', empty_html)
+        self.assertRegex(empty_html, r'<option[^>]*value="New Lead"[^>]*selected')
+
+    def test_contact_detail_loads_latest_35_with_full_summary_counts(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from messaging.models import PhoneNumber, Conversation, Message
+
+        phone_num = PhoneNumber.objects.create(
+            organization=self.org,
+            e164="+14155550177",
+            is_active=True,
+        )
+        contact = Contact.objects.create(
+            organization=self.org,
+            phone="+16505559977",
+            first_name="Chloe",
+            sms_status=Contact.SMSStatus.OPTED_IN,
+        )
+        conv = Conversation.objects.create(
+            organization=self.org,
+            contact=contact,
+            phone_number=phone_num,
+        )
+        base_dt = timezone.now() - timedelta(days=2)
+        created_msgs = []
+        for idx in range(1, 46):
+            is_sys = idx <= 5
+            m = Message.objects.create(
+                conversation=conv,
+                organization=self.org,
+                direction=Message.Direction.OUTBOUND if (idx % 2 == 0 or is_sys) else Message.Direction.INBOUND,
+                sender_type=(
+                    Message.SenderType.SYSTEM
+                    if is_sys
+                    else (Message.SenderType.CUSTOMER if idx % 2 else Message.SenderType.AI)
+                ),
+                body=f"Contact history item #{idx:02d}",
+                status=Message.Status.DELIVERED if (idx % 2 == 0 and not is_sys) else Message.Status.RECEIVED,
+            )
+            Message.objects.filter(pk=m.pk).update(created_at=base_dt + timedelta(minutes=idx))
+            created_msgs.append(m)
+
+        resp = self.client.get(f"/contacts/{contact.id}/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.context["chat_messages"]), 35)
+        self.assertEqual(resp.context["chat_messages"][0].id, created_msgs[10].id)  # #11
+        self.assertEqual(resp.context["chat_messages"][-1].id, created_msgs[-1].id)  # #45
+        self.assertTrue(resp.context["has_older_messages"])
+        self.assertEqual(resp.context["oldest_msg_id"], created_msgs[10].id)
+        self.assertEqual(resp.context["total_msg_count"], 45)
+        self.assertEqual(resp.context["conv_summary"]["total"], 40)
+
+        html = resp.content.decode("utf-8")
+        self.assertIn("45 messages", html)
+        self.assertIn('id="contact-older-messages-banner"', html)
+        self.assertIn("Contact history item #45", html)
+        self.assertNotIn("Contact history item #01", html)
+
+
 
 
 
