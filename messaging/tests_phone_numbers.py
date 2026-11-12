@@ -13,15 +13,24 @@ class MultiNumberRoutingTests(TestCase):
         self.client = Client()
         self.org = Organization.objects.create(name="Acme Multi-Line Inc", slug="acme-multi-line")
         self.user = User.objects.create_user(
+            email="admin@acmemulti.com",
+            password="securepassword123",
+            first_name="Admin",
+            last_name="Smith",
+            organization=self.org,
+            role=User.Role.ADMIN,
+            terms_accepted_at=timezone.now(),
+        )
+        self.agent = User.objects.create_user(
             email="agent@acmemulti.com",
             password="securepassword123",
             first_name="Agent",
-            last_name="Smith",
+            last_name="Jones",
             organization=self.org,
             role=User.Role.AGENT,
             terms_accepted_at=timezone.now(),
         )
-        self.client.login(email="agent@acmemulti.com", password="securepassword123")
+        self.client.login(email="admin@acmemulti.com", password="securepassword123")
 
         # Two phone numbers for Acme
         self.num_main = PhoneNumber.objects.create(
@@ -172,4 +181,34 @@ class MultiNumberRoutingTests(TestCase):
         self.assertEqual(resp_main.status_code, 200)
         self.num_main.refresh_from_db()
         self.assertTrue(self.num_main.is_active)  # Must remain active
+
+    def test_agent_cannot_modify_phone_numbers(self):
+        """Agents have read-only access to phone numbers: cannot add numbers or trigger actions."""
+        self.client.force_login(self.agent)
+
+        # GET should show read-only banner and hide action buttons
+        url = reverse("messaging:phone_numbers_settings")
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "read-only access to Phone Numbers")
+        self.assertNotContains(resp, "+ Add Phone Number")
+        self.assertNotContains(resp, "★ Set as Primary")
+
+        # POST to add number must be blocked
+        add_resp = self.client.post(url, {
+            "action": "add_number",
+            "phone": "+16615559999",
+            "label": "Hacker Line",
+        }, follow=True)
+        self.assertEqual(add_resp.status_code, 200)
+        self.assertFalse(PhoneNumber.objects.filter(e164="+16615559999").exists())
+        self.assertContains(add_resp, "Only Organization Owners and Admins")
+
+        # POST action must be blocked
+        action_url = reverse("messaging:phone_number_action", kwargs={"phone_id": self.num_sales.id})
+        act_resp = self.client.post(action_url, {"action": "make_default"}, follow=True)
+        self.assertEqual(act_resp.status_code, 200)
+        self.num_sales.refresh_from_db()
+        self.assertFalse(self.num_sales.is_default)  # Remains false
+        self.assertContains(act_resp, "Only Organization Owners and Admins")
 

@@ -1283,7 +1283,13 @@ def phone_numbers_settings(request):
     if not org:
         raise PermissionDenied("User is not associated with an organization.")
 
+    is_admin = request.user.role in [User.Role.OWNER, User.Role.ADMIN]
+
     if request.method == "POST":
+        if not is_admin:
+            messages.error(request, "Only Organization Owners and Admins can add or configure phone numbers.")
+            return redirect("messaging:phone_numbers_settings")
+
         action = request.POST.get("action", "").strip()
         if action == "add_number":
             raw_phone = request.POST.get("phone", "").strip()
@@ -1316,6 +1322,8 @@ def phone_numbers_settings(request):
     active_provider = getattr(settings, "MESSAGING_PROVIDER", "telnyx").lower()
 
     context = {
+        "org": org,
+        "is_admin": is_admin,
         "phone_numbers": phone_numbers,
         "public_base": public_base,
         "active_provider": active_provider,
@@ -1337,6 +1345,10 @@ def phone_number_action(request, phone_id):
     org = request.user.organization
     if not org:
         raise PermissionDenied("User is not associated with an organization.")
+
+    if request.user.role not in [User.Role.OWNER, User.Role.ADMIN]:
+        messages.error(request, "Only Organization Owners and Admins can modify phone numbers.")
+        return redirect("messaging:phone_numbers_settings")
 
     phone_number = get_object_or_404(PhoneNumber, id=phone_id, organization=org)
     action = request.POST.get("action", "").strip()

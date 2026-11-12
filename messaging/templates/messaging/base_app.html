@@ -22,7 +22,7 @@
     {% block extra_head %}{% endblock %}
   </head>
 
-  <body class="h-full flex text-gray-900 antialiased bg-slate-50">
+  <body class="h-full flex text-gray-900 antialiased bg-slate-50 overflow-x-hidden">
     <!-- Mobile overlay -->
     <div
       id="mobile-overlay"
@@ -432,18 +432,18 @@
             type="button"
             id="nav-availability-btn"
             onclick="toggleMyGlobalAvailability()"
-            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition cursor-pointer shadow-2xs whitespace-nowrap shrink-0 {% if request.user.is_available_for_leads %}bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100/80{% else %}bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100{% endif %}"
-            title="Click to toggle your availability for lead assignment"
+            class="inline-flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-full text-xs font-semibold border transition cursor-pointer shadow-2xs whitespace-nowrap shrink-0 {% if request.user.is_available_for_leads %}bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100/80{% else %}bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100{% endif %}"
+            title="{% if request.user.is_available_for_leads %}Available for Leads — click to go Away{% else %}Away / Paused — click to go Available{% endif %}"
           >
             <span class="w-2 h-2 rounded-full {% if request.user.is_available_for_leads %}bg-emerald-500 animate-pulse{% else %}bg-gray-400{% endif %}"></span>
-            <span id="nav-availability-text">{% if request.user.is_available_for_leads %}Available for Leads{% else %}Away / Paused{% endif %}</span>
+            <span id="nav-availability-text" class="hidden sm:inline">{% if request.user.is_available_for_leads %}Available for Leads{% else %}Away / Paused{% endif %}</span>
           </button>
           {% endif %}
           
         </div>
       </header>
 
-      <main class="p-6 sm:p-8 space-y-6 max-w-7xl w-full mx-auto">
+      <main class="p-3 sm:p-6 lg:p-8 space-y-6 max-w-7xl w-full mx-auto overflow-x-hidden">
         {% block page_header %}
         <!-- Page Header -->
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 {% block page_header_class %}{% endblock %}">
@@ -549,11 +549,11 @@
           if (data.status === "success") {
             const dot = btn.querySelector("span:first-child");
             if (data.is_available) {
-              btn.className = "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition cursor-pointer shadow-2xs whitespace-nowrap shrink-0 bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100/80";
+              btn.className = "inline-flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-full text-xs font-semibold border transition cursor-pointer shadow-2xs whitespace-nowrap shrink-0 bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100/80";
               if (dot) dot.className = "w-2 h-2 rounded-full bg-emerald-500 animate-pulse";
               if (textEl) textEl.innerText = "Available for Leads";
             } else {
-              btn.className = "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition cursor-pointer shadow-2xs whitespace-nowrap shrink-0 bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100";
+              btn.className = "inline-flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-full text-xs font-semibold border transition cursor-pointer shadow-2xs whitespace-nowrap shrink-0 bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100";
               if (dot) dot.className = "w-2 h-2 rounded-full bg-gray-400";
               if (textEl) textEl.innerText = "Away / Paused";
             }

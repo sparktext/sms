@@ -6,29 +6,32 @@
 {% block header_subtitle %}Manage subscriber phone numbers, opt-in consent status, and customer properties{% endblock %}
 
 {% block header_actions %}
-<button type="button" onclick="openApiModal()" class="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-semibold text-brand-700 bg-brand-50 border border-brand-200 rounded-xl hover:bg-brand-100 hover:text-brand-900 transition shadow-xs cursor-pointer whitespace-nowrap shrink-0">
+<button type="button" onclick="openApiModal()" class="inline-flex items-center gap-2 px-3 py-2 text-xs sm:text-sm font-semibold text-brand-700 bg-brand-50 border border-brand-200 rounded-xl hover:bg-brand-100 hover:text-brand-900 transition shadow-xs cursor-pointer whitespace-nowrap shrink-0">
   <svg class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
   </svg>
-  API / Webhook
+  <span class="hidden sm:inline">API / Webhook</span>
+  <span class="sm:hidden">API</span>
 </button>
-<button type="button" onclick="openCsvModal()" class="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 hover:text-gray-900 transition shadow-xs cursor-pointer whitespace-nowrap shrink-0">
+<button type="button" onclick="openCsvModal()" class="inline-flex items-center gap-2 px-3 py-2 text-xs sm:text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 hover:text-gray-900 transition shadow-xs cursor-pointer whitespace-nowrap shrink-0">
   <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
   </svg>
-  Import CSV
+  <span class="hidden sm:inline">Import CSV</span>
+  <span class="sm:hidden">Import</span>
 </button>
-<a id="exportContactsLink" href="{% url 'contacts:export_contacts' %}{% if request.GET.urlencode %}?{{ request.GET.urlencode }}{% endif %}" class="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 hover:text-gray-900 transition shadow-xs cursor-pointer whitespace-nowrap shrink-0" title="Export current list to CSV">
+<a id="exportContactsLink" href="{% url 'contacts:export_contacts' %}{% if request.GET.urlencode %}?{{ request.GET.urlencode }}{% endif %}" class="inline-flex items-center gap-2 px-3 py-2 text-xs sm:text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 hover:text-gray-900 transition shadow-xs cursor-pointer whitespace-nowrap shrink-0 hidden sm:inline-flex" title="Export current list to CSV">
   <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
   </svg>
   Export CSV
 </a>
-<button type="button" onclick="openAddContactModal()" class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-sm shadow-brand-600/30 cursor-pointer whitespace-nowrap shrink-0">
+<button type="button" onclick="openAddContactModal()" class="inline-flex items-center gap-2 px-3 py-2 text-xs sm:text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-sm shadow-brand-600/30 cursor-pointer whitespace-nowrap shrink-0">
   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
   </svg>
-  Add Contact
+  <span class="hidden sm:inline">Add Contact</span>
+  <span class="sm:hidden">Add</span>
 </button>
 {% endblock %}
 
