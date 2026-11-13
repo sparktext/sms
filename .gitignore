@@ -38,3 +38,11 @@ Thumbs.db
 dist/
 build/
 *.egg-info/
+
+# Secrets — never commit credentials
+secrets/
+*.env
+!.env.example
+
+# Google OAuth JSON (covered by secrets/ but explicit for safety)
+google_oauth.json

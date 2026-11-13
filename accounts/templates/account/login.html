@@ -1,0 +1,91 @@
+{% extends "accounts/base_auth.html" %}
+{% load i18n account socialaccount %}
+
+{% block title %}Sign In – SparkText{% endblock %}
+
+{% block content %}
+
+<h1 class="page-title">Welcome back</h1>
+<p class="page-subtitle">Sign in to your SparkText workspace.</p>
+
+{% if request.GET.reason == "inactivity" %}
+<div class="alerts">
+  <div class="alert alert-warning">
+    <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="2"/><path stroke-linecap="round" stroke-width="2" d="M12 8v4m0 4h.01"/></svg>
+    <span>You were signed out after 30 minutes of inactivity.</span>
+  </div>
+</div>
+{% endif %}
+
+{% if form.errors %}
+<div class="alerts">
+  {% for field, errors in form.errors.items %}{% for error in errors %}
+  <div class="alert alert-error">
+    <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="2"/><path stroke-linecap="round" stroke-width="2" d="M15 9l-6 6M9 9l6 6"/></svg>
+    <span>{{ error }}</span>
+  </div>
+  {% endfor %}{% endfor %}
+</div>
+{% endif %}
+
+<form method="post" action="{% url 'account_login' %}" novalidate>
+  {% csrf_token %}
+  {% if redirect_field_value %}
+  <input type="hidden" name="{{ redirect_field_name }}" value="{{ redirect_field_value }}">
+  {% endif %}
+
+  <div class="form-group">
+    <label for="id_login">Email address</label>
+    <input type="email" name="login" id="id_login"
+           value="{{ form.login.value|default:'' }}"
+           placeholder="you@company.com"
+           autocomplete="email" autofocus required
+           class="auth-input {% if form.login.errors %}error{% endif %}">
+  </div>
+
+  <div class="form-group">
+    <div class="label-row">
+      <label for="id_password" style="margin-bottom:0;">Password</label>
+      <a href="{% url 'account_reset_password' %}" class="link-sm">Forgot password?</a>
+    </div>
+    <div class="pw-wrap">
+      <input type="password" name="password" id="id_password"
+             autocomplete="current-password" required
+             class="auth-input {% if form.password.errors %}error{% endif %}">
+      <button type="button" class="pw-toggle" onclick="togglePw('id_password', this)" aria-label="Toggle password">
+        <svg class="eye-off" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+        <svg class="eye-on" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display:none"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="form-group checkbox-row">
+    <input type="checkbox" name="remember" id="id_remember">
+    <label for="id_remember">Remember me for 30 days</label>
+  </div>
+
+  <button type="submit" class="btn btn-primary" style="margin-top:8px;">
+    <span class="spinner"></span>
+    <span class="btn-label">Sign in →</span>
+  </button>
+</form>
+
+<div class="divider">or continue with</div>
+
+<form method="post" action="{% provider_login_url 'google' %}" novalidate>
+  {% csrf_token %}
+  <button type="submit" class="btn btn-google">
+    <svg width="18" height="18" viewBox="0 0 48 48">
+      <path fill="#4285F4" d="M44.5 20H24v8.5h11.7C34.1 33.6 29.5 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3 0 5.8 1.1 7.9 3L37 11C33.8 8.1 29.1 6 24 6 12.9 6 4 14.9 4 24s8.9 18 20 18c10 0 19-7.2 19-18 0-1.3-.2-2.7-.5-4z"/>
+    </svg>
+    <span class="btn-label">Continue with Google</span>
+  </button>
+</form>
+
+{% endblock %}
+
+{% block card_footer %}
+<div class="card-footer">
+  New to SparkText? <a href="{% url 'account_signup' %}" class="link">Create a free account</a>
+</div>
+{% endblock %}

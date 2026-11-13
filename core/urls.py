@@ -1,19 +1,15 @@
 from django.contrib.auth import views as auth_views
 from django.urls import path
+from django.views.generic import RedirectView
 
 from . import views
 from . import views_settings
 
 urlpatterns = [
-    path("signup/", views.signup, name="signup"),
-    path(
-        "login/",
-        auth_views.LoginView.as_view(
-            template_name="core/login.html", redirect_authenticated_user=True
-        ),
-        name="login",
-    ),
-    path("logout/", auth_views.LogoutView.as_view(), name="logout"),
+    # --- Auth: redirect old core login/signup to allauth ---
+    path("signup/", RedirectView.as_view(url="/accounts/signup/", permanent=False), name="signup"),
+    path("login/", RedirectView.as_view(url="/accounts/login/", permanent=False), name="login"),
+    path("logout/", auth_views.LogoutView.as_view(next_page="/accounts/login/"), name="logout"),
 
     # Settings & Organization
     path("settings/", views_settings.settings_redirect, name="settings_index"),

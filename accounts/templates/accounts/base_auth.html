@@ -1,0 +1,459 @@
+{% load i18n %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}SparkText{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300;0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700;0,14..32,800&display=swap" rel="stylesheet">
+  <style>
+    /* ── Reset & base ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --brand:       #4f46e5;
+      --brand-dark:  #4338ca;
+      --brand-light: #6366f1;
+      --brand-50:    #eef2ff;
+      --brand-100:   #e0e7ff;
+      --brand-ring:  rgba(99,102,241,0.25);
+      --accent:      #06d6a0;
+      --slate-50:    #f8fafc;
+      --slate-100:   #f1f5f9;
+      --slate-200:   #e2e8f0;
+      --slate-300:   #cbd5e1;
+      --slate-400:   #94a3b8;
+      --slate-500:   #64748b;
+      --slate-600:   #475569;
+      --slate-700:   #334155;
+      --slate-800:   #1e293b;
+      --slate-900:   #0f172a;
+      --white:       #ffffff;
+      --rose-50:     #fff1f2;
+      --rose-200:    #fecdd3;
+      --rose-600:    #e11d48;
+      --rose-700:    #be123c;
+      --amber-50:    #fffbeb;
+      --amber-200:   #fde68a;
+      --amber-700:   #b45309;
+      --emerald-50:  #ecfdf5;
+      --emerald-200: #a7f3d0;
+      --emerald-700: #047857;
+      --radius-sm:   8px;
+      --radius:      12px;
+      --radius-lg:   16px;
+      --shadow-card: 0 25px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.06);
+    }
+
+    html, body { height: 100%; }
+
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      font-size: 15px;
+      line-height: 1.5;
+      color: var(--slate-900);
+      background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 55%, #0f172a 100%);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2.5rem 1rem;
+      position: relative;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Background animated orbs ── */
+    .orb {
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(90px);
+      pointer-events: none;
+      animation: orbFloat 12s ease-in-out infinite alternate;
+    }
+    .orb-1 { width: 420px; height: 420px; background: rgba(99,102,241,0.2); top: -100px; left: -100px; }
+    .orb-2 { width: 320px; height: 320px; background: rgba(6,214,160,0.13); bottom: -80px; right: -80px; animation-delay: 4s; }
+    .orb-3 { width: 220px; height: 220px; background: rgba(139,92,246,0.14); top: 45%; left: 55%; animation-delay: 7s; }
+    @keyframes orbFloat {
+      from { transform: translate(0,0) scale(1); }
+      to   { transform: translate(22px,16px) scale(1.1); }
+    }
+
+    /* ── Page wrapper ── */
+    .page-wrap {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    /* ── Brand logo ── */
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      margin-bottom: 2rem;
+    }
+    .brand-icon {
+      width: 44px; height: 44px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #6366f1, #4f46e5, #4338ca);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px;
+      box-shadow: 0 8px 24px rgba(79,70,229,0.45);
+      transition: box-shadow 0.2s;
+    }
+    .brand:hover .brand-icon { box-shadow: 0 10px 32px rgba(79,70,229,0.6); }
+    .brand-text { display: flex; flex-direction: column; }
+    .brand-name {
+      font-size: 1.5rem;
+      font-weight: 800;
+      color: #fff;
+      letter-spacing: -0.03em;
+      line-height: 1;
+    }
+    .brand-sub {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--slate-400);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-top: 2px;
+    }
+
+    /* ── Card ── */
+    .card {
+      width: 100%;
+      max-width: 440px;
+      background: var(--white);
+      border-radius: 20px;
+      box-shadow: var(--shadow-card);
+      overflow: hidden;
+    }
+    .card-body { padding: 2rem 2rem; }
+
+    /* ── Global flash messages (at top of card) ── */
+    .flash-messages { padding: 1.25rem 2rem 0; display: flex; flex-direction: column; gap: 8px; }
+
+    /* ── Alert boxes ── */
+    .alert {
+      display: flex; align-items: flex-start; gap: 10px;
+      padding: 10px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 0.84rem;
+      line-height: 1.4;
+      border: 1px solid;
+    }
+    .alert svg { flex-shrink: 0; margin-top: 1px; }
+    .alert-error   { background: var(--rose-50);   color: #9f1239; border-color: var(--rose-200); }
+    .alert-warning { background: var(--amber-50);  color: var(--amber-700); border-color: var(--amber-200); }
+    .alert-success { background: var(--emerald-50);color: var(--emerald-700); border-color: var(--emerald-200); }
+    .alert-info    { background: #eff6ff;          color: #1e40af; border-color: #bfdbfe; }
+    .alerts { display: flex; flex-direction: column; gap: 8px; margin-bottom: 1.25rem; }
+
+    /* ── Typography ── */
+    .page-title {
+      font-size: 1.5rem;
+      font-weight: 800;
+      color: var(--slate-900);
+      letter-spacing: -0.025em;
+      margin-bottom: 4px;
+    }
+    .page-subtitle {
+      font-size: 0.875rem;
+      color: var(--slate-500);
+      margin-bottom: 1.5rem;
+      line-height: 1.5;
+    }
+
+    /* ── Form elements ── */
+    .form-group { margin-bottom: 1rem; }
+    .label-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+
+    label {
+      display: block;
+      font-size: 0.84rem;
+      font-weight: 600;
+      color: var(--slate-700);
+      margin-bottom: 6px;
+    }
+
+    .auth-input {
+      display: block;
+      width: 100%;
+      padding: 10px 14px;
+      border: 1.5px solid var(--slate-200);
+      border-radius: var(--radius-sm);
+      background: var(--slate-50);
+      color: var(--slate-900);
+      font-size: 0.9rem;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+      -webkit-appearance: none;
+    }
+    .auth-input::placeholder { color: var(--slate-400); }
+    .auth-input:focus {
+      border-color: var(--brand-light);
+      box-shadow: 0 0 0 3px var(--brand-ring);
+      background: var(--white);
+    }
+    .auth-input.error { border-color: #f43f5e; }
+    .auth-input.error:focus { box-shadow: 0 0 0 3px rgba(244,63,94,0.2); }
+
+    .field-error { display: block; font-size: 0.78rem; color: var(--rose-600); margin-top: 4px; }
+    .label-hint { font-size: 0.78rem; font-weight: 400; color: var(--slate-400); }
+
+    /* ── Password wrapper ── */
+    .pw-wrap { position: relative; }
+    .pw-wrap .auth-input { padding-right: 42px; }
+    .pw-toggle {
+      position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+      background: none; border: none; cursor: pointer; padding: 4px;
+      color: var(--slate-400); display: flex; align-items: center;
+      border-radius: 4px; transition: color 0.15s;
+    }
+    .pw-toggle:hover { color: var(--slate-700); }
+    .eye-on { display: none; }
+
+    /* ── Strength bar ── */
+    .strength-bar {
+      height: 4px; background: var(--slate-100);
+      border-radius: 2px; margin-top: 8px; overflow: hidden;
+    }
+    .strength-fill {
+      height: 100%; border-radius: 2px; width: 0%;
+      transition: width 0.3s ease, background-color 0.3s ease;
+    }
+    .strength-label { font-size: 0.75rem; color: var(--slate-400); margin-top: 4px; display: block; min-height: 18px; }
+
+    /* ── Checkbox ── */
+    .checkbox-row { display: flex; align-items: flex-start; gap: 10px; }
+    .checkbox-row input[type=checkbox] {
+      width: 16px; height: 16px; margin-top: 2px; flex-shrink: 0;
+      accent-color: var(--brand); cursor: pointer;
+    }
+    .checkbox-row label { font-weight: 400; font-size: 0.875rem; color: var(--slate-600); cursor: pointer; }
+
+    /* ── Buttons ── */
+    .btn {
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      width: 100%; padding: 11px 20px;
+      border: none; border-radius: var(--radius-sm);
+      font-size: 0.9rem; font-weight: 600; font-family: inherit;
+      cursor: pointer; text-decoration: none;
+      transition: all 0.15s ease;
+    }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none !important; }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #6366f1, #4f46e5, #4338ca);
+      color: white;
+      box-shadow: 0 4px 16px rgba(79,70,229,0.35);
+      margin-bottom: 10px;
+    }
+    .btn-primary:hover:not(:disabled) { opacity: 0.92; transform: translateY(-1px); box-shadow: 0 6px 22px rgba(79,70,229,0.45); }
+    .btn-primary:active:not(:disabled) { transform: translateY(0); opacity: 1; }
+
+    .btn-google {
+      background: var(--white); color: var(--slate-700);
+      border: 1.5px solid var(--slate-200);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+      margin-bottom: 10px;
+    }
+    .btn-google:hover:not(:disabled) { border-color: var(--slate-300); background: var(--slate-50); transform: translateY(-1px); }
+
+    .btn-outline {
+      background: transparent; color: var(--slate-700);
+      border: 1.5px solid var(--slate-200);
+    }
+    .btn-outline:hover:not(:disabled) { border-color: var(--slate-300); background: var(--slate-50); }
+
+    /* ── Spinner ── */
+    .spinner {
+      display: none; width: 14px; height: 14px; flex-shrink: 0;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: white; border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
+    .spinner-dark { border-color: rgba(0,0,0,0.12); border-top-color: var(--slate-700); }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Divider ── */
+    .divider {
+      display: flex; align-items: center; gap: 10px;
+      margin: 1.25rem 0; font-size: 0.78rem; color: var(--slate-400); font-weight: 500;
+    }
+    .divider::before, .divider::after {
+      content: ''; flex: 1; height: 1px; background: var(--slate-200);
+    }
+
+    /* ── Links ── */
+    .link { color: var(--brand); text-decoration: none; font-weight: 600; }
+    .link:hover { color: var(--brand-dark); text-decoration: underline; }
+    .link-sm { font-size: 0.8rem; color: var(--brand); text-decoration: none; font-weight: 600; }
+    .link-sm:hover { color: var(--brand-dark); }
+    .link-muted { color: var(--slate-400); font-size: 0.75rem; text-decoration: none; }
+    .link-muted:hover { color: var(--white); }
+
+    /* ── Card footer strip ── */
+    .card-footer {
+      padding: 1rem 2rem;
+      border-top: 1px solid var(--slate-100);
+      text-align: center;
+      font-size: 0.875rem;
+      color: var(--slate-500);
+    }
+
+    /* ── Info box ── */
+    .info-box {
+      background: var(--brand-50); border: 1px solid var(--brand-100);
+      border-radius: var(--radius-sm); padding: 12px 16px;
+      font-size: 0.84rem; color: #3730a3; margin-bottom: 1.25rem; line-height: 1.5;
+      display: flex; gap: 10px; align-items: flex-start;
+    }
+    .info-box svg { flex-shrink: 0; margin-top: 2px; }
+
+    /* ── Step bar ── */
+    .step-bar { display: flex; gap: 6px; margin-bottom: 1.5rem; }
+    .step { flex: 1; height: 4px; border-radius: 2px; background: var(--slate-200); }
+    .step.active { background: linear-gradient(90deg, var(--brand-light), var(--brand)); }
+
+    /* ── Feature pills ── */
+    .pills { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 1.25rem; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 4px 10px; border-radius: 999px;
+      font-size: 0.75rem; font-weight: 600; border: 1px solid;
+    }
+    .pill-brand { background: var(--brand-50); color: var(--brand); border-color: var(--brand-100); }
+    .pill-green { background: var(--emerald-50); color: var(--emerald-700); border-color: var(--emerald-200); }
+    .pill-purple { background: #f5f3ff; color: #7c3aed; border-color: #ede9fe; }
+
+    /* ── Page footer ── */
+    .page-footer { margin-top: 1.5rem; font-size: 0.75rem; color: var(--slate-500); text-align: center; }
+
+    /* ── Icon circle ── */
+    .icon-circle {
+      width: 56px; height: 56px; border-radius: 16px;
+      background: var(--brand-50); border: 1px solid var(--brand-100);
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 1.25rem;
+    }
+    .icon-circle.danger { background: var(--rose-50); border-color: var(--rose-200); }
+
+    /* ── Centered block ── */
+    .text-center { text-align: center; }
+    .mt-1 { margin-top: 4px; }
+    .mt-2 { margin-top: 8px; }
+    .mt-4 { margin-top: 16px; }
+    .mt-6 { margin-top: 24px; }
+    .mb-2 { margin-bottom: 8px; }
+    .mb-4 { margin-bottom: 16px; }
+    .mb-6 { margin-bottom: 24px; }
+
+    @media (max-width: 480px) {
+      .card-body { padding: 1.5rem 1.5rem; }
+      .flash-messages { padding: 1rem 1.5rem 0; }
+      .card-footer { padding: 1rem 1.5rem; }
+    }
+
+    {% block extra_css %}{% endblock %}
+  </style>
+</head>
+<body>
+
+  <!-- Background orbs -->
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
+
+  <div class="page-wrap">
+
+    <!-- Brand -->
+    <a href="/" class="brand" aria-label="SparkText home">
+      <div class="brand-icon">⚡</div>
+      <div class="brand-text">
+        <span class="brand-name">SparkText</span>
+        <span class="brand-sub">AI Lead Outreach</span>
+      </div>
+    </a>
+
+    <!-- Card -->
+    <div class="card">
+
+      {% if messages %}
+      <div class="flash-messages">
+        {% for message in messages %}
+        <div class="alert {% if 'error' in message.tags %}alert-error{% elif 'warning' in message.tags %}alert-warning{% elif 'success' in message.tags %}alert-success{% else %}alert-info{% endif %}">
+          <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="2"/><path stroke-linecap="round" stroke-width="2" d="M12 8v4m0 4h.01"/></svg>
+          <span>{{ message }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <div class="card-body">
+        {% block content %}{% endblock %}
+      </div>
+
+      {% block card_footer %}{% endblock %}
+    </div>
+
+    <!-- Page footer -->
+    <p class="page-footer">
+      &copy; 2026 SparkText &nbsp;&middot;&nbsp;
+      <a href="/privacy/" class="link-muted">Privacy</a>
+      &nbsp;&middot;&nbsp;
+      <a href="/terms/" class="link-muted">Terms</a>
+    </p>
+
+  </div>
+
+  <script>
+  /* Anti double-submit + spinner (shared across all auth forms) */
+  document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('form').forEach(function (form) {
+      form.addEventListener('submit', function (e) {
+        if (!form.checkValidity()) return;
+        var btn = form.querySelector('button[type="submit"]');
+        if (!btn) return;
+        if (btn.dataset.submitting === '1') { e.preventDefault(); return; }
+        btn.dataset.submitting = '1';
+        btn.disabled = true;
+        var spinner = btn.querySelector('.spinner');
+        var label   = btn.querySelector('.btn-label');
+        if (spinner) spinner.style.display = 'block';
+        if (label)  { label.dataset.orig = label.textContent; label.textContent = 'Please wait…'; }
+        /* Safety reset after 10s */
+        setTimeout(function () {
+          btn.disabled = false;
+          btn.dataset.submitting = '';
+          if (spinner) spinner.style.display = 'none';
+          if (label && label.dataset.orig) label.textContent = label.dataset.orig;
+        }, 10000);
+      });
+    });
+  });
+
+  /* Toggle password visibility */
+  function togglePw(inputId, btn) {
+    var inp = document.getElementById(inputId);
+    var showing = inp.type === 'text';
+    inp.type = showing ? 'password' : 'text';
+    var eyeOn  = btn.querySelector('.eye-on');
+    var eyeOff = btn.querySelector('.eye-off');
+    if (eyeOn)  eyeOn.style.display  = showing ? 'none'  : 'block';
+    if (eyeOff) eyeOff.style.display = showing ? 'block' : 'none';
+  }
+  </script>
+
+  {% block extra_js %}{% endblock %}
+</body>
+</html>

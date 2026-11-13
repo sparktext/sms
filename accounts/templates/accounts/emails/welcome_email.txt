@@ -1,0 +1,10 @@
+Welcome to SparkText, {{ full_name }}!
+
+Your account is ready. SparkText helps your team respond to leads faster with AI-powered SMS conversations.
+
+Open your dashboard: https://sparktext.si/app/
+
+---
+If you didn't create this account, you can safely ignore this email.
+SparkText · https://sparktext.si
+
