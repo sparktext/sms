@@ -7,7 +7,7 @@ from django.http import HttpResponse, HttpResponseForbidden, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Sum
 from django.utils import timezone
 
 from contacts.models import Contact
@@ -17,7 +17,7 @@ from compliance.models import ConsentEvent
 from compliance.services import classify_keyword, record_consent
 from .models import PhoneNumber, Conversation, Message, AIAssistantConfig, AIJob
 from .providers import get_sms_provider
-from .utils import get_public_base_url
+from .utils import get_public_base_url, format_chat_timestamp
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +55,9 @@ TELNYX_STATUS_MAP = {
     "sending": "sending",
     "sent": "sent",
     "delivered": "delivered",
+    "delivery_unconfirmed": "sent",
+    "delivery_failed": "undelivered",
+    "sending_failed": "failed",
     "undelivered": "undelivered",
     "failed": "failed",
 }
@@ -173,7 +176,8 @@ def _handle_inbound_sms(
 
     # Real-time WebSocket broadcast to open conversation windows
     try:
-        from .ws_broadcast import broadcast_chat_event
+        from .ws_broadcast import broadcast_chat_event, broadcast_inbox_event
+        from .utils import get_org_status_counts
         broadcast_chat_event(
             conversation.id,
             {
@@ -183,8 +187,42 @@ def _handle_inbound_sms(
                     "body": message.body,
                     "direction": message.direction,
                     "sender_type": message.sender_type,
-                    "created_at": message.created_at.strftime("%I:%M %p"),
+                    "created_at": format_chat_timestamp(message.created_at),
                     "status": message.status,
+                },
+            },
+        )
+        # Real-time WebSocket broadcast to sidebar inbox list and global toast notifications
+        conversation.refresh_from_db(fields=["unread_count"])
+        total_unread = (
+            Conversation.objects.filter(
+                organization=org,
+                status__in=[Conversation.Status.OPEN, Conversation.Status.NEEDS_HUMAN],
+            ).aggregate(total=Sum("unread_count"))["total"]
+            or 0
+        )
+        contact_name = (contact.first_name + (" " + contact.last_name if contact.last_name else "")).strip() if (contact.first_name or contact.last_name) else contact.phone
+        broadcast_inbox_event(
+            org.id,
+            {
+                "event": "inbox_update",
+                "conversation": {
+                    "id": conversation.id,
+                    "last_body": message.body,
+                    "direction": message.direction,
+                    "last_message_at_display": "just now",
+                    "unread_count": conversation.unread_count,
+                    "status": conversation.status,
+                    "contact_name": contact_name,
+                    "contact_phone": contact.phone,
+                },
+                "nav_unread_count": total_unread,
+                "counts": get_org_status_counts(org),
+                "toast": {
+                    "title": f"New message from {contact_name}",
+                    "body": message.body[:140],
+                    "conversation_id": conversation.id,
+                    "type": "inbound_message",
                 },
             },
         )
@@ -217,8 +255,18 @@ def _handle_inbound_sms(
         keyword = classify_keyword(body)
         effective_mode = conversation.get_effective_ai_mode(config)
 
+        # Skip AI only if message is an echo of a recent outbound campaign broadcast
+        ten_mins_ago = timezone.now() - timedelta(minutes=10)
+        is_campaign_echo = Message.objects.filter(
+            organization=org,
+            sender_type=Message.SenderType.CAMPAIGN,
+            body=body,
+            created_at__gte=ten_mins_ago,
+        ).exists()
+
         if (
-            effective_mode != AIAssistantConfig.Mode.OFF
+            not is_campaign_echo
+            and effective_mode != AIAssistantConfig.Mode.OFF
             and keyword not in ["STOP", "START", "HELP"]
             and contact.sms_status != Contact.SMSStatus.OPTED_OUT
             and conversation.status != Conversation.Status.CLOSED
@@ -252,16 +300,55 @@ def _handle_inbound_sms(
     return message
 
 
+def _extract_telnyx_status_update(event_type: str, payload: Dict[str, Any]):
+    """
+    Normalizes Telnyx v2 messaging status events (including message.sent and
+    message.finalized where carrier delivery outcomes live inside payload.to[0].status).
+    Returns (message_sid, target_status, error_code, error_message).
+    """
+    message_sid = str(payload.get("id") or "").strip()
+
+    raw_to_status = ""
+    to_list = payload.get("to")
+    if isinstance(to_list, list) and to_list and isinstance(to_list[0], dict):
+        raw_to_status = str(to_list[0].get("status") or "").strip().lower()
+
+    errors = payload.get("errors")
+    err_code = ""
+    err_message = ""
+    if isinstance(errors, list) and errors and isinstance(errors[0], dict):
+        err_code = str(errors[0].get("code") or "").strip()
+        err_message = str(errors[0].get("detail") or errors[0].get("title") or "").strip()
+
+    target_status = ""
+    if raw_to_status and raw_to_status in TELNYX_STATUS_MAP:
+        # Avoid letting a nested intermediate 'sent'/'queued' downgrade an explicit event_type like message.delivered
+        mapped_to = TELNYX_STATUS_MAP[raw_to_status]
+        mapped_evt = TELNYX_STATUS_MAP.get(event_type, "")
+        if STATUS_ORDER.get(mapped_to, 0) >= STATUS_ORDER.get(mapped_evt, 0):
+            target_status = mapped_to
+        else:
+            target_status = mapped_evt
+    elif event_type in TELNYX_STATUS_MAP:
+        target_status = TELNYX_STATUS_MAP[event_type]
+    elif event_type == "message.finalized":
+        fallback_status = str(payload.get("status") or "").strip().lower()
+        target_status = TELNYX_STATUS_MAP.get(fallback_status) or ("failed" if err_code else "sent")
+
+    return message_sid, target_status, err_code, err_message
+
+
 def _handle_status_update(
     message_sid: str,
     target_status: str,
     error_code: str = "",
+    error_message: str = "",
 ) -> bool:
     """
     Monotonically advances a message's delivery status.
     Terminal statuses (delivered, failed, undelivered) are never downgraded.
     """
-    if not message_sid:
+    if not message_sid or not target_status:
         return False
 
     message = Message.objects.filter(provider_message_sid=message_sid).first()
@@ -272,15 +359,24 @@ def _handle_status_update(
     current_rank = STATUS_ORDER.get(message.status, 0)
     new_rank = STATUS_ORDER.get(target_status, 0)
 
+    is_post_delivered_conflict = (
+        message.status == Message.Status.DELIVERED
+        and target_status != Message.Status.DELIVERED
+    )
+
     # Status only moves forward
-    if new_rank >= current_rank:
+    if new_rank >= current_rank and not is_post_delivered_conflict:
         prev_status = message.status
         message.status = target_status
         update_fields = ["status"]
 
         if error_code:
-            message.error_code = error_code
+            message.error_code = error_code[:32]
             update_fields.append("error_code")
+
+        if error_message:
+            message.error_message = error_message[:500]
+            update_fields.append("error_message")
 
         if target_status == Message.Status.DELIVERED and not message.delivered_at:
             message.delivered_at = timezone.now()
@@ -304,10 +400,43 @@ def _handle_status_update(
                         "event": "status_update",
                         "message_id": message.id,
                         "status": target_status,
+                        "error_message": message.error_message or "",
                     },
                 )
             except Exception as exc:
                 logger.warning("Failed to broadcast status update %s: %s", message.id, exc)
+
+            # If message belongs to a campaign, update delivery counts and broadcast to /campaigns/<id>/
+            try:
+                from campaigns.models import CampaignRecipient
+                from campaigns.ws_broadcast import broadcast_campaign_progress
+                recip = CampaignRecipient.objects.filter(message=message).select_related("campaign").first()
+                if recip:
+                    camp = recip.campaign
+                    if target_status == Message.Status.DELIVERED and recip.status != CampaignRecipient.Status.DELIVERED:
+                        recip.status = CampaignRecipient.Status.DELIVERED
+                        recip.save(update_fields=["status"])
+                        camp.delivered_count = CampaignRecipient.objects.filter(campaign=camp, status=CampaignRecipient.Status.DELIVERED).count()
+                        camp.save(update_fields=["delivered_count"])
+                        broadcast_campaign_progress(camp, [{
+                            "id": recip.id,
+                            "status": "delivered",
+                            "status_display": "Delivered",
+                        }])
+                    elif target_status in [Message.Status.FAILED, Message.Status.UNDELIVERED] and recip.status != CampaignRecipient.Status.FAILED:
+                        recip.status = CampaignRecipient.Status.FAILED
+                        recip.error_message = error_message or error_code or "Carrier delivery failed"
+                        recip.save(update_fields=["status", "error_message"])
+                        camp.failed_count = CampaignRecipient.objects.filter(campaign=camp, status=CampaignRecipient.Status.FAILED).count()
+                        camp.save(update_fields=["failed_count"])
+                        broadcast_campaign_progress(camp, [{
+                            "id": recip.id,
+                            "status": "failed",
+                            "status_display": "Failed",
+                            "error_message": recip.error_message,
+                        }])
+            except Exception as camp_exc:
+                logger.warning("Failed to update CampaignRecipient delivery status: %s", camp_exc)
 
         return True
     else:
@@ -368,10 +497,11 @@ def twilio_status_callback(request):
     message_sid = request.POST.get("MessageSid", "").strip()
     raw_status = request.POST.get("MessageStatus", "").strip().lower()
     error_code = request.POST.get("ErrorCode", "").strip()
+    error_message = request.POST.get("ErrorMessage", "").strip()
 
     target_status = TWILIO_STATUS_MAP.get(raw_status)
     if target_status:
-        _handle_status_update(message_sid, target_status, error_code)
+        _handle_status_update(message_sid, target_status, error_code, error_message)
 
     return HttpResponse("OK", status=200)
 
@@ -384,10 +514,8 @@ def twilio_status_callback(request):
 @require_POST
 def telnyx_inbound_sms(request):
     """
-    Handles incoming customer SMS messages from Telnyx:
+    Handles incoming customer SMS messages and delivery callbacks from Telnyx:
     POST /webhooks/telnyx/sms/
-    Telnyx sends JSON payloads:
-    event_type: "message.received"
     """
     if not _verify_telnyx_signature(request):
         logger.warning("Rejected Telnyx inbound SMS: invalid signature.")
@@ -424,13 +552,10 @@ def telnyx_inbound_sms(request):
                 num_media=len(media_list) if isinstance(media_list, list) else 0,
             )
 
-    # Status delivery callbacks can also be delivered on the same webhook endpoint in Telnyx
-    elif event_type in TELNYX_STATUS_MAP:
-        message_sid = payload.get("id", "")
-        target_status = TELNYX_STATUS_MAP.get(event_type, "sent")
-        errors = payload.get("errors", [])
-        err_code = str(errors[0].get("code", "")) if errors else ""
-        _handle_status_update(message_sid, target_status, err_code)
+    # Status delivery callbacks (message.sent, message.finalized, etc.)
+    elif event_type == "message.finalized" or event_type in TELNYX_STATUS_MAP:
+        message_sid, target_status, err_code, err_msg = _extract_telnyx_status_update(event_type, payload)
+        _handle_status_update(message_sid, target_status, err_code, err_msg)
 
     return JsonResponse({"status": "received"}, status=200)
 
@@ -455,12 +580,10 @@ def telnyx_status_callback(request):
     event_type = data.get("event_type", "")
     payload = data.get("payload", {})
 
-    message_sid = payload.get("id", "")
-    target_status = TELNYX_STATUS_MAP.get(event_type, "sent")
-    errors = payload.get("errors", [])
-    err_code = str(errors[0].get("code", "")) if errors else ""
+    message_sid, target_status, err_code, err_msg = _extract_telnyx_status_update(event_type, payload)
+    logger.info("Telnyx status callback: event_type=%s, id=%s -> %s", event_type, message_sid, target_status)
 
-    if message_sid:
-        _handle_status_update(message_sid, target_status, err_code)
+    if message_sid and target_status:
+        _handle_status_update(message_sid, target_status, err_code, err_msg)
 
     return JsonResponse({"status": "ok"}, status=200)

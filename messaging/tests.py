@@ -574,3 +574,539 @@ class MessagingTests(TestCase):
         self.assertContains(res, "Marcus")
         self.assertContains(res, "comprehensive deductible 500")
         self.assertContains(res, "🔍 Match:")
+
+    def test_conversation_detail_ajax_switching(self):
+        """AJAX request to /inbox/<id>/ renders only the chat pane template without page reload."""
+        contact = Contact.objects.create(
+            organization=self.org_a,
+            phone="+16505557766",
+            first_name="Diana",
+            last_name="Prince",
+            sms_status=Contact.SMSStatus.OPTED_IN,
+        )
+        conv = Conversation.objects.create(
+            organization=self.org_a,
+            contact=contact,
+            phone_number=self.phone_a,
+            unread_count=3,
+        )
+        Message.objects.create(
+            organization=self.org_a,
+            conversation=conv,
+            direction=Message.Direction.INBOUND,
+            body="Need insurance quote for my vehicle",
+        )
+
+        self.client.force_login(self.user_a)
+
+        # 1. AJAX fetch for conversation detail
+        res = self.client.get(
+            f"/inbox/{conv.id}/",
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertTemplateUsed(res, "messaging/inbox_chat_pane.html")
+        self.assertContains(res, "Diana Prince")
+        self.assertContains(res, "Need insurance quote for my vehicle")
+
+        # Verify unread count was reset to 0
+        conv.refresh_from_db()
+        self.assertEqual(conv.unread_count, 0)
+
+        # 2. AJAX status update
+        status_res = self.client.post(
+            f"/inbox/{conv.id}/status/",
+            {"status": "closed"},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(status_res.status_code, 200)
+        self.assertEqual(status_res.json().get("status"), "success")
+        conv.refresh_from_db()
+        self.assertEqual(conv.status, Conversation.Status.CLOSED)
+
+        # 3. AJAX resume AI
+        conv.status = Conversation.Status.NEEDS_HUMAN
+        conv.handoff_reason = "Human needed"
+        conv.save()
+
+        resume_res = self.client.post(
+            f"/inbox/{conv.id}/resume-ai/",
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(resume_res.status_code, 200)
+        self.assertEqual(resume_res.json().get("status"), "success")
+        conv.refresh_from_db()
+        self.assertEqual(conv.status, Conversation.Status.OPEN)
+        self.assertEqual(conv.handoff_reason, "")
+
+    def test_inbox_latest_35_messages_and_before_id_pagination(self):
+        """Initial inbox open renders only the latest 35 messages and loads older chunks via ?before_id=."""
+        contact = Contact.objects.create(
+            organization=self.org_a,
+            phone="+16505558844",
+            first_name="Long",
+            last_name="Thread",
+            sms_status=Contact.SMSStatus.OPTED_IN,
+        )
+        conv = Conversation.objects.create(
+            organization=self.org_a,
+            contact=contact,
+            phone_number=self.phone_a,
+        )
+        base_dt = timezone.now() - timedelta(days=3)
+        created_msgs = []
+        for idx in range(1, 53):
+            msg = Message.objects.create(
+                organization=self.org_a,
+                conversation=conv,
+                direction=Message.Direction.INBOUND if idx % 2 else Message.Direction.OUTBOUND,
+                sender_type=Message.SenderType.CUSTOMER if idx % 2 else Message.SenderType.AI,
+                body=f"History message #{idx:02d}",
+                status=Message.Status.RECEIVED if idx % 2 else Message.Status.DELIVERED,
+            )
+            Message.objects.filter(pk=msg.pk).update(created_at=base_dt + timedelta(hours=idx))
+            created_msgs.append(msg)
+
+        self.client.force_login(self.user_a)
+        res = self.client.get(f"/inbox/{conv.id}/")
+        self.assertEqual(res.status_code, 200)
+
+        chat_messages = res.context["chat_messages"]
+        self.assertEqual(len(chat_messages), 35)
+        self.assertEqual(chat_messages[0].id, created_msgs[17].id)  # #18
+        self.assertEqual(chat_messages[-1].id, created_msgs[-1].id)  # #52
+        self.assertTrue(res.context["has_older_messages"])
+        self.assertEqual(res.context["oldest_msg_id"], created_msgs[17].id)
+
+        # Left sidebar snippet uses latest message directly without loading full message history
+        sidebar_convs = res.context["conversations"]
+        target_conv = next(c for c in sidebar_convs if c.id == conv.id)
+        self.assertEqual(target_conv.cached_last_msg.id, created_msgs[-1].id)
+
+        html = res.content.decode("utf-8")
+        self.assertIn("History message #52", html)
+        self.assertNotIn("History message #01", html)
+        self.assertIn('id="older-messages-banner"', html)
+        self.assertIn("Scroll up to load older messages", html)
+        self.assertIn("shouldTriggerOlderMessagesLoad", html)
+        self.assertNotIn("scheduleBackgroundOlderLoad", html)
+        self.assertIn(f'data-last-msg-id="{created_msgs[-1].id}"', html)
+        self.assertIn(f'data-oldest-msg-id="{created_msgs[17].id}"', html)
+
+        # Page 1 of older messages before #18 (limit=10 -> #08..#17)
+        older_res_1 = self.client.get(f"/inbox/{conv.id}/messages/?before_id={created_msgs[17].id}&limit=10")
+        self.assertEqual(older_res_1.status_code, 200)
+        payload_1 = older_res_1.json()
+        self.assertTrue(payload_1["has_more"])
+        self.assertEqual(payload_1["oldest_id"], created_msgs[7].id)
+        bodies_1 = [m["body"] for m in payload_1["messages"]]
+        self.assertEqual(bodies_1[0], "History message #08")
+        self.assertEqual(bodies_1[-1], "History message #17")
+        self.assertTrue(all("date_key" in m and "date_label" in m for m in payload_1["messages"]))
+
+        # Final older page before #08 (limit=10 -> #01..#07, has_more=False)
+        older_res_2 = self.client.get(f"/inbox/{conv.id}/messages/?before_id={created_msgs[7].id}&limit=10")
+        self.assertEqual(older_res_2.status_code, 200)
+        payload_2 = older_res_2.json()
+        self.assertFalse(payload_2["has_more"])
+        self.assertEqual(payload_2["oldest_id"], created_msgs[0].id)
+        bodies_2 = [m["body"] for m in payload_2["messages"]]
+        self.assertEqual(bodies_2, [f"History message #{i:02d}" for i in range(1, 8)])
+
+    def test_ajax_status_and_ai_mode_do_not_leak_flash_messages(self):
+        """AJAX status and AI mode updates must not queue stale Django session flash banners."""
+        contact = Contact.objects.create(
+            organization=self.org_a,
+            phone="+16505551122",
+            first_name="Flash",
+            last_name="Free",
+            sms_status=Contact.SMSStatus.OPTED_IN,
+        )
+        conv = Conversation.objects.create(
+            organization=self.org_a,
+            contact=contact,
+            phone_number=self.phone_a,
+        )
+        self.client.force_login(self.user_a)
+
+        for status_val in ("needs_human", "closed", "open"):
+            r = self.client.post(
+                f"/inbox/{conv.id}/status/",
+                {"status": status_val},
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            )
+            self.assertEqual(r.status_code, 200)
+            self.assertEqual(r.json().get("new_status"), status_val)
+
+        for mode_val in ("off", "suggest", "auto", "default"):
+            r = self.client.post(
+                f"/inbox/{conv.id}/ai-mode/",
+                {"ai_mode": mode_val},
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            )
+            self.assertEqual(r.status_code, 200)
+            self.assertEqual(r.json().get("ai_mode"), mode_val)
+
+        # Navigating to Contact Detail must not show queued banners from earlier AJAX updates
+        page_res = self.client.get(f"/contacts/{contact.id}/")
+        self.assertEqual(page_res.status_code, 200)
+        self.assertNotContains(page_res, "Conversation marked as")
+        self.assertNotContains(page_res, "AI Assistant turned off")
+        self.assertNotContains(page_res, "Switched to Suggest Mode")
+        self.assertNotContains(page_res, "Switched to Auto Mode")
+        self.assertNotContains(page_res, "AI mode set to Business Default")
+
+    def test_mark_conversation_read_and_active_badge_suppressed(self):
+        """Active conversation suppresses sidebar badge and POST /inbox/<id>/read/ clears unread_count."""
+        c1 = Contact.objects.create(
+            organization=self.org_a,
+            phone="+16505553311",
+            first_name="ActiveOne",
+            sms_status=Contact.SMSStatus.OPTED_IN,
+        )
+        c2 = Contact.objects.create(
+            organization=self.org_a,
+            phone="+16505553322",
+            first_name="OtherTwo",
+            sms_status=Contact.SMSStatus.OPTED_IN,
+        )
+        conv_1 = Conversation.objects.create(
+            organization=self.org_a,
+            contact=c1,
+            phone_number=self.phone_a,
+            unread_count=5,
+        )
+        conv_2 = Conversation.objects.create(
+            organization=self.org_a,
+            contact=c2,
+            phone_number=self.phone_a,
+            unread_count=3,
+        )
+        self.client.force_login(self.user_a)
+
+        # Partial sidebar list with active_id=conv_1.id must not render conv-unread-badge on conv_1
+        list_res = self.client.get(
+            f"/inbox/search/?active_id={conv_1.id}",
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(list_res.status_code, 200)
+        list_html = list_res.content.decode("utf-8")
+        self.assertIn('id="conv-item-' + str(conv_1.id) + '"', list_html)
+        conv1_slice_start = list_html.index(f'id="conv-item-{conv_1.id}"')
+        conv1_slice_end = list_html.index("</a>", conv1_slice_start)
+        self.assertNotIn("conv-unread-badge", list_html[conv1_slice_start:conv1_slice_end])
+
+        # POST /inbox/<id>/read/ clears conv_1 unread_count and returns remaining total (3)
+        read_res = self.client.post(
+            f"/inbox/{conv_1.id}/read/",
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(read_res.status_code, 200)
+        self.assertEqual(read_res.json(), {"status": "success", "unread_count": 0, "nav_unread_count": 3})
+        conv_1.refresh_from_db()
+        self.assertEqual(conv_1.unread_count, 0)
+        conv_2.refresh_from_db()
+        self.assertEqual(conv_2.unread_count, 3)
+
+        # Conversation detail AJAX pane exposes fresh data-nav-unread="3"
+        pane_res = self.client.get(
+            f"/inbox/{conv_1.id}/?ajax=1",
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(pane_res.status_code, 200)
+        self.assertContains(pane_res, 'data-nav-unread="3"')
+
+    def test_global_quick_search_org_isolation_and_base_ui(self):
+        """Quick-jump search returns contacts/conversations/campaigns strictly for the user's org."""
+        from campaigns.models import Campaign
+
+        contact_a = Contact.objects.create(
+            organization=self.org_a,
+            phone="+16505554401",
+            first_name="Horizon",
+            last_name="Lead",
+            sms_status=Contact.SMSStatus.OPTED_IN,
+        )
+        conv_a = Conversation.objects.create(
+            organization=self.org_a,
+            contact=contact_a,
+            phone_number=self.phone_a,
+        )
+        camp_a = Campaign.objects.create(
+            organization=self.org_a,
+            name="Horizon Auto Promo",
+            phone_number=self.phone_a,
+            message_template="Hi there!",
+        )
+
+        # Other organization with matching keyword must never leak
+        contact_b = Contact.objects.create(
+            organization=self.org_b,
+            phone="+16505554402",
+            first_name="Horizon",
+            last_name="Secret",
+            sms_status=Contact.SMSStatus.OPTED_IN,
+        )
+        Conversation.objects.create(
+            organization=self.org_b,
+            contact=contact_b,
+            phone_number=self.phone_b,
+        )
+        Campaign.objects.create(
+            organization=self.org_b,
+            name="Horizon Secret Campaign",
+            phone_number=self.phone_b,
+            message_template="Secret!",
+        )
+
+        self.client.force_login(self.user_a)
+        res = self.client.get("/search/quick/?q=Horizon")
+        self.assertEqual(res.status_code, 200)
+        payload = res.json()
+        self.assertEqual([c["id"] for c in payload["contacts"]], [contact_a.id])
+        self.assertEqual([c["id"] for c in payload["conversations"]], [conv_a.id])
+        self.assertEqual([c["id"] for c in payload["campaigns"]], [camp_a.id])
+
+        # Base layout exposes quick-jump button, quick-jump modal, shared confirm modal, and compiled Tailwind CSS
+        dash = self.client.get("/dashboard/")
+        self.assertEqual(dash.status_code, 200)
+        self.assertContains(dash, 'id="global-quick-jump-btn"')
+        self.assertContains(dash, 'id="quick-jump-modal"')
+        self.assertContains(dash, 'id="global-confirm-modal"')
+        self.assertContains(dash, "/static/css/app.css")
+        self.assertNotContains(dash, "@tailwindcss/browser")
+
+        home = self.client.get("/")
+        self.assertEqual(home.status_code, 200)
+        self.assertContains(home, "/static/css/website.css")
+        self.assertNotContains(home, "@tailwindcss/browser")
+
+    def test_inbox_pagination_modal_contact_search_and_mark_unread(self):
+        """Inbox left pane paginates at 30 items, + New Chat searches all contacts, and Mark Unread works."""
+        base_dt = timezone.now() - timedelta(days=5)
+        convs = []
+        for idx in range(1, 37):
+            c = Contact.objects.create(
+                organization=self.org_a,
+                phone=f"+165055560{idx:02d}",
+                first_name=f"Paged{idx:02d}",
+                sms_status=Contact.SMSStatus.OPTED_IN,
+            )
+            conv = Conversation.objects.create(
+                organization=self.org_a,
+                contact=c,
+                phone_number=self.phone_a,
+                last_message_at=base_dt + timedelta(hours=idx),
+            )
+            convs.append(conv)
+
+        # Cross-org contact that must never show up in search
+        Contact.objects.create(
+            organization=self.org_b,
+            phone="+16505559999",
+            first_name="PagedSecret",
+            sms_status=Contact.SMSStatus.OPTED_IN,
+        )
+
+        self.client.force_login(self.user_a)
+
+        # 1. Initial inbox renders 30 conversations + Load More button
+        inbox_res = self.client.get("/inbox/")
+        self.assertEqual(inbox_res.status_code, 200)
+        self.assertEqual(len(inbox_res.context["conversations"]), 30)
+        self.assertTrue(inbox_res.context["has_more_conversations"])
+        self.assertContains(inbox_res, 'id="inbox-load-more-btn"')
+        self.assertContains(inbox_res, 'data-next-offset="30"')
+
+        # 2. Second page via /inbox/search/?offset=30&append=1 returns remaining 6 items
+        page2_res = self.client.get(
+            "/inbox/search/?status=open&offset=30&append=1",
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(page2_res.status_code, 200)
+        self.assertEqual(len(page2_res.context["conversations"]), 6)
+        self.assertFalse(page2_res.context["has_more_conversations"])
+        self.assertNotContains(page2_res, 'id="inbox-load-more-btn"')
+
+        # 3. Live + New Chat modal contact search searches beyond initial slice & respects org boundary
+        search_res = self.client.get("/inbox/contacts-search/?q=Paged36")
+        self.assertEqual(search_res.status_code, 200)
+        sdata = search_res.json()
+        self.assertEqual(sdata["total_count"], 36)
+        self.assertEqual([c["phone"] for c in sdata["contacts"]], ["+16505556036"])
+
+        # 4. Mark conversation unread endpoint sets unread_count >= 1 & header button exists
+        target_conv = convs[-1]
+        detail_res = self.client.get(f"/inbox/{target_conv.id}/")
+        self.assertEqual(detail_res.status_code, 200)
+        self.assertContains(detail_res, 'id="btn-mark-unread"')
+
+        unread_res = self.client.post(
+            f"/inbox/{target_conv.id}/unread/",
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(unread_res.status_code, 200)
+        self.assertEqual(unread_res.json()["unread_count"], 1)
+        self.assertEqual(unread_res.json()["nav_unread_count"], 1)
+        target_conv.refresh_from_db()
+        self.assertEqual(target_conv.unread_count, 1)
+
+    def test_status_transition_returns_live_tab_counts_and_snippet_row_marker(self):
+        """AJAX status updates and resume-ai return updated status tab counts and unambiguous snippet rows."""
+        contact_1 = Contact.objects.create(
+            organization=self.org_a,
+            phone="+16505557001",
+            first_name="Tab",
+            last_name="One",
+            sms_status=Contact.SMSStatus.OPTED_IN,
+        )
+        contact_2 = Contact.objects.create(
+            organization=self.org_a,
+            phone="+16505557002",
+            first_name="Tab",
+            last_name="Two",
+            sms_status=Contact.SMSStatus.OPTED_IN,
+        )
+        conv_1 = Conversation.objects.create(
+            organization=self.org_a,
+            contact=contact_1,
+            phone_number=self.phone_a,
+            status=Conversation.Status.OPEN,
+            unread_count=2,
+        )
+        conv_2 = Conversation.objects.create(
+            organization=self.org_a,
+            contact=contact_2,
+            phone_number=self.phone_a,
+            status=Conversation.Status.OPEN,
+            unread_count=1,
+        )
+        self.client.force_login(self.user_a)
+
+        # Open conv_1: clears unread_count and marks snippet rows cleanly with conv-snippet-row
+        detail_res = self.client.get(f"/inbox/{conv_1.id}/?status=open")
+        self.assertEqual(detail_res.status_code, 200)
+        self.assertContains(detail_res, "conv-snippet-row")
+        conv_1.refresh_from_db()
+        self.assertEqual(conv_1.unread_count, 0)
+
+        # Switch conv_1 Open -> Needs Human returns live counts for tabs
+        to_human_res = self.client.post(
+            f"/inbox/{conv_1.id}/status/",
+            {"status": "needs_human"},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(to_human_res.status_code, 200)
+        self.assertEqual(
+            to_human_res.json(),
+            {
+                "status": "success",
+                "new_status": "needs_human",
+                "counts": {"open": 1, "needs_human": 1, "closed": 0},
+            },
+        )
+
+        # Resume AI moves conv_1 Needs Human -> Open and returns live counts
+        resume_res = self.client.post(
+            f"/inbox/{conv_1.id}/resume-ai/",
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(resume_res.status_code, 200)
+        self.assertEqual(
+            resume_res.json(),
+            {
+                "status": "success",
+                "new_status": "open",
+                "counts": {"open": 2, "needs_human": 0, "closed": 0},
+            },
+        )
+
+        # Switch conv_2 Open -> Closed returns live counts
+        to_closed_res = self.client.post(
+            f"/inbox/{conv_2.id}/status/",
+            {"status": "closed"},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(to_closed_res.status_code, 200)
+        self.assertEqual(
+            to_closed_res.json(),
+            {
+                "status": "success",
+                "new_status": "closed",
+                "counts": {"open": 1, "needs_human": 0, "closed": 1},
+            },
+        )
+
+    def test_dashboard_kpi_links_and_ai_assistant_sandbox(self):
+        """Dashboard KPI cards link to actionable queues and AI sandbox simulates replies without persisting DB records."""
+        from unittest.mock import patch, MagicMock
+        from messaging.ai.base import AIResponse
+
+        self.client.force_login(self.user_a)
+
+        dash_res = self.client.get("/dashboard/")
+        self.assertEqual(dash_res.status_code, 200)
+        self.assertContains(dash_res, 'href="/inbox/?status=needs_human"')
+        self.assertContains(dash_res, 'href="/contacts/?status=opted_out"')
+        self.assertContains(dash_res, 'href="/inbox/?assigned=replied"')
+
+        settings_res = self.client.get("/ai-assistant/")
+        self.assertEqual(settings_res.status_code, 200)
+        self.assertContains(settings_res, 'id="ai-sandbox-input"')
+        self.assertContains(settings_res, 'id="ai-sandbox-run-btn"')
+
+        fake_client = MagicMock()
+        fake_client.model = "mock-gemma"
+        fake_client.generate.return_value = AIResponse(
+            text='{"reply": "We are open Mon-Fri 9am-5pm! What service are you interested in?", "intent": "inquiry", "collected": {"service_type": "auto"}, "needs_human": false, "handoff_reason": null}',
+            input_tokens=40,
+            output_tokens=20,
+            latency_ms=85,
+        )
+
+        msg_before = Message.objects.count()
+        conv_before = Conversation.objects.count()
+
+        with patch("messaging.ai.pipeline.get_ai_client", return_value=fake_client):
+            sandbox_res = self.client.post(
+                "/ai-assistant/test/",
+                {
+                    "test_message": "What are your hours?",
+                    "business_name": "Acme Agency",
+                    "knowledge": "Hours: Mon-Fri 9am-5pm.",
+                    "never_say": "forbidden_phrase",
+                    "max_reply_chars": "160",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            )
+
+        self.assertEqual(sandbox_res.status_code, 200)
+        sdata = sandbox_res.json()
+        self.assertEqual(sdata["status"], "ok")
+        self.assertTrue(sdata["validation_ok"])
+        self.assertEqual(sdata["collected"], {"service_type": "auto"})
+        self.assertEqual(Message.objects.count(), msg_before)
+        self.assertEqual(Conversation.objects.count(), conv_before)
+
+        # Forbidden phrase in reply is flagged as validation_blocked
+        fake_client.generate.return_value = AIResponse(
+            text='{"reply": "Sure, forbidden_phrase is included!", "intent": "inquiry", "collected": {}, "needs_human": false, "handoff_reason": null}',
+            input_tokens=20,
+            output_tokens=15,
+            latency_ms=42,
+        )
+        with patch("messaging.ai.pipeline.get_ai_client", return_value=fake_client):
+            blocked_res = self.client.post(
+                "/ai-assistant/test/",
+                {
+                    "test_message": "Do you promise this?",
+                    "never_say": "forbidden_phrase",
+                    "max_reply_chars": "160",
+                },
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            )
+        self.assertEqual(blocked_res.status_code, 200)
+        bdata = blocked_res.json()
+        self.assertEqual(bdata["status"], "validation_blocked")
+        self.assertFalse(bdata["validation_ok"])
+        self.assertTrue(bdata["needs_human"])

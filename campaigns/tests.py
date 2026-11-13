@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 from django.test import TestCase, Client, override_settings
 from django.utils import timezone
@@ -179,19 +180,87 @@ class CampaignsTestSuite(TestCase):
         self.assertEqual(campaign.sent_count, 2)  # c1 and c2 are opted in
         self.assertEqual(campaign.skipped_count, 1)  # c3 opted out
 
-        # Verify 2-way conversation was created for recipient
+        # Verify 2-way conversation was created for recipient and linked to campaign
         conv = Conversation.objects.filter(
             organization=self.org_a,
             contact=self.c1,
             phone_number=self.phone_a,
         ).first()
         self.assertIsNotNone(conv)
+        self.assertEqual(conv.last_campaign, campaign)
 
         # Verify Message row exists with sender_type CAMPAIGN
         msg = Message.objects.filter(conversation=conv).first()
         self.assertIsNotNone(msg)
         self.assertEqual(msg.sender_type, Message.SenderType.CAMPAIGN)
         self.assertEqual(msg.sent_by, self.user_a)
+
+    def test_campaign_create_with_custom_ai_playbook(self):
+        """Creating a campaign via POST correctly stores custom AI playbook and qualification questions."""
+        self.client.login(username=self.user_a.email, password="password123")
+        questions_payload = json.dumps([
+            {"key": "roof_age", "question": "How old is your roof?", "required": True},
+            {"key": "home_type", "question": "Single family or condo?", "required": False},
+        ])
+        resp = self.client.post("/campaigns/new/", {
+            "name": "Home Insurance Playbook Campaign",
+            "phone_number_id": self.phone_a.id,
+            "message_template": "Hello {{ first_name }}, update your home policy!",
+            "timing": "immediate",
+            "lists": [self.list_1.id],
+            "ai_mode": "custom",
+            "ai_campaign_goal": "Qualify homeowners for switching insurance.",
+            "ai_qualification_questions_json": questions_payload,
+            "ai_special_instructions": "Offer $450 bundling credit.",
+        })
+        self.assertEqual(resp.status_code, 302)
+        camp = Campaign.objects.filter(name="Home Insurance Playbook Campaign").first()
+        self.assertIsNotNone(camp)
+        self.assertEqual(camp.ai_mode, Campaign.AIMode.CUSTOM)
+        self.assertEqual(camp.ai_campaign_goal, "Qualify homeowners for switching insurance.")
+        self.assertEqual(len(camp.ai_qualification_questions), 2)
+        self.assertEqual(camp.ai_qualification_questions[0]["key"], "roof_age")
+        self.assertTrue(camp.ai_qualification_questions[0]["required"])
+        self.assertEqual(camp.ai_special_instructions, "Offer $450 bundling credit.")
+
+        # Check detail view renders the playbook
+        detail_resp = self.client.get(f"/campaigns/{camp.id}/")
+        self.assertEqual(detail_resp.status_code, 200)
+        self.assertContains(detail_resp, "Custom Playbook Active")
+        self.assertContains(detail_resp, "Qualify homeowners for switching insurance.")
+        self.assertContains(detail_resp, "roof_age")
+
+    def test_campaign_clone(self):
+        """1-Click cloning duplicates all settings, target lists, and AI playbook into a DRAFT campaign."""
+        self.client.login(username=self.user_a.email, password="password123")
+        original = Campaign.objects.create(
+            organization=self.org_a,
+            created_by=self.user_a,
+            name="Fall Auto Promotion",
+            phone_number=self.phone_a,
+            message_template="Hi {{ first_name }}, fall discount copy!",
+            filter_criteria={"stage": "Intake"},
+            status=Campaign.Status.COMPLETED,
+            ai_mode=Campaign.AIMode.CUSTOM,
+            ai_campaign_goal="Qualify auto leads",
+            ai_qualification_questions=[{"key": "vehicle_make", "question": "What make?", "required": True}],
+            ai_special_instructions="Mention $200 discount.",
+        )
+        original.lists.add(self.list_1)
+
+        resp = self.client.get(f"/campaigns/{original.id}/clone/")
+        self.assertEqual(resp.status_code, 302)
+
+        clone = Campaign.objects.filter(name="[Copy] Fall Auto Promotion").first()
+        self.assertIsNotNone(clone)
+        self.assertEqual(clone.status, Campaign.Status.DRAFT)
+        self.assertEqual(clone.phone_number, original.phone_number)
+        self.assertEqual(clone.message_template, original.message_template)
+        self.assertEqual(clone.filter_criteria, {"stage": "Intake"})
+        self.assertEqual(clone.ai_mode, Campaign.AIMode.CUSTOM)
+        self.assertEqual(clone.ai_campaign_goal, "Qualify auto leads")
+        self.assertEqual(clone.ai_special_instructions, "Mention $200 discount.")
+        self.assertEqual(list(clone.lists.values_list("id", flat=True)), [self.list_1.id])
 
     def test_run_campaign_worker_command(self):
         campaign = Campaign.objects.create(
@@ -264,6 +333,198 @@ class CampaignsTestSuite(TestCase):
         # Org A user attempting action on Org B campaign
         res_post = self.client.post(f"/campaigns/{camp_b.id}/action/", {"action": "cancel"})
         self.assertEqual(res_post.status_code, 404)
+
+    def test_campaign_batch_dispatches_and_broadcasts_progress(self):
+        from unittest.mock import patch
+        campaign = Campaign.objects.create(
+            organization=self.org_a,
+            name="Broadcast Test",
+            phone_number=self.phone_a,
+            message_template="Hello {{ first_name }}",
+            status=Campaign.Status.SCHEDULED,
+        )
+        campaign.lists.add(self.list_1)
+        build_campaign_recipients(campaign)
+
+        with patch("campaigns.ws_broadcast.broadcast_campaign_progress") as mock_broadcast:
+            processed = process_campaign_batch(campaign, limit=10)
+            self.assertEqual(processed, 2)  # c1 sent, c3 skipped
+            self.assertTrue(mock_broadcast.called)
+            call_args = mock_broadcast.call_args
+            camp_arg = call_args[0][0]
+            recip_updates = call_args[0][1]
+            self.assertEqual(camp_arg.id, campaign.id)
+            self.assertEqual(len(recip_updates), 2)
+            self.assertIn("status", recip_updates[0])
+
+    def test_campaign_detail_renders_websocket_elements(self):
+        self.client.login(username=self.user_a.email, password="password123")
+        campaign = Campaign.objects.create(
+            organization=self.org_a,
+            created_by=self.user_a,
+            name="Live Progress Test",
+            phone_number=self.phone_a,
+            message_template="Hello {{ first_name }}",
+            status=Campaign.Status.SENDING,
+        )
+        resp = self.client.get(f"/campaigns/{campaign.id}/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'id="campaign-progress-bar"')
+        self.assertContains(resp, 'id="campaign-live-indicator"')
+        self.assertContains(resp, f"const campaignId = {campaign.id};")
+        self.assertContains(resp, '"/ws/campaign/" + campaignId')
+
+    def test_campaign_clone_and_edit_workflow(self):
+        self.client.login(username=self.user_a.email, password="password123")
+        original = Campaign.objects.create(
+            organization=self.org_a,
+            created_by=self.user_a,
+            name="Fall Auto Rebate",
+            phone_number=self.phone_a,
+            message_template="Hi {{ first_name }}, claim your fall rebate today!",
+            status=Campaign.Status.DRAFT,
+            ai_mode=Campaign.AIMode.CUSTOM,
+            ai_campaign_goal="Qualify auto insurance drivers",
+            ai_qualification_questions=[{"key": "vehicle_year", "question": "What year is your vehicle?", "required": True}],
+        )
+        original.lists.add(self.list_1)
+
+        # 1. Clone redirects to the Edit view for the clone
+        clone_resp = self.client.get(f"/campaigns/{original.id}/clone/")
+        self.assertEqual(clone_resp.status_code, 302)
+        clone_campaign = Campaign.objects.filter(name="[Copy] Fall Auto Rebate").first()
+        self.assertIsNotNone(clone_campaign)
+        self.assertRedirects(clone_resp, f"/campaigns/{clone_campaign.id}/edit/")
+
+        # 2. GET Edit page for clone returns 200 and pre-fills campaign details
+        get_edit_resp = self.client.get(f"/campaigns/{clone_campaign.id}/edit/")
+        self.assertEqual(get_edit_resp.status_code, 200)
+        self.assertContains(get_edit_resp, "[Copy] Fall Auto Rebate")
+        self.assertContains(get_edit_resp, "claim your fall rebate today!")
+        self.assertContains(get_edit_resp, "vehicle_year")
+
+        # 3. POST Save as Draft updates campaign data and rebuilds recipients cleanly
+        post_draft_resp = self.client.post(
+            f"/campaigns/{clone_campaign.id}/edit/",
+            data={
+                "name": "Updated Fall Auto Rebate",
+                "phone_number_id": self.phone_a.id,
+                "lists": [self.list_1.id],
+                "filter_stage": "__all__",
+                "message_template": "Hello {{ first_name }}, new draft copy!",
+                "ai_mode": "custom",
+                "ai_campaign_goal": "Goal updated",
+                "ai_qualification_questions_json": json.dumps([{"key": "mileage", "question": "What is current mileage?", "required": True}]),
+                "ai_special_instructions": "Special note",
+                "timing": "immediate",
+                "save_draft": "1",
+            },
+        )
+        self.assertRedirects(post_draft_resp, f"/campaigns/{clone_campaign.id}/")
+        clone_campaign.refresh_from_db()
+        self.assertEqual(clone_campaign.name, "Updated Fall Auto Rebate")
+        self.assertEqual(clone_campaign.status, Campaign.Status.DRAFT)
+        self.assertEqual(clone_campaign.message_template, "Hello {{ first_name }}, new draft copy!")
+        self.assertEqual(clone_campaign.ai_campaign_goal, "Goal updated")
+        self.assertEqual(clone_campaign.recipients.count(), 3)  # c1, c2, c3
+        self.assertEqual(clone_campaign.recipients.filter(status=CampaignRecipient.Status.PENDING).count(), 2)  # c1, c2
+        self.assertEqual(clone_campaign.recipients.filter(status=CampaignRecipient.Status.SKIPPED).count(), 1)  # c3 (opted out)
+
+        # 4. Block editing if campaign is active (SENDING)
+        clone_campaign.status = Campaign.Status.SENDING
+        clone_campaign.save()
+        blocked_resp = self.client.get(f"/campaigns/{clone_campaign.id}/edit/")
+        self.assertRedirects(blocked_resp, f"/campaigns/{clone_campaign.id}/")
+
+    def test_campaign_create_save_as_draft(self):
+        from django.urls import reverse
+        self.client.login(username=self.user_a.email, password="password123")
+        get_resp = self.client.get(reverse("campaigns:create"))
+        self.assertEqual(get_resp.status_code, 200)
+        self.assertContains(get_resp, "Save as Draft")
+        self.assertContains(get_resp, "name=\"save_draft\"")
+
+        post_resp = self.client.post(
+            reverse("campaigns:create"),
+            data={
+                "name": "Winter Early Bird Draft",
+                "phone_number_id": self.phone_a.id,
+                "lists": [self.list_1.id],
+                "filter_stage": "__all__",
+                "message_template": "Hi {{ first_name }}, draft copy for winter savings.",
+                "ai_mode": "default",
+                "timing": "immediate",
+                "save_draft": "1",
+            },
+        )
+        new_draft = Campaign.objects.filter(name="Winter Early Bird Draft").first()
+        self.assertIsNotNone(new_draft)
+        self.assertRedirects(post_resp, f"/campaigns/{new_draft.id}/")
+        self.assertEqual(new_draft.status, Campaign.Status.DRAFT)
+        self.assertIsNone(new_draft.started_at)
+        # Recipients computed
+        self.assertEqual(new_draft.recipients.count(), 3)
+        self.assertEqual(new_draft.recipients.filter(status=CampaignRecipient.Status.PENDING).count(), 2)
+        # No messages dispatched
+        self.assertEqual(new_draft.recipients.filter(status=CampaignRecipient.Status.SENT).count(), 0)
+
+        # Also support saving draft without message template yet
+        post_partial = self.client.post(
+            reverse("campaigns:create"),
+            data={
+                "name": "Work In Progress No Copy",
+                "phone_number_id": self.phone_a.id,
+                "lists": [self.list_1.id],
+                "save_draft": "1",
+            },
+        )
+        partial_draft = Campaign.objects.filter(name="Work In Progress No Copy").first()
+        self.assertIsNotNone(partial_draft)
+        self.assertRedirects(post_partial, f"/campaigns/{partial_draft.id}/")
+        self.assertEqual(partial_draft.status, Campaign.Status.DRAFT)
+        self.assertEqual(partial_draft.message_template, "")
+
+    def test_campaign_delete_workflow(self):
+        self.client.login(username=self.user_a.email, password="password123")
+
+        draft = Campaign.objects.create(
+            organization=self.org_a,
+            created_by=self.user_a,
+            name="Draft To Delete",
+            phone_number=self.phone_a,
+            message_template="Temp copy",
+            status=Campaign.Status.DRAFT,
+        )
+        completed = Campaign.objects.create(
+            organization=self.org_a,
+            created_by=self.user_a,
+            name="Completed Historical",
+            phone_number=self.phone_a,
+            message_template="Sent copy",
+            status=Campaign.Status.COMPLETED,
+            sent_count=10,
+        )
+
+        # 1. List renders Delete button on draft
+        list_resp = self.client.get("/campaigns/")
+        self.assertEqual(list_resp.status_code, 200)
+        self.assertContains(list_resp, f"openDeleteCampaignModal({draft.id}, 'Draft To Delete')")
+        self.assertNotContains(list_resp, f"openDeleteCampaignModal({completed.id}")
+
+        # 2. Detail page renders Delete button on draft
+        detail_resp = self.client.get(f"/campaigns/{draft.id}/")
+        self.assertEqual(detail_resp.status_code, 200)
+        self.assertContains(detail_resp, 'id="deleteDetailCampaignModal"')
+
+        # 3. Deleting draft succeeds and redirects to list
+        del_resp = self.client.post(f"/campaigns/{draft.id}/action/", {"action": "delete"})
+        self.assertRedirects(del_resp, "/campaigns/")
+        self.assertFalse(Campaign.objects.filter(id=draft.id).exists())
+
+        # 4. Attempting to delete completed campaign is blocked
+        block_resp = self.client.post(f"/campaigns/{completed.id}/action/", {"action": "delete"})
+        self.assertRedirects(block_resp, f"/campaigns/{completed.id}/")
+        self.assertTrue(Campaign.objects.filter(id=completed.id).exists())
 
 
 class CampaignTemplateModelTests(TestCase):
@@ -405,6 +666,217 @@ class CampaignTemplateViewTests(TestCase):
         # Verify quick_reply templates were restored
         restored_count = CampaignTemplate.objects.filter(organization=self.org, category="quick_reply").count()
         self.assertTrue(restored_count >= 2)
+
+    def test_custom_category_creation_and_filtering(self):
+        # 1. Create a template with a brand-new custom category
+        resp = self.client.post(
+            "/campaigns/templates/new/",
+            data={
+                "name": "Black Friday VIP Early Access",
+                "category": "__new__",
+                "custom_category": "Seasonal Promos",
+                "body": "Hi {{ first_name }}, early Black Friday access is now open! Reply YES to view deals.",
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(resp.status_code, 201)
+        data = resp.json()
+        tmpl_id = data["template"]["id"]
+        self.assertEqual(data["template"]["category"], "seasonal_promos")
+        self.assertEqual(data["template"]["category_display"], "Seasonal Promos")
+
+        t = CampaignTemplate.objects.get(id=tmpl_id)
+        self.assertEqual(t.category, "seasonal_promos")
+        self.assertEqual(t.category_display, "Seasonal Promos")
+
+        # 2. View templates index - should include dynamic filter pill for Seasonal Promos
+        resp_index = self.client.get("/campaigns/templates/")
+        self.assertEqual(resp_index.status_code, 200)
+        self.assertContains(resp_index, "Seasonal Promos (1)")
+        self.assertContains(resp_index, "category=seasonal_promos")
+
+        # Filter by the custom category
+        resp_filtered = self.client.get("/campaigns/templates/?category=seasonal_promos")
+        self.assertEqual(resp_filtered.status_code, 200)
+        self.assertContains(resp_filtered, "Black Friday VIP Early Access")
+
+        # 3. Edit template to another custom category
+        resp_edit = self.client.post(
+            f"/campaigns/templates/{tmpl_id}/edit/",
+            data={
+                "name": "Black Friday VIP Early Access",
+                "category": "__new__",
+                "custom_category": "VIP Retention",
+                "body": "Hi {{ first_name }}, VIP exclusive offer.",
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(resp_edit.status_code, 200)
+        t.refresh_from_db()
+        self.assertEqual(t.category, "vip_retention")
+        self.assertEqual(t.category_display, "VIP Retention")
+
+        # 4. API list includes category_label
+        resp_api = self.client.get(f"/campaigns/templates/api/list/?category=vip_retention")
+        self.assertEqual(resp_api.status_code, 200)
+        api_data = resp_api.json()
+        self.assertEqual(len(api_data["templates"]), 1)
+        self.assertEqual(api_data["templates"][0]["category_label"], "VIP Retention")
+
+    def test_custom_category_delete_and_rename(self):
+        from campaigns.models import TemplateCategory
+        ensure_default_campaign_templates(self.org)
+
+        # Create templates in custom category 'typo_cat'
+        t1 = CampaignTemplate.objects.create(
+            organization=self.org,
+            name="Template 1",
+            category="typo_cat",
+            body="Hello {{ first_name }}",
+        )
+        t2 = CampaignTemplate.objects.create(
+            organization=self.org,
+            name="Template 2",
+            category="typo_cat",
+            body="Hello {{ first_name }} again",
+        )
+
+        # 1. Rename typo category (typo_cat -> "Fixed Category")
+        resp_rename = self.client.post(
+            "/campaigns/templates/categories/rename/",
+            data={"old_category": "typo_cat", "new_name": "Fixed Category"},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(resp_rename.status_code, 200)
+        t1.refresh_from_db()
+        t2.refresh_from_db()
+        self.assertEqual(t1.category, "fixed_category")
+        self.assertEqual(t2.category, "fixed_category")
+        self.assertEqual(t1.category_display, "Fixed Category")
+
+        # 2. Rename a default starter category (marketing -> "Promotions")
+        resp_std_rename = self.client.post(
+            "/campaigns/templates/categories/rename/",
+            data={"old_category": "marketing", "new_name": "Promotions"},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(resp_std_rename.status_code, 200)
+        self.assertTrue(TemplateCategory.objects.filter(organization=self.org, slug="promotions", name="Promotions").exists())
+        self.assertFalse(TemplateCategory.objects.filter(organization=self.org, slug="marketing").exists())
+
+        # 3. Delete custom category -> reassigns templates to 'promotions'
+        resp_del = self.client.post(
+            "/campaigns/templates/categories/delete/",
+            data={"category": "fixed_category", "reassign_to": "promotions"},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(resp_del.status_code, 200)
+        t1.refresh_from_db()
+        t2.refresh_from_db()
+        self.assertEqual(t1.category, "promotions")
+        self.assertEqual(t2.category, "promotions")
+
+        # 4. Delete a default starter category ('transactional') and verify it stays deleted on index reload
+        resp_std_del = self.client.post(
+            "/campaigns/templates/categories/delete/",
+            data={"category": "transactional", "delete_templates": "1"},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(resp_std_del.status_code, 200)
+        self.assertFalse(TemplateCategory.objects.filter(organization=self.org, slug="transactional").exists())
+        self.assertFalse(CampaignTemplate.objects.filter(organization=self.org, category="transactional").exists())
+
+        # Reloading templates index should NOT resurrect 'transactional'
+        resp_reload = self.client.get("/campaigns/templates/")
+        self.assertEqual(resp_reload.status_code, 200)
+        self.assertFalse(TemplateCategory.objects.filter(organization=self.org, slug="transactional").exists())
+
+        # 5. Quick create category endpoint
+        resp_add = self.client.post(
+            "/campaigns/templates/categories/new/",
+            data={"name": "VIP Retention"},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(resp_add.status_code, 201)
+        self.assertTrue(TemplateCategory.objects.filter(organization=self.org, slug="vip_retention", name="VIP Retention").exists())
+
+    def test_campaign_recipient_csv_export_and_cleanup_links(self):
+        """Campaign detail shows export & consent cleanup links and /export/ respects status filters safely."""
+        phone = PhoneNumber.objects.create(
+            organization=self.org,
+            e164="+14155550111",
+            is_active=True,
+            label="Main",
+        )
+        c_failed = Contact.objects.create(
+            organization=self.org,
+            phone="+16505558101",
+            first_name="=CMD_INJ",
+            last_name="FailUser",
+            sms_status=Contact.SMSStatus.OPTED_IN,
+        )
+        c_skipped = Contact.objects.create(
+            organization=self.org,
+            phone="+16505558102",
+            first_name="Skip",
+            last_name="User",
+            sms_status=Contact.SMSStatus.UNKNOWN,
+        )
+        c_delivered = Contact.objects.create(
+            organization=self.org,
+            phone="+16505558103",
+            first_name="Done",
+            last_name="User",
+            sms_status=Contact.SMSStatus.OPTED_IN,
+        )
+        camp = Campaign.objects.create(
+            organization=self.org,
+            name="Export Test Broadcast",
+            phone_number=phone,
+            message_template="Hi {{ first_name }}!",
+            status=Campaign.Status.COMPLETED,
+            total_recipients=3,
+            sent_count=2,
+            delivered_count=1,
+            failed_count=1,
+            skipped_count=1,
+            created_by=self.user,
+        )
+        CampaignRecipient.objects.create(
+            campaign=camp,
+            contact=c_failed,
+            status=CampaignRecipient.Status.FAILED,
+            error_message="Carrier unreachable",
+            personalized_body="Hi =CMD_INJ!",
+        )
+        CampaignRecipient.objects.create(
+            campaign=camp,
+            contact=c_skipped,
+            status=CampaignRecipient.Status.SKIPPED,
+            skip_reason="Missing opt-in consent",
+            personalized_body="Hi Skip!",
+        )
+        CampaignRecipient.objects.create(
+            campaign=camp,
+            contact=c_delivered,
+            status=CampaignRecipient.Status.DELIVERED,
+            personalized_body="Hi Done!",
+        )
+
+        detail_res = self.client.get(f"/campaigns/{camp.id}/")
+        self.assertEqual(detail_res.status_code, 200)
+        self.assertContains(detail_res, f"/campaigns/{camp.id}/export/")
+        self.assertContains(detail_res, "/contacts/?status=unknown")
+
+        export_res = self.client.get(f"/campaigns/{camp.id}/export/?status=failed")
+        self.assertEqual(export_res.status_code, 200)
+        self.assertEqual(export_res["Content-Type"], "text/csv")
+        csv_body = export_res.content.decode("utf-8")
+        self.assertIn("+16505558101", csv_body)
+        self.assertIn("'=CMD_INJ", csv_body)
+        self.assertIn("Carrier unreachable", csv_body)
+        self.assertNotIn("+16505558103", csv_body)
+
 
 
 

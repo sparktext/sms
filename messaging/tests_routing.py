@@ -157,6 +157,10 @@ class LeadRoutingTests(TestCase):
         self.agent_bob.is_available_for_leads = False
         self.agent_bob.save()
 
+        # Even if legacy DB flag route_only_available was False, routing strictly enforces availability
+        self.org.route_only_available = False
+        self.org.save()
+
         # Only Alice is Available
         assigned = assign_qualified_lead(self.conv)
         self.assertEqual(assigned, self.owner)
@@ -203,12 +207,12 @@ class LeadRoutingTests(TestCase):
         self.assertContains(resp, "Lead Distribution Strategy")
         self.assertContains(resp, "Workload-Balanced")
         self.assertContains(resp, "Round-Robin")
+        self.assertNotContains(resp, 'name="route_only_available"')
 
-        # Update settings to Round-Robin and cap of 8
+        # Update settings to Round-Robin and cap of 8 (without checkbox parameter)
         post_resp = self.client.post("/settings/routing/", {
             "lead_routing_strategy": "round_robin",
             "max_leads_per_agent": "8",
-            "route_only_available": "1",
         })
         self.assertEqual(post_resp.status_code, 302)
         self.org.refresh_from_db()
@@ -233,3 +237,23 @@ class LeadRoutingTests(TestCase):
         self.assertEqual(resp2.status_code, 200)
         self.agent_bob.refresh_from_db()
         self.assertTrue(self.agent_bob.is_available_for_leads)
+
+    def test_agent_lead_routing_read_only(self):
+        """Agents have read-only access to lead routing: cannot save changes."""
+        self.client.force_login(self.agent_bob)
+
+        # GET should show read-only banner and hide save button
+        resp = self.client.get("/settings/routing/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "read-only access to Lead Routing")
+        self.assertNotContains(resp, "Save Routing Configuration")
+
+        # POST must be blocked
+        post_resp = self.client.post("/settings/routing/", {
+            "lead_routing_strategy": "round_robin",
+            "max_leads_per_agent": "2",
+        }, follow=True)
+        self.assertEqual(post_resp.status_code, 200)
+        self.assertContains(post_resp, "Only Owners and Admins")
+        self.org.refresh_from_db()
+        self.assertNotEqual(self.org.max_leads_per_agent, 2)

@@ -90,3 +90,125 @@ async def async_broadcast_chat_event(conversation_id: int, payload: Dict[str, An
             exc_info=False,
         )
 
+
+def broadcast_inbox_event(org_id: int, payload: Dict[str, Any]) -> None:
+    """
+    Broadcasts an inbox update event to all connected sidebar clients in `inbox_<org_id>`.
+    """
+    try:
+        channel_layer = get_channel_layer()
+        if not channel_layer:
+            return
+
+        message_dict = {
+            "type": "inbox_update",
+            "payload": payload,
+        }
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            asyncio.create_task(channel_layer.group_send(f"inbox_{org_id}", message_dict))
+        else:
+            async_to_sync(channel_layer.group_send)(
+                f"inbox_{org_id}",
+                message_dict,
+            )
+    except Exception as exc:
+        logger.warning(
+            "WebSocket broadcast error for inbox %s: %s",
+            org_id,
+            exc,
+            exc_info=False,
+        )
+
+
+async def async_broadcast_inbox_event(org_id: int, payload: Dict[str, Any]) -> None:
+    """
+    Direct coroutine broadcast for inbox updates.
+    """
+    try:
+        channel_layer = get_channel_layer()
+        if not channel_layer:
+            return
+
+        await channel_layer.group_send(
+            f"inbox_{org_id}",
+            {
+                "type": "inbox_update",
+                "payload": payload,
+            },
+        )
+    except Exception as exc:
+        logger.warning(
+            "Async WebSocket broadcast error for inbox %s: %s",
+            org_id,
+            exc,
+            exc_info=False,
+        )
+
+
+def broadcast_user_event(user_id: int, payload: Dict[str, Any]) -> None:
+    """
+    Broadcasts a personal notification event directly to a specific user across any of their open browser tabs.
+    Delivered via group `user_<user_id>`.
+    """
+    try:
+        channel_layer = get_channel_layer()
+        if not channel_layer:
+            return
+
+        message_dict = {
+            "type": "inbox_update",
+            "payload": payload,
+        }
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            asyncio.create_task(channel_layer.group_send(f"user_{user_id}", message_dict))
+        else:
+            async_to_sync(channel_layer.group_send)(
+                f"user_{user_id}",
+                message_dict,
+            )
+    except Exception as exc:
+        logger.warning(
+            "WebSocket broadcast error for user %s: %s",
+            user_id,
+            exc,
+            exc_info=False,
+        )
+
+
+async def async_broadcast_user_event(user_id: int, payload: Dict[str, Any]) -> None:
+    """
+    Async coroutine broadcast for personal user events.
+    """
+    try:
+        channel_layer = get_channel_layer()
+        if not channel_layer:
+            return
+
+        await channel_layer.group_send(
+            f"user_{user_id}",
+            {
+                "type": "inbox_update",
+                "payload": payload,
+            },
+        )
+    except Exception as exc:
+        logger.warning(
+            "Async WebSocket broadcast error for user %s: %s",
+            user_id,
+            exc,
+            exc_info=False,
+        )
+
+

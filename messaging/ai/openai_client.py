@@ -55,7 +55,7 @@ class OpenAICompatibleClient(BaseAIClient):
         payload: Dict[str, Any] = {
             "model": self.model,
             "messages": chat_messages,
-            "temperature": 0.2,
+            "temperature": 0.4,
         }
 
         # Request structured JSON format if schema provided

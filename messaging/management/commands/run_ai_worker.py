@@ -72,7 +72,14 @@ class Command(BaseCommand):
                 if job_found and job:
                     self.stdout.write(f"Processing AIJob #{job.id} for Conversation #{job.conversation_id}...")
                     try:
-                        reply = process_ai_job(job)
+                        import importlib
+                        import messaging.ai.validator
+                        import messaging.ai.prompt
+                        import messaging.ai.pipeline
+                        importlib.reload(messaging.ai.validator)
+                        importlib.reload(messaging.ai.prompt)
+                        importlib.reload(messaging.ai.pipeline)
+                        reply = messaging.ai.pipeline.process_ai_job(job)
                         status_str = reply.status if reply else "done"
                         self.stdout.write(
                             self.style.SUCCESS(f"AIJob #{job.id} finished: status={status_str}")

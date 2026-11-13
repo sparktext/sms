@@ -79,6 +79,10 @@ class Organization(models.Model):
         related_name="+",
         help_text="Last user assigned a lead, used for round-robin rotation",
     )
+    templates_seeded = models.BooleanField(
+        default=False,
+        help_text="Whether default starter SMS templates and categories have been initialized for this workspace",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):

@@ -2,68 +2,102 @@
 
 {% block title %}{% if contact.first_name or contact.last_name %}{{ contact.first_name }} {{ contact.last_name }}{% else %}{{ contact.phone }}{% endif %} · Contacts · SparkText{% endblock %}
 
-{% block header_title %}
-<div class="flex items-center gap-2 text-sm text-gray-500 font-normal mb-1">
-  <a href="{% url 'contacts:list' %}" class="hover:text-brand-600 transition">Contacts</a>
-  <span>/</span>
-  <span class="text-gray-900 font-semibold truncate">{% if contact.first_name or contact.last_name %}{{ contact.first_name }} {{ contact.last_name }}{% else %}{{ contact.phone }}{% endif %}</span>
-</div>
-<div class="flex items-center gap-3">
-  <span>{% if contact.first_name or contact.last_name %}{{ contact.first_name }} {{ contact.last_name }}{% else %}Contact Profile{% endif %}</span>
-  {% if contact.sms_status == "opted_in" %}
-  <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-    Opted In
-  </span>
-  {% elif contact.sms_status == "opted_out" %}
-  <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200">
-    <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
-    Opted Out
-  </span>
-  {% else %}
-  <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-600 border border-gray-200">
-    <span class="w-1.5 h-1.5 rounded-full bg-gray-400"></span>
-    No consent
-  </span>
-  {% endif %}
-</div>
+{% block global_breadcrumb %}
+<a href="{% url 'contacts:list' %}" class="font-medium text-gray-500 hover:text-gray-900 transition">Contacts</a>
+<span class="text-gray-300">/</span>
+<span class="font-semibold text-gray-800 truncate">{% if contact.first_name or contact.last_name %}{{ contact.first_name }} {{ contact.last_name }}{% else %}{{ contact.phone }}{% endif %}</span>
 {% endblock %}
 
-{% block header_subtitle %}
-E.164 phone: <strong class="font-mono text-gray-800">{{ contact.phone }}</strong> · Added on {{ contact.created_at|date:"M d, Y H:i" }} via {{ contact.get_source_display }}
-{% endblock %}
+{% block page_header %}
+<div class="space-y-3">
+  <!-- Row 1: Back Arrow (left) & Contact Actions (right) -->
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <a
+      href="{% url 'contacts:list' %}"
+      title="Back to Contacts"
+      aria-label="Back to Contacts"
+      class="inline-flex items-center justify-center w-9 h-9 rounded-xl border border-gray-200 bg-white text-gray-500 hover:text-gray-900 hover:bg-gray-50 hover:border-gray-300 transition shadow-2xs shrink-0"
+    >
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+      </svg>
+    </a>
 
-{% block header_actions %}
-<a href="{% url 'messaging:contact_message' contact.id %}" class="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs">
-  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-  </svg>
-  Message Contact
-</a>
-<a href="{% url 'contacts:list' %}" class="px-3.5 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 transition shadow-xs">
-  ← Back to Contacts
-</a>
-<button type="button" onclick="openConsentModal()" class="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition shadow-xs cursor-pointer">
-  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-  </svg>
-  Update Consent
-</button>
-<button type="button" onclick="confirmDeleteContact()" class="px-3.5 py-2 text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition cursor-pointer">
-  Delete Contact
-</button>
+    <div class="flex items-center flex-wrap gap-2.5">
+      <a
+        href="{% url 'messaging:contact_message' contact.id %}"
+        class="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs whitespace-nowrap shrink-0"
+      >
+        <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+        </svg>
+        <span>Message Contact</span>
+      </a>
+      <button
+        type="button"
+        onclick="openConsentModal()"
+        class="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 hover:border-gray-300 rounded-xl transition shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
+      >
+        <svg class="w-3.5 h-3.5 text-gray-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+        </svg>
+        <span>Update Consent</span>
+      </button>
+      <button
+        type="button"
+        onclick="confirmDeleteContact()"
+        title="Delete Contact"
+        aria-label="Delete Contact"
+        class="inline-flex items-center justify-center w-9 h-9 text-gray-400 hover:text-rose-600 bg-white hover:bg-rose-50 border border-gray-200 hover:border-rose-200 rounded-xl transition shadow-2xs cursor-pointer shrink-0"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Row 2: Contact Identity, Consent Badge & Metadata -->
+  <div class="min-w-0 pl-6">
+    <div class="flex flex-wrap items-center gap-2.5">
+      <h1 class="text-xl sm:text-2xl font-bold text-gray-900 leading-tight truncate">
+        {% if contact.first_name or contact.last_name %}{{ contact.first_name }} {{ contact.last_name }}{% else %}Contact Profile{% endif %}
+      </h1>
+      {% if contact.sms_status == "opted_in" %}
+      <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 whitespace-nowrap shrink-0">
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+        Opted In
+      </span>
+      {% elif contact.sms_status == "opted_out" %}
+      <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200 whitespace-nowrap shrink-0">
+        <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+        Opted Out
+      </span>
+      {% else %}
+      <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-600 border border-gray-200 whitespace-nowrap shrink-0">
+        <span class="w-1.5 h-1.5 rounded-full bg-gray-400"></span>
+        No Consent
+      </span>
+      {% endif %}
+    </div>
+    <p class="text-xs text-gray-500 mt-1 flex items-center gap-1.5 flex-wrap">
+      <span class="font-mono font-medium text-gray-700">{{ contact.phone }}</span>
+      <span class="text-gray-300">·</span>
+      <span>Added {{ contact.created_at|date:"M d, Y" }}</span>
+      <span class="text-gray-300">·</span>
+      <span>{{ contact.get_source_display }}</span>
+    </p>
+  </div>
+</div>
 {% endblock %}
 
 {% block content %}
 {% csrf_token %}
 
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+<div class="grid grid-cols-1 lg:grid-cols-3 lg:grid-rows-[auto_1fr] gap-6 items-start">
 
-  <!-- ================= LEFT 2 COLUMNS: EDIT FORM & DETAILS ================= -->
-  <div class="lg:col-span-2 space-y-6">
-
-    <!-- Contact Info Card -->
-    <div class="bg-white border border-gray-200 rounded-2xl p-6 shadow-xs">
+  <!-- ================= ROW 1 LEFT (2 COLS): CONTACT DETAILS FORM ================= -->
+  <div class="bg-white border border-gray-200 rounded-2xl p-6 shadow-xs order-1 lg:order-none lg:col-span-2 lg:col-start-1 lg:row-start-1">
       <div class="flex items-center justify-between pb-4 mb-4 border-b border-gray-100">
         <div>
           <h3 class="text-base font-bold text-gray-900">Contact Details</h3>
@@ -203,19 +237,17 @@ E.164 phone: <strong class="font-mono text-gray-800">{{ contact.phone }}</strong
           </button>
         </div>
       </form>
-    </div>
-
   </div>
 
-  <!-- ================= RIGHT 1 COLUMN: CONSENT AUDIT LEDGER ================= -->
-  <div class="space-y-6">
+  <!-- ================= RIGHT 1 COLUMN: CONSENT & SUMMARY (RENDERED BEFORE LONG CHAT STREAM) ================= -->
+  <div class="space-y-6 order-3 lg:order-none lg:col-start-3 lg:row-start-1 lg:row-span-2">
 
-    <!-- TCPA Consent Card -->
+    <!-- TCPA Consent Card (Compact Current Status + 1-Click History Modal) -->
     <div class="bg-white border border-gray-200 rounded-2xl p-6 shadow-xs">
       <div class="flex items-center justify-between pb-3 mb-4 border-b border-gray-100">
         <div>
-          <h3 class="text-sm font-bold text-gray-900">Consent & Audit Ledger</h3>
-          <p class="text-[11px] text-gray-500">Immutable TCPA/CTIA ledger entries</p>
+          <h3 class="text-sm font-bold text-gray-900">Consent Status</h3>
+          <p class="text-[11px] text-gray-500">TCPA/CTIA compliance ledger</p>
         </div>
         <span class="inline-flex items-center text-[10px] font-semibold text-slate-500 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded">
           🔒 Append-Only
@@ -223,7 +255,7 @@ E.164 phone: <strong class="font-mono text-gray-800">{{ contact.phone }}</strong
       </div>
 
       <!-- Current status badge info -->
-      <div class="mb-4 p-3 rounded-xl border {% if contact.sms_status == 'opted_in' %}bg-emerald-50/60 border-emerald-200 text-emerald-900{% elif contact.sms_status == 'opted_out' %}bg-rose-50/60 border-rose-200 text-rose-900{% else %}bg-gray-50 border-gray-200 text-gray-700{% endif %}">
+      <div class="p-3.5 rounded-xl border {% if contact.sms_status == 'opted_in' %}bg-emerald-50/60 border-emerald-200 text-emerald-900{% elif contact.sms_status == 'opted_out' %}bg-rose-50/60 border-rose-200 text-rose-900{% else %}bg-gray-50 border-gray-200 text-gray-700{% endif %}">
         <div class="text-[11px] font-semibold uppercase tracking-wider mb-0.5">Current Status</div>
         <div class="text-sm font-bold flex items-center gap-1.5">
           {% if contact.sms_status == "opted_in" %}
@@ -245,50 +277,439 @@ E.164 phone: <strong class="font-mono text-gray-800">{{ contact.phone }}</strong
         </p>
       </div>
 
-      <!-- Consent Events Timeline -->
-      <div class="space-y-3">
-        <h4 class="text-xs font-bold text-gray-700">Audit History ({{ consent_events.count }})</h4>
-        
-        {% if consent_events %}
-        <div class="space-y-3 border-l-2 border-slate-100 pl-3 ml-1.5">
-          {% for ev in consent_events %}
-          <div class="relative group">
-            <span class="absolute -left-[19px] top-1.5 w-2.5 h-2.5 rounded-full {% if ev.event_type == 'opt_in' %}bg-emerald-500 ring-4 ring-emerald-100{% else %}bg-rose-500 ring-4 ring-rose-100{% endif %}"></span>
-            
-            <div class="bg-slate-50/70 border border-slate-200 rounded-xl p-3 text-xs space-y-1.5">
-              <div class="flex items-center justify-between">
-                <span class="font-bold {% if ev.event_type == 'opt_in' %}text-emerald-700{% else %}text-rose-700{% endif %} uppercase text-[10px] tracking-wider">
-                  {{ ev.get_event_type_display }}
-                </span>
-                <span class="text-[10px] font-mono text-gray-400">{{ ev.created_at|date:"M d, Y H:i" }}</span>
-              </div>
-              
-              <div class="text-[11px] text-gray-600">
-                <span class="font-semibold text-gray-800">Source:</span> {{ ev.get_source_display }}
-              </div>
-              
-              <div class="bg-white p-2 rounded-lg border border-slate-200/80 font-mono text-[11px] text-gray-800 break-words">
-                {{ ev.proof_text }}
-              </div>
-
-              <div class="text-[10px] text-gray-400 text-right">
-                Ledger ID #{{ ev.id }}
-              </div>
-            </div>
-          </div>
-          {% endfor %}
+      <!-- Latest Proof Footer + 1-Click Audit History Modal Trigger -->
+      {% if consent_events %}
+      {% with latest=consent_events.0 %}
+      <div class="mt-3.5 pt-3 border-t border-gray-100 flex items-center justify-between gap-2 text-[11px]">
+        <div class="text-gray-600 truncate" title="Last verified via {{ latest.get_source_display }} on {{ latest.created_at|date:'M d, Y H:i' }}">
+          <span class="font-semibold text-gray-800">Last verified:</span>
+          {{ latest.get_source_display }} · {{ latest.created_at|date:"M d, Y" }}
         </div>
-        {% else %}
-        <div class="p-4 bg-gray-50 border border-gray-200 rounded-xl text-center">
-          <p class="text-xs text-gray-500 mb-2">No consent ledger entries recorded yet.</p>
-          <button type="button" onclick="openConsentModal()" class="text-xs font-semibold text-brand-600 hover:underline cursor-pointer">
-            + Record Consent Event
-          </button>
-        </div>
-        {% endif %}
+        <button
+          type="button"
+          onclick="openAuditHistoryModal()"
+          class="inline-flex items-center gap-1 font-semibold text-brand-600 hover:text-brand-800 shrink-0 cursor-pointer"
+        >
+          <span>View History ({{ consent_events.count }})</span>
+          <span>↗</span>
+        </button>
       </div>
+      {% endwith %}
+      {% else %}
+      <div class="mt-3.5 pt-3 border-t border-gray-100 flex items-center justify-between text-[11px]">
+        <span class="text-gray-500">No consent events recorded yet.</span>
+        <button type="button" onclick="openConsentModal()" class="font-semibold text-brand-600 hover:underline cursor-pointer">
+          + Record Consent
+        </button>
+      </div>
+      {% endif %}
     </div>
 
+    <!-- ===================================================================== -->
+    <!-- CONVERSATION SUMMARY CARD (BELOW CONSENT & AUDIT LEDGER)              -->
+    <!-- ===================================================================== -->
+    <div class="bg-white border border-gray-200 rounded-2xl p-6 shadow-xs space-y-4">
+      <div class="flex items-start justify-between gap-2 pb-3 border-b border-gray-100">
+        <div>
+          <h3 class="text-sm font-bold text-gray-900 flex items-center gap-1.5">
+            <span>📊</span>
+            <span>Conversation Summary</span>
+          </h3>
+          <p class="text-[11px] text-gray-500">At-a-glance activity &amp; qualification</p>
+        </div>
+        {% if active_conv and conv_summary.total > 0 %}
+        <button
+          type="button"
+          id="btn-generate-ai-summary"
+          onclick="generateContactAiSummary()"
+          class="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition cursor-pointer shrink-0"
+          title="Generate a concise AI executive summary of this conversation"
+        >
+          <span>✨</span>
+          <span id="ai-summary-btn-text">AI Summary</span>
+        </button>
+        {% endif %}
+      </div>
+
+      <!-- On-Demand Gemma AI Executive Summary Box -->
+      <div id="contact-ai-summary-box" class="hidden p-3.5 rounded-xl bg-gradient-to-br from-indigo-50/90 to-purple-50/70 border border-indigo-200 space-y-1.5">
+        <div class="flex items-center justify-between">
+          <span class="text-[11px] font-bold text-indigo-900 flex items-center gap-1.5">
+            <span>🤖</span>
+            <span id="ai-summary-header">Gemma AI Summary</span>
+          </span>
+          <button type="button" onclick="generateContactAiSummary()" class="text-[10px] font-semibold text-indigo-600 hover:underline cursor-pointer">
+            ↻ Refresh
+          </button>
+        </div>
+        <div id="contact-ai-summary-text" class="text-xs text-indigo-950 whitespace-pre-wrap leading-relaxed"></div>
+      </div>
+
+      {% if active_conv and conv_summary.total > 0 %}
+        <!-- AI Collected Qualification Answers (Top Priority) -->
+        {% if conv_summary.qualification_items %}
+        <div class="space-y-2">
+          <div class="text-[11px] font-bold uppercase tracking-wider text-brand-700 flex items-center justify-between">
+            <span class="flex items-center gap-1"><span>🎯</span> Collected Details</span>
+            <span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">✓ Qualified Data</span>
+          </div>
+          <div class="bg-slate-50/90 border border-brand-200/70 rounded-xl p-3 space-y-1.5 text-xs shadow-2xs">
+            {% for item in conv_summary.qualification_items %}
+            <div class="flex items-center justify-between gap-2 border-b last:border-b-0 border-slate-200/70 pb-1 last:pb-0">
+              <span class="text-gray-500 text-[11px]">{{ item.label }}:</span>
+              <span class="font-semibold text-gray-900 text-right">{{ item.value }}</span>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
+        <!-- Handoff Reason Highlight -->
+        {% if active_conv.handoff_reason %}
+        <div class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-950 text-xs space-y-1">
+          <div class="font-bold text-[11px] flex items-center gap-1 text-amber-800">
+            <span>⚠️</span> Needs Human Attention
+          </div>
+          <p class="text-[11px] text-amber-900 leading-relaxed">{{ active_conv.handoff_reason }}</p>
+        </div>
+        {% endif %}
+
+        <!-- Key Metadata & Interactive Lead Controls -->
+        <div class="space-y-2.5 {% if conv_summary.qualification_items or active_conv.handoff_reason %}pt-2 border-t border-gray-100{% endif %} text-xs">
+          <!-- Lead Status / Stage Selector -->
+          <div class="space-y-1">
+            <div class="flex items-center justify-between">
+              <label for="contact-stage-select" class="text-gray-500 text-[11px] font-medium">Lead Status / Stage</label>
+              <span id="contact-stage-saved-pill" class="text-[10px] font-semibold text-emerald-600 hidden">Saved ✓</span>
+            </div>
+            <select
+              id="contact-stage-select"
+              onchange="updateContactLeadStage(this.value)"
+              class="w-full text-xs font-semibold px-3 py-1.5 rounded-xl border border-gray-200 bg-gray-50 hover:bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 cursor-pointer transition"
+            >
+              <option value="" {% if not conv_summary.stage %}selected{% endif %}>— Select Lead Stage —</option>
+              <option value="New Lead" {% if conv_summary.stage == "New Lead" %}selected{% endif %}>🟢 New Lead</option>
+              <option value="Contacted" {% if conv_summary.stage == "Contacted" %}selected{% endif %}>💬 Contacted</option>
+              <option value="Qualified" {% if conv_summary.stage == "Qualified" %}selected{% endif %}>⭐ Qualified</option>
+              <option value="Quote Sent" {% if conv_summary.stage == "Quote Sent" %}selected{% endif %}>📄 Quote Sent</option>
+              <option value="Won" {% if conv_summary.stage == "Won" %}selected{% endif %}>🏆 Closed Won</option>
+              <option value="Lost" {% if conv_summary.stage == "Lost" %}selected{% endif %}>❌ Closed Lost</option>
+              {% if conv_summary.stage and conv_summary.stage not in standard_stages %}
+              <option value="{{ conv_summary.stage }}" selected>{{ conv_summary.stage }}</option>
+              {% endif %}
+            </select>
+          </div>
+
+          <!-- Assigned Team Member Selector -->
+          <div class="space-y-1">
+            <div class="flex items-center justify-between">
+              <label for="contact-assign-select" class="text-gray-500 text-[11px] font-medium">Assigned Rep</label>
+              <span id="contact-assign-saved-pill" class="text-[10px] font-semibold text-emerald-600 hidden">Updated ✓</span>
+            </div>
+            <select
+              id="contact-assign-select"
+              onchange="updateContactAssignedRep(this.value)"
+              class="w-full text-xs font-semibold px-3 py-1.5 rounded-xl border border-gray-200 bg-gray-50 hover:bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 cursor-pointer transition"
+            >
+              <option value="" {% if not active_conv.assigned_to %}selected{% endif %}>Unassigned</option>
+              {% for member in org_members %}
+              <option value="{{ member.id }}" {% if active_conv.assigned_to_id == member.id %}selected{% endif %}>
+                👤 {{ member.first_name|default:member.email }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="flex items-center justify-between pt-1">
+            <span class="text-gray-500 text-[11px]">AI Assistant Mode:</span>
+            <span class="font-semibold text-gray-900">
+              {% if active_conv.ai_mode == 'off' %}🛑 Human Takeover
+              {% elif active_conv.ai_mode == 'suggest' %}✨ Suggest Only
+              {% elif active_conv.ai_mode == 'auto' %}🤖 Auto Reply
+              {% else %}⚙️ Business Default{% endif %}
+            </span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-gray-500 text-[11px]">Last Inbound:</span>
+            <span class="font-mono text-[11px] text-gray-700">
+              {% if active_conv.last_inbound_at %}{{ active_conv.last_inbound_at|date:"M d, h:i A" }}{% else %}No reply yet{% endif %}
+            </span>
+          </div>
+          {% if active_conv.last_campaign %}
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-gray-500 text-[11px] shrink-0">Campaign:</span>
+            <a href="{% url 'campaigns:detail' active_conv.last_campaign.id %}" class="font-semibold text-brand-700 hover:underline truncate text-[11px]">
+              📢 {{ active_conv.last_campaign.name }}
+            </a>
+          </div>
+          {% endif %}
+        </div>
+      {% else %}
+        <!-- Even with no messages yet, still let reps set Lead Status / Stage! -->
+        <div class="space-y-3">
+          <div class="space-y-1 text-xs">
+            <div class="flex items-center justify-between">
+              <label for="contact-stage-select" class="text-gray-500 text-[11px] font-medium">Lead Status / Stage</label>
+              <span id="contact-stage-saved-pill" class="text-[10px] font-semibold text-emerald-600 hidden">Saved ✓</span>
+            </div>
+            <select
+              id="contact-stage-select"
+              onchange="updateContactLeadStage(this.value)"
+              class="w-full text-xs font-semibold px-3 py-1.5 rounded-xl border border-gray-200 bg-gray-50 hover:bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 cursor-pointer transition"
+            >
+              <option value="" {% if not conv_summary.stage %}selected{% endif %}>— Select Lead Stage —</option>
+              <option value="New Lead" {% if conv_summary.stage == "New Lead" %}selected{% endif %}>🟢 New Lead</option>
+              <option value="Contacted" {% if conv_summary.stage == "Contacted" %}selected{% endif %}>💬 Contacted</option>
+              <option value="Qualified" {% if conv_summary.stage == "Qualified" %}selected{% endif %}>⭐ Qualified</option>
+              <option value="Quote Sent" {% if conv_summary.stage == "Quote Sent" %}selected{% endif %}>📄 Quote Sent</option>
+              <option value="Won" {% if conv_summary.stage == "Won" %}selected{% endif %}>🏆 Closed Won</option>
+              <option value="Lost" {% if conv_summary.stage == "Lost" %}selected{% endif %}>❌ Closed Lost</option>
+              {% if conv_summary.stage and conv_summary.stage not in standard_stages %}
+              <option value="{{ conv_summary.stage }}" selected>{{ conv_summary.stage }}</option>
+              {% endif %}
+            </select>
+          </div>
+          <div class="p-3 bg-gray-50 border border-gray-200 rounded-xl text-center">
+            <p class="text-[11px] text-gray-500">No conversation summary yet. Send a message from the thread on the left to start chatting.</p>
+          </div>
+        </div>
+      {% endif %}
+    </div>
+
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- ROW 2 LEFT (2 COLS): CONVERSATION HISTORY & INLINE REPLY CARD         -->
+  <!-- ===================================================================== -->
+  <div class="bg-white border border-gray-200 rounded-2xl shadow-xs overflow-hidden flex flex-col order-2 lg:order-none lg:col-span-2 lg:col-start-1 lg:row-start-2">
+      <!-- Card Header -->
+      <div class="px-6 py-4 border-b border-gray-100 flex flex-wrap items-center justify-between gap-3 bg-white">
+        <div class="flex items-center gap-2.5 flex-wrap">
+          <h3 class="text-base font-bold text-gray-900 flex items-center gap-2">
+            <span>💬</span>
+            <span>Conversation History</span>
+          </h3>
+          <span id="contact-msg-count-pill" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-gray-100 text-gray-700 border border-gray-200">
+            {{ total_msg_count|default:0 }} message{{ total_msg_count|default:0|pluralize }}
+          </span>
+          {% if active_conv %}
+          <span id="contact-ws-badge" class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-50 text-gray-500 border border-gray-200">
+            <span id="contact-ws-dot" class="w-1.5 h-1.5 rounded-full bg-gray-400"></span>
+            <span id="contact-ws-text">Connecting</span>
+          </span>
+          {% endif %}
+        </div>
+
+        <div class="flex items-center gap-2 flex-wrap">
+          {% if active_conv %}
+            <select
+              id="contact-conv-status-select"
+              onchange="updateContactConvStatus(this.value)"
+              class="text-xs font-semibold px-2.5 py-1 rounded-lg bg-gray-50 border border-gray-200 text-gray-700 focus:outline-none focus:ring-1 focus:ring-brand-500 cursor-pointer"
+              title="Update conversation status"
+            >
+              <option value="open" {% if active_conv.status == "open" %}selected{% endif %}>🟢 Open</option>
+              <option value="needs_human" {% if active_conv.status == "needs_human" %}selected{% endif %}>🟡 Needs Human</option>
+              <option value="closed" {% if active_conv.status == "closed" %}selected{% endif %}>⚪ Closed</option>
+            </select>
+
+            <span id="contact-assigned-badge" class="{% if not active_conv.assigned_to %}hidden {% endif %}inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">
+              👤 <span id="contact-assigned-badge-name">{% if active_conv.assigned_to %}{{ active_conv.assigned_to.first_name|default:active_conv.assigned_to.email }}{% endif %}</span>
+            </span>
+
+            <a
+              id="contact-open-inbox-link"
+              href="{% url 'messaging:conversation_detail' active_conv.id %}"
+              class="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-200 transition"
+            >
+              <span>Open in Inbox</span>
+              <span>↗</span>
+            </a>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Multi-Line Switcher (shown if contact has chatted across multiple business numbers) -->
+      {% if conversations|length > 1 %}
+      <div class="px-6 py-2 bg-gray-50 border-b border-gray-100 flex items-center gap-2 overflow-x-auto text-xs">
+        <span class="text-[11px] font-semibold text-gray-500 shrink-0">Business Line:</span>
+        {% for conv in conversations %}
+        <a
+          href="?conv={{ conv.id }}"
+          class="px-2.5 py-1 rounded-lg font-mono text-[11px] transition whitespace-nowrap {% if active_conv and conv.id == active_conv.id %}bg-slate-900 text-white font-semibold{% else %}bg-white text-gray-700 border border-gray-200 hover:bg-gray-100{% endif %}"
+        >
+          {{ conv.phone_number.e164 }}{% if conv.phone_number.label %} ({{ conv.phone_number.label }}){% endif %}
+        </a>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <!-- Scrollable Messages Thread -->
+      <div id="contact-chat-window" class="max-h-[460px] min-h-[220px] overflow-y-auto p-4 sm:p-5 space-y-3 bg-[#f8fafc]/90">
+        {% if chat_messages %}
+          {% if has_older_messages %}
+          <div id="contact-older-messages-banner" class="w-full flex justify-center py-1.5 select-none">
+            <button type="button" onclick="loadOlderContactMessages(true)" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-medium text-indigo-600 bg-white border border-indigo-200/80 shadow-2xs hover:bg-indigo-50 transition-colors cursor-pointer">
+              <span class="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
+              <span id="contact-older-messages-label">Loading older messages...</span>
+            </button>
+          </div>
+          {% endif %}
+          {% for msg in chat_messages %}
+          {% if msg.sender_type == 'system' %}
+            <div id="contact-msg-{{ msg.id }}" data-msg-id="{{ msg.id }}" class="w-full flex flex-col items-center my-1.5 select-none">
+              {% if "qualification questions" in msg.body|lower or "handed off" in msg.body|lower %}
+              <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-900 border border-amber-200/90 shadow-2xs text-center max-w-lg">
+                <span>🤝</span>
+                <span>{{ msg.body }}</span>
+              </span>
+              {% elif "took over" in msg.body|lower %}
+              <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold bg-purple-50 text-purple-900 border border-purple-200/90 shadow-2xs text-center max-w-lg">
+                <span>👤</span>
+                <span>{{ msg.body }}</span>
+              </span>
+              {% elif "resumed" in msg.body|lower %}
+              <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-900 border border-emerald-200/90 shadow-2xs text-center max-w-lg">
+                <span>🤖</span>
+                <span>{{ msg.body }}</span>
+              </span>
+              {% else %}
+              <span class="px-3 py-1 rounded-full text-[11px] font-medium bg-gray-100 text-gray-600 border border-gray-200/80 shadow-2xs text-center max-w-md">
+                ℹ️ {{ msg.body }}
+              </span>
+              {% endif %}
+            </div>
+          {% else %}
+            <div id="contact-msg-{{ msg.id }}" data-msg-id="{{ msg.id }}" class="flex flex-col {% if msg.direction == 'outbound' %}items-end{% else %}items-start{% endif %}">
+              <div class="max-w-md sm:max-w-lg rounded-2xl px-4 py-2.5 text-xs sm:text-sm shadow-2xs leading-relaxed
+                {% if msg.direction == 'outbound' %}
+                  {% if msg.sender_type == 'ai' %}
+                    bg-gradient-to-r from-brand-600 to-indigo-600 text-white rounded-br-xs
+                  {% else %}
+                    bg-brand-600 text-white rounded-br-xs
+                  {% endif %}
+                {% else %}
+                  bg-white text-gray-900 border border-gray-200/90 rounded-bl-xs
+                {% endif %}">
+                <p class="whitespace-pre-wrap break-words">{{ msg.body }}</p>
+              </div>
+              <div class="flex items-center gap-1.5 text-[10px] text-gray-400 mt-1 px-1">
+                <span>{{ msg.created_at|date:"M d, h:i A" }}</span>
+                {% if msg.direction == 'outbound' %}
+                  <span>·</span>
+                  <span id="contact-msg-status-{{ msg.id }}" class="{% if msg.status == 'delivered' %}text-emerald-600 font-semibold{% elif msg.status == 'failed' or msg.status == 'undelivered' %}text-rose-600 font-medium{% elif msg.status == 'sent' %}text-gray-500 font-medium{% else %}text-gray-400 font-medium{% endif %}" title="{% if msg.status == 'delivered' %}Delivered to carrier{% elif msg.status == 'sent' %}Sent to carrier{% elif msg.status == 'undelivered' or msg.status == 'failed' %}{{ msg.error_message|default:msg.error_code|default:'Delivery failed' }}{% else %}Waiting for carrier confirmation{% endif %}">
+                    {% if msg.status == 'delivered' %}✓✓ Delivered{% elif msg.status == 'sent' %}✓ Sent{% elif msg.status == 'undelivered' %}✕ Undelivered{% elif msg.status == 'failed' %}✕ Failed{% else %}⏳ {{ msg.get_status_display }}{% endif %}
+                  </span>
+                  {% if msg.sender_type == 'ai' %}
+                    <span class="text-indigo-600 font-bold">· 🤖 AI Assistant</span>
+                  {% elif msg.sender_type == 'campaign' %}
+                    <span class="text-purple-600 font-bold">· 📢 Campaign</span>
+                  {% elif msg.sent_by %}
+                    <span class="text-gray-400">· by {{ msg.sent_by.first_name|default:msg.sent_by.email }}</span>
+                  {% endif %}
+                {% endif %}
+              </div>
+            </div>
+          {% endif %}
+          {% endfor %}
+        {% else %}
+          <div id="contact-empty-chat" class="h-full flex flex-col items-center justify-center text-center py-10">
+            <div class="w-11 h-11 rounded-2xl bg-white border border-gray-200 text-gray-400 flex items-center justify-center mb-2 shadow-2xs text-lg">
+              💬
+            </div>
+            <p class="text-xs text-gray-700 font-semibold">No messages yet with {{ contact.first_name|default:contact.phone }}</p>
+            <p class="text-[11px] text-gray-400 mt-0.5">Send your first SMS below without leaving this profile.</p>
+          </div>
+        {% endif %}
+
+        <!-- Live AI Typing Indicator -->
+        <div id="contact-ai-typing-indicator" class="hidden flex items-center gap-2 pt-1">
+          <div class="bg-indigo-50 border border-indigo-200/80 text-indigo-800 rounded-2xl rounded-bl-xs px-3.5 py-2 text-xs shadow-2xs flex items-center gap-2">
+            <span>🤖</span>
+            <span class="font-medium" id="contact-ai-typing-text">Gemma is drafting a reply...</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Inline Reply Composer Footer -->
+      <div class="p-4 bg-white border-t border-gray-200">
+        <!-- AI Draft Card (Suggest Mode) -->
+        <div id="contact-ai-draft-card" class="{% if not active_conv or not active_conv.ai_draft_reply %}hidden{% endif %} mb-3 p-3 rounded-xl bg-gradient-to-r from-indigo-50/90 to-purple-50/90 border border-indigo-200 text-indigo-950 text-xs shadow-2xs space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="font-bold flex items-center gap-1.5 text-brand-700"><span>✨</span> AI Suggestion</span>
+            <span class="text-[10px] text-gray-500 font-medium">Gemma Copilot Draft</span>
+          </div>
+          <p id="contact-ai-draft-text" class="text-xs text-gray-800 whitespace-pre-wrap leading-relaxed bg-white/80 p-2.5 rounded-lg border border-indigo-100">{{ active_conv.ai_draft_reply|default:'' }}</p>
+          <div class="flex items-center justify-end gap-2">
+            <button type="button" onclick="discardContactAiDraft()" class="px-2.5 py-1 text-[11px] font-medium text-gray-500 hover:text-gray-800 hover:bg-gray-200/60 rounded-lg cursor-pointer">Discard</button>
+            <button type="button" onclick="applyContactAiDraft()" class="px-2.5 py-1 text-[11px] font-semibold text-brand-700 hover:bg-brand-100 rounded-lg border border-brand-200 cursor-pointer">Edit Draft</button>
+            <button type="button" onclick="sendContactAiDraft()" class="px-3 py-1 text-[11px] font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-lg shadow-2xs cursor-pointer">Approve &amp; Send →</button>
+          </div>
+        </div>
+
+        {% if not can_send %}
+          <div class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2.5">
+            <span class="font-bold text-amber-700 text-sm leading-none">⚠️</span>
+            <div>
+              <strong class="font-bold block mb-0.5">Sending Currently Blocked</strong>
+              <p class="text-amber-800 leading-relaxed">{{ block_reason }}</p>
+            </div>
+          </div>
+        {% else %}
+          <div id="contact-reply-error" class="hidden mb-2.5 p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 font-medium"></div>
+
+          <form id="contact-reply-form" method="post" action="{% url 'contacts:send_message' contact.id %}" class="space-y-2.5">
+            {% csrf_token %}
+            <input type="hidden" id="contact-reply-conv-id" name="conversation_id" value="{{ active_conv.id|default:'' }}">
+
+            <div class="flex items-center justify-between text-[11px] text-gray-500">
+              <div class="flex items-center gap-1.5">
+                <span class="font-semibold text-gray-600">From:</span>
+                {% if active_conv %}
+                  <span class="font-mono font-semibold text-gray-800 bg-gray-100 px-2 py-0.5 rounded-md border border-gray-200">
+                    {{ active_conv.phone_number.e164 }}{% if active_conv.phone_number.label %} ({{ active_conv.phone_number.label }}){% endif %}
+                  </span>
+                {% elif active_phones|length > 1 %}
+                  <select name="phone_number_id" class="text-[11px] font-mono bg-gray-50 border border-gray-200 rounded-lg px-2 py-0.5 text-gray-800 focus:outline-none focus:ring-1 focus:ring-brand-500">
+                    {% for p in active_phones %}
+                    <option value="{{ p.id }}" {% if p.is_default %}selected{% endif %}>{{ p.e164 }}{% if p.label %} ({{ p.label }}){% endif %}</option>
+                    {% endfor %}
+                  </select>
+                {% elif active_phones %}
+                  <input type="hidden" name="phone_number_id" value="{{ active_phones.0.id }}">
+                  <span class="font-mono font-semibold text-gray-800 bg-gray-100 px-2 py-0.5 rounded-md border border-gray-200">
+                    {{ active_phones.0.e164 }}
+                  </span>
+                {% endif %}
+              </div>
+            </div>
+
+            <textarea
+              id="contact-reply-body"
+              name="body"
+              rows="2"
+              maxlength="1600"
+              required
+              placeholder="Write an SMS reply to {{ contact.first_name|default:contact.phone }}..."
+              class="w-full px-3.5 py-2.5 text-xs sm:text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition resize-none text-gray-900"
+            ></textarea>
+
+            <div class="flex items-center justify-between">
+              <span id="contact-reply-counter" class="text-[11px] text-gray-400 font-mono">0 / 160 characters · 1 segment</span>
+              <button
+                type="submit"
+                id="contact-reply-submit"
+                class="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs cursor-pointer disabled:opacity-50"
+              >
+                <span>Send SMS</span>
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+                </svg>
+              </button>
+            </div>
+          </form>
+        {% endif %}
+      </div>
   </div>
 
 </div>
@@ -352,6 +773,63 @@ E.164 phone: <strong class="font-mono text-gray-800">{{ contact.phone }}</strong
   </div>
 </div>
 
+<!-- ========================================================================= -->
+<!-- MODAL: AUDIT HISTORY LEDGER MODAL                                         -->
+<!-- ========================================================================= -->
+<div id="auditHistoryModal" class="fixed inset-0 z-50 hidden overflow-y-auto" role="dialog" aria-modal="true">
+  <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity" onclick="closeAuditHistoryModal()"></div>
+  <div class="flex min-h-full items-center justify-center p-4">
+    <div class="relative bg-white rounded-2xl max-w-lg w-full p-6 text-left shadow-2xl border border-gray-100 space-y-4">
+      <div class="flex items-start justify-between border-b border-gray-100 pb-3">
+        <div>
+          <h3 class="text-base font-bold text-gray-900 flex items-center gap-2">
+            <span>🛡️</span>
+            <span>Consent Audit Ledger ({{ consent_events.count }})</span>
+          </h3>
+          <p class="text-xs text-gray-500 mt-0.5">Append-only compliance proof log for <strong class="font-mono text-gray-800">{{ contact.phone }}</strong></p>
+        </div>
+        <button type="button" onclick="closeAuditHistoryModal()" class="text-gray-400 hover:text-gray-600 p-1 cursor-pointer">✕</button>
+      </div>
+
+      {% if consent_events %}
+      <div class="max-h-[60vh] overflow-y-auto pr-2 space-y-3 border-l-2 border-slate-100 pl-3 ml-1.5">
+        {% for ev in consent_events %}
+        <div class="relative">
+          <span class="absolute -left-[19px] top-1.5 w-2.5 h-2.5 rounded-full {% if ev.event_type == 'opt_in' %}bg-emerald-500 ring-4 ring-emerald-100{% else %}bg-rose-500 ring-4 ring-rose-100{% endif %}"></span>
+          <div class="bg-slate-50/70 border border-slate-200 rounded-xl p-3 text-xs space-y-1.5">
+            <div class="flex items-center justify-between">
+              <span class="font-bold {% if ev.event_type == 'opt_in' %}text-emerald-700{% else %}text-rose-700{% endif %} uppercase text-[10px] tracking-wider">
+                {{ ev.get_event_type_display }}
+              </span>
+              <span class="text-[10px] font-mono text-gray-400">{{ ev.created_at|date:"M d, Y H:i" }}</span>
+            </div>
+            <div class="text-[11px] text-gray-600">
+              <span class="font-semibold text-gray-800">Source:</span> {{ ev.get_source_display }}
+            </div>
+            <div class="bg-white p-2 rounded-lg border border-slate-200/80 font-mono text-[11px] text-gray-800 break-words">
+              {{ ev.proof_text }}
+            </div>
+            <div class="text-[10px] text-gray-400 text-right">Ledger ID #{{ ev.id }}</div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="text-xs text-gray-500 text-center py-6">No consent events recorded yet.</p>
+      {% endif %}
+
+      <div class="pt-3 border-t border-gray-100 flex items-center justify-between">
+        <a href="{% url 'compliance:dashboard' %}?q={{ contact.phone|urlencode }}" class="text-xs font-semibold text-brand-600 hover:underline">
+          Open in Compliance Ledger →
+        </a>
+        <button type="button" onclick="closeAuditHistoryModal()" class="px-4 py-2 text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-xl cursor-pointer">
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <form id="deleteContactForm" method="post" action="{% url 'contacts:delete' contact.id %}" class="hidden">
   {% csrf_token %}
 </form>
@@ -366,11 +844,561 @@ E.164 phone: <strong class="font-mono text-gray-800">{{ contact.phone }}</strong
   function closeConsentModal() {
     document.getElementById('consentModal').classList.add('hidden');
   }
-  function confirmDeleteContact() {
-    if (confirm("Are you sure you want to permanently delete this contact? This action cannot be undone.")) {
+  function openAuditHistoryModal() {
+    document.getElementById('auditHistoryModal').classList.remove('hidden');
+  }
+  function closeAuditHistoryModal() {
+    document.getElementById('auditHistoryModal').classList.add('hidden');
+  }
+  async function confirmDeleteContact() {
+    const confirmed = await window.showAppConfirm({
+      title: "Delete Contact",
+      message: "Are you sure you want to permanently delete this contact? This action cannot be undone.",
+      confirmText: "Delete Contact",
+    });
+    if (confirmed) {
       document.getElementById('deleteContactForm').submit();
     }
   }
+
+  // =========================================================================
+  // Conversation History, Live WebSocket & Inline Reply Composer
+  // =========================================================================
+  (function() {
+    let activeConvId = {% if active_conv %}{{ active_conv.id }}{% else %}null{% endif %};
+    let messageCount = {{ total_msg_count|default:0 }};
+    let oldestContactMsgId = {{ oldest_msg_id|default:0 }};
+    let hasOlderContactMessages = {% if has_older_messages %}true{% else %}false{% endif %};
+    let isLoadingOlderContact = false;
+    let olderContactTimer = null;
+    let chatSocket = null;
+    let reconnectTimer = null;
+
+    const chatWindow = document.getElementById('contact-chat-window');
+    const replyForm = document.getElementById('contact-reply-form');
+    const replyInput = document.getElementById('contact-reply-body');
+    const replyCounter = document.getElementById('contact-reply-counter');
+    const replySubmit = document.getElementById('contact-reply-submit');
+    const replyError = document.getElementById('contact-reply-error');
+    const msgCountPill = document.getElementById('contact-msg-count-pill');
+
+    function escHtml(str) {
+      const d = document.createElement('div');
+      d.textContent = str || '';
+      return d.innerHTML;
+    }
+
+    function scrollToBottom() {
+      if (chatWindow) {
+        chatWindow.scrollTop = chatWindow.scrollHeight;
+      }
+    }
+
+    function updateMessageCounter(delta) {
+      messageCount = Math.max(0, messageCount + delta);
+      if (msgCountPill) {
+        msgCountPill.textContent = `${messageCount} message${messageCount === 1 ? '' : 's'}`;
+      }
+    }
+
+    function setWsStatus(state) {
+      const dot = document.getElementById('contact-ws-dot');
+      const text = document.getElementById('contact-ws-text');
+      const badge = document.getElementById('contact-ws-badge');
+      if (!dot || !text || !badge) return;
+      if (state === 'live') {
+        badge.className = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200';
+        dot.className = 'w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse';
+        text.textContent = 'Live';
+      } else if (state === 'connecting') {
+        badge.className = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200';
+        dot.className = 'w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse';
+        text.textContent = 'Connecting';
+      } else {
+        badge.className = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-50 text-gray-500 border border-gray-200';
+        dot.className = 'w-1.5 h-1.5 rounded-full bg-gray-400';
+        text.textContent = 'Offline';
+      }
+    }
+
+    function renderDeliveryStatus(status, errorMessage) {
+      if (status === 'delivered') return '<span class="text-emerald-600 font-semibold" title="Delivered to carrier">✓✓ Delivered</span>';
+      if (status === 'sent') return '<span class="text-gray-500 font-medium" title="Sent to carrier">✓ Sent</span>';
+      if (status === 'undelivered') return `<span class="text-rose-600 font-medium" title="${escHtml(errorMessage || 'Undelivered by carrier')}">✕ Undelivered</span>`;
+      if (status === 'failed') return `<span class="text-rose-600 font-medium" title="${escHtml(errorMessage || 'Delivery failed')}">✕ Failed</span>`;
+      if (status === 'queued' || status === 'sending') return `<span class="text-gray-400 font-medium" title="Waiting for carrier confirmation">⏳ ${status === 'sending' ? 'Sending' : 'Queued'}</span>`;
+      return `<span>${escHtml(status || 'Sent')}</span>`;
+    }
+
+    function buildContactMessageNode(m) {
+      const wrapper = document.createElement('div');
+      wrapper.id = `contact-msg-${m.id}`;
+      wrapper.setAttribute('data-msg-id', m.id);
+
+      if (m.sender_type === 'system') {
+        wrapper.className = 'w-full flex flex-col items-center my-1.5 select-none';
+        wrapper.innerHTML = `<span class="px-3 py-1 rounded-full text-[11px] font-medium bg-gray-100 text-gray-600 border border-gray-200/80 shadow-2xs text-center max-w-md">ℹ️ ${escHtml(m.body)}</span>`;
+      } else {
+        const isOut = m.direction === 'outbound';
+        wrapper.className = `flex flex-col ${isOut ? 'items-end' : 'items-start'}`;
+
+        let bubbleClass = 'bg-white text-gray-900 border border-gray-200/90 rounded-bl-xs';
+        if (isOut) {
+          bubbleClass = (m.sender_type === 'ai')
+            ? 'bg-gradient-to-r from-brand-600 to-indigo-600 text-white rounded-br-xs'
+            : 'bg-brand-600 text-white rounded-br-xs';
+        }
+
+        let metaHtml = `<span>${escHtml(m.created_at || 'Just now')}</span>`;
+        if (isOut) {
+          metaHtml += `<span>·</span><span id="contact-msg-status-${m.id}">${renderDeliveryStatus(m.status, m.error_message)}</span>`;
+          if (m.sender_type === 'ai') {
+            metaHtml += `<span class="text-indigo-600 font-bold">· 🤖 AI Assistant</span>`;
+          } else if (m.sender_type === 'campaign') {
+            metaHtml += `<span class="text-purple-600 font-bold">· 📢 Campaign</span>`;
+          } else if (m.sent_by) {
+            metaHtml += `<span class="text-gray-400">· by ${escHtml(m.sent_by)}</span>`;
+          }
+        }
+
+        wrapper.innerHTML = `
+          <div class="max-w-md sm:max-w-lg rounded-2xl px-4 py-2.5 text-xs sm:text-sm shadow-2xs leading-relaxed ${bubbleClass}">
+            <p class="whitespace-pre-wrap break-words">${escHtml(m.body)}</p>
+          </div>
+          <div class="flex items-center gap-1.5 text-[10px] text-gray-400 mt-1 px-1">${metaHtml}</div>
+        `;
+      }
+      return wrapper;
+    }
+
+    function appendMessageBubble(m) {
+      if (!chatWindow || !m || !m.id) return;
+      if (document.getElementById(`contact-msg-${m.id}`)) return;
+
+      const emptyPlaceholder = document.getElementById('contact-empty-chat');
+      if (emptyPlaceholder) emptyPlaceholder.remove();
+
+      const typingEl = document.getElementById('contact-ai-typing-indicator');
+      const wrapper = buildContactMessageNode(m);
+
+      if (typingEl && typingEl.parentElement === chatWindow) {
+        chatWindow.insertBefore(wrapper, typingEl);
+      } else {
+        chatWindow.appendChild(wrapper);
+      }
+      updateMessageCounter(1);
+
+      scrollToBottom();
+    }
+
+    function prependOlderContactMessages(messages, hasMore, nextOldestId) {
+      if (!chatWindow) return;
+      const prevHeight = chatWindow.scrollHeight;
+      const prevTop = chatWindow.scrollTop;
+      const wasAtBottom = (chatWindow.scrollHeight - chatWindow.scrollTop - chatWindow.clientHeight) <= 32;
+
+      const fragment = document.createDocumentFragment();
+      for (const m of messages) {
+        if (!m || !m.id || document.getElementById(`contact-msg-${m.id}`)) continue;
+        fragment.appendChild(buildContactMessageNode(m));
+      }
+
+      hasOlderContactMessages = !!hasMore;
+      if (nextOldestId) oldestContactMsgId = nextOldestId;
+
+      const banner = document.getElementById('contact-older-messages-banner');
+      if (banner && banner.parentElement === chatWindow) {
+        chatWindow.insertBefore(fragment, banner.nextSibling);
+        if (!hasOlderContactMessages) banner.remove();
+      } else {
+        chatWindow.prepend(fragment);
+      }
+
+      if (wasAtBottom) {
+        chatWindow.scrollTop = chatWindow.scrollHeight;
+      } else {
+        chatWindow.scrollTop = prevTop + (chatWindow.scrollHeight - prevHeight);
+      }
+    }
+
+    function scheduleOlderContactLoad(delayMs = 180) {
+      clearTimeout(olderContactTimer);
+      if (!activeConvId || !hasOlderContactMessages || !oldestContactMsgId) return;
+      olderContactTimer = setTimeout(() => {
+        if (activeConvId && hasOlderContactMessages && oldestContactMsgId && !isLoadingOlderContact) {
+          loadOlderContactMessages(false);
+        }
+      }, delayMs);
+    }
+
+    window.loadOlderContactMessages = function(manual = false) {
+      if (!activeConvId || !hasOlderContactMessages || !oldestContactMsgId || isLoadingOlderContact) return;
+      isLoadingOlderContact = true;
+      const labelEl = document.getElementById('contact-older-messages-label');
+      if (labelEl && manual) labelEl.textContent = 'Loading older messages...';
+
+      fetch(`/inbox/${activeConvId}/messages/?before_id=${oldestContactMsgId}&limit=60`, {
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+      })
+      .then(res => {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(data => {
+        isLoadingOlderContact = false;
+        const msgs = Array.isArray(data.messages) ? data.messages : [];
+        prependOlderContactMessages(msgs, !!data.has_more, data.oldest_id || 0);
+        if (hasOlderContactMessages && msgs.length > 0) {
+          scheduleOlderContactLoad(120);
+        }
+      })
+      .catch(err => {
+        isLoadingOlderContact = false;
+        console.debug('Older contact messages load paused:', err);
+        if (labelEl) labelEl.textContent = 'Load older messages';
+      });
+    };
+
+    function connectContactWebSocket(convId) {
+      if (!convId) return;
+      if (chatSocket && (chatSocket.readyState === WebSocket.OPEN || chatSocket.readyState === WebSocket.CONNECTING)) {
+        return;
+      }
+      setWsStatus('connecting');
+      const wsScheme = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+      const wsUrl = `${wsScheme}${window.location.host}/ws/chat/${convId}/`;
+
+      try {
+        chatSocket = new WebSocket(wsUrl);
+        chatSocket.onopen = function() {
+          setWsStatus('live');
+        };
+        chatSocket.onmessage = function(e) {
+          try {
+            const data = JSON.parse(e.data);
+            if (data.event === 'new_message' && data.message) {
+              const typingEl = document.getElementById('contact-ai-typing-indicator');
+              if (typingEl && data.message.sender_type === 'ai') {
+                typingEl.classList.add('hidden');
+              }
+              appendMessageBubble(data.message);
+            } else if (data.event === 'handoff' && data.message) {
+              appendMessageBubble(data.message);
+            } else if (data.event === 'status_update' && data.message_id) {
+              const statusEl = document.getElementById(`contact-msg-status-${data.message_id}`);
+              if (statusEl) {
+                statusEl.innerHTML = renderDeliveryStatus(data.status, data.error_message);
+              }
+            } else if (data.event === 'ai_typing') {
+              const typingEl = document.getElementById('contact-ai-typing-indicator');
+              const typingText = document.getElementById('contact-ai-typing-text');
+              if (typingEl) {
+                if (data.is_typing) {
+                  if (typingText) typingText.textContent = `${data.model_name || 'Gemma'} is drafting a reply...`;
+                  typingEl.classList.remove('hidden');
+                  scrollToBottom();
+                } else {
+                  typingEl.classList.add('hidden');
+                }
+              }
+            } else if (data.event === 'ai_draft' && data.draft) {
+              const card = document.getElementById('contact-ai-draft-card');
+              const textEl = document.getElementById('contact-ai-draft-text');
+              if (card && textEl) {
+                textEl.textContent = data.draft;
+                card.classList.remove('hidden');
+              }
+            }
+          } catch (err) {
+            console.debug('Contact chat WS parse error:', err);
+          }
+        };
+        chatSocket.onclose = function() {
+          setWsStatus('offline');
+          clearTimeout(reconnectTimer);
+          reconnectTimer = setTimeout(() => connectContactWebSocket(activeConvId), 4000);
+        };
+        chatSocket.onerror = function() {
+          if (chatSocket) chatSocket.close();
+        };
+      } catch (err) {
+        setWsStatus('offline');
+      }
+    }
+
+    // Character & segment counter
+    function updateCharCounter() {
+      if (!replyInput || !replyCounter) return;
+      const len = replyInput.value.length;
+      const segs = len === 0 ? 1 : (len <= 160 ? 1 : Math.ceil(len / 153));
+      replyCounter.textContent = `${len} / ${segs === 1 ? 160 : segs * 153} characters · ${segs} segment${segs === 1 ? '' : 's'}`;
+    }
+
+    if (replyInput) {
+      replyInput.addEventListener('input', updateCharCounter);
+      replyInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
+          e.preventDefault();
+          if (this.value.trim()) {
+            replyForm?.requestSubmit();
+          }
+        }
+      });
+    }
+
+    if (replyForm) {
+      replyForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const bodyVal = (replyInput?.value || '').trim();
+        if (!bodyVal) return;
+
+        if (replyError) replyError.classList.add('hidden');
+        if (replySubmit) {
+          replySubmit.disabled = true;
+          replySubmit.querySelector('span').textContent = 'Sending...';
+        }
+
+        try {
+          const formData = new FormData(replyForm);
+          const resp = await fetch(replyForm.action, {
+            method: 'POST',
+            headers: {
+              'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: formData,
+          });
+          const data = await resp.json();
+          if (resp.ok && data.status === 'success') {
+            replyInput.value = '';
+            updateCharCounter();
+            if (data.message) {
+              appendMessageBubble(data.message);
+            }
+            if (data.system_message) {
+              appendMessageBubble(data.system_message);
+            }
+            if (data.conversation_id && !activeConvId) {
+              activeConvId = data.conversation_id;
+              const convInput = document.getElementById('contact-reply-conv-id');
+              if (convInput) convInput.value = activeConvId;
+              connectContactWebSocket(activeConvId);
+            }
+          } else {
+            if (replyError) {
+              replyError.textContent = data.message || 'Failed to send SMS.';
+              replyError.classList.remove('hidden');
+            }
+          }
+        } catch (err) {
+          if (replyError) {
+            replyError.textContent = 'Network error: ' + err.message;
+            replyError.classList.remove('hidden');
+          }
+        } finally {
+          if (replySubmit) {
+            replySubmit.disabled = false;
+            replySubmit.querySelector('span').textContent = 'Send SMS';
+          }
+        }
+      });
+    }
+
+    // Shared CSRF + AJAX POST helpers
+    const pillTimers = {};
+    async function postFormAction(url, params) {
+      const csrf = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'X-CSRFToken': csrf,
+          'X-Requested-With': 'XMLHttpRequest',
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams(params),
+      });
+      let data = {};
+      try {
+        data = await resp.json();
+      } catch (e) {}
+      return { resp, data };
+    }
+
+    function flashSavedPill(id) {
+      const pill = document.getElementById(id);
+      if (!pill) return;
+      pill.classList.remove('hidden');
+      if (pillTimers[id]) clearTimeout(pillTimers[id]);
+      pillTimers[id] = setTimeout(function() {
+        pill.classList.add('hidden');
+      }, 2000);
+    }
+
+    // AI Draft Actions
+    window.discardContactAiDraft = async function() {
+      if (!activeConvId) return;
+      await postFormAction(`/inbox/${activeConvId}/draft-action/`, { action: 'discard' });
+      document.getElementById('contact-ai-draft-card')?.classList.add('hidden');
+    };
+
+    window.applyContactAiDraft = function() {
+      const txt = document.getElementById('contact-ai-draft-text')?.textContent || '';
+      if (replyInput && txt) {
+        replyInput.value = txt;
+        updateCharCounter();
+        replyInput.focus();
+      }
+      document.getElementById('contact-ai-draft-card')?.classList.add('hidden');
+    };
+
+    window.sendContactAiDraft = async function() {
+      if (!activeConvId) return;
+      const { resp, data } = await postFormAction(`/inbox/${activeConvId}/draft-action/`, { action: 'send' });
+      if (resp.ok && data.status === 'success') {
+        document.getElementById('contact-ai-draft-card')?.classList.add('hidden');
+        if (data.message) {
+          appendMessageBubble(data.message);
+        } else if (data.message_id) {
+          appendMessageBubble({
+            id: data.message_id,
+            body: data.body,
+            direction: 'outbound',
+            sender_type: 'human',
+            created_at: data.sent_at || 'Just now',
+            status: 'sent',
+          });
+        }
+      } else if (replyError) {
+        replyError.textContent = data.message || 'Failed to send AI draft.';
+        replyError.classList.remove('hidden');
+      }
+    };
+
+    // On-Demand Gemma AI Summary
+    window.generateContactAiSummary = async function() {
+      const btn = document.getElementById('btn-generate-ai-summary');
+      const btnText = document.getElementById('ai-summary-btn-text');
+      const box = document.getElementById('contact-ai-summary-box');
+      const textEl = document.getElementById('contact-ai-summary-text');
+      const headerEl = document.getElementById('ai-summary-header');
+      const csrf = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+
+      if (btn) btn.disabled = true;
+      if (btnText) btnText.textContent = 'Summarizing...';
+
+      try {
+        const params = new URLSearchParams();
+        if (activeConvId) params.append('conversation_id', activeConvId);
+
+        const resp = await fetch('{% url "contacts:summarize_conversation" contact.id %}', {
+          method: 'POST',
+          headers: {
+            'X-CSRFToken': csrf,
+            'X-Requested-With': 'XMLHttpRequest',
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: params,
+        });
+        const data = await resp.json();
+        if (resp.ok && data.status === 'success') {
+          if (headerEl) {
+            headerEl.textContent = data.source === 'ai' ? 'Gemma AI Summary' : 'Conversation Briefing';
+          }
+          if (textEl) textEl.textContent = data.summary;
+          if (box) box.classList.remove('hidden');
+        }
+      } catch (err) {
+        console.debug('AI summary error:', err);
+      } finally {
+        if (btn) btn.disabled = false;
+        if (btnText) btnText.textContent = 'AI Summary';
+      }
+    };
+
+    // Inline Lead Stage, Assignee & Conversation Status Controls
+    window.syncStageDropdowns = function(val) {
+      const targetVal = val || '';
+      ['contact-stage-select', 'custom-field-stage-select'].forEach(function(id) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const hasOpt = Array.from(el.options).some(function(opt) { return opt.value === targetVal; });
+        if (!hasOpt && targetVal) {
+          const opt = document.createElement('option');
+          opt.value = targetVal;
+          opt.textContent = targetVal;
+          el.appendChild(opt);
+        }
+        el.value = targetVal;
+      });
+    };
+
+    window.updateContactLeadStage = async function(newStage) {
+      window.syncStageDropdowns(newStage);
+      const { resp, data } = await postFormAction("{% url 'messaging:update_contact_stage' contact.id %}", {
+        stage: newStage || '',
+      });
+      if (resp.ok && data.status === 'success') {
+        if (data.stage !== undefined) {
+          window.syncStageDropdowns(data.stage);
+        }
+        flashSavedPill('contact-stage-saved-pill');
+      }
+    };
+
+    window.updateContactAssignedRep = async function(userId) {
+      if (!activeConvId) return;
+      const { resp, data } = await postFormAction(`/inbox/${activeConvId}/assign/`, {
+        assigned_to_id: userId || '',
+      });
+      if (resp.ok && data.status === 'success') {
+        const badge = document.getElementById('contact-assigned-badge');
+        const badgeName = document.getElementById('contact-assigned-badge-name');
+        const assignedName = (userId && data.assigned_to && data.assigned_to !== 'Unassigned') ? data.assigned_to : '';
+        if (badgeName) badgeName.textContent = assignedName;
+        if (badge) badge.classList.toggle('hidden', !assignedName);
+        flashSavedPill('contact-assign-saved-pill');
+      }
+    };
+
+    window.updateContactConvStatus = async function(newStatus) {
+      if (!activeConvId || !newStatus) return;
+      const { resp, data } = await postFormAction(`/inbox/${activeConvId}/status/`, {
+        status: newStatus,
+      });
+      if (resp.ok && data.status === 'success') {
+        const sel = document.getElementById('contact-conv-status-select');
+        if (sel && data.new_status) {
+          sel.value = data.new_status;
+        }
+      }
+    };
+
+    let contactChatBooted = false;
+    function bootContactChat() {
+      if (contactChatBooted) return;
+      contactChatBooted = true;
+      scrollToBottom();
+      if (chatWindow) {
+        chatWindow.addEventListener('scroll', function() {
+          if (this.scrollTop <= 120 && hasOlderContactMessages && !isLoadingOlderContact) {
+            clearTimeout(olderContactTimer);
+            window.loadOlderContactMessages(true);
+          }
+        }, { passive: true });
+      }
+      if (activeConvId) {
+        connectContactWebSocket(activeConvId);
+        if (hasOlderContactMessages && oldestContactMsgId > 0) {
+          scheduleOlderContactLoad(180);
+        }
+      }
+    }
+
+    // Initial boot
+    document.addEventListener('DOMContentLoaded', bootContactChat);
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+      bootContactChat();
+    }
+  })();
 </script>
 {% endblock %}
 

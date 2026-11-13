@@ -9,8 +9,8 @@ logger = logging.getLogger(__name__)
 URL_REGEX = re.compile(r"(https?://\S+|www\.\S+|[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}(?:/\S*)?)", re.IGNORECASE)
 PHONE_REGEX = re.compile(r"(\+?1?[-.\s]?(?:\(\d{3}\)|\d{3})[-.\s]?\d{3}[-.\s]?\d{4})")
 
-# Banned topic terms
-PRICE_TERMS = ["$", "dollar", "price", "discount", "promo code", "coupon", "cost you", "hourly rate"]
+# Banned topic terms: prohibit specific dollar prices, rates, or promo codes
+PRICE_TERMS = ["$", "dollar", "promo code", "coupon", "cost you", "hourly rate"]
 GUARANTEE_TERMS = ["guarantee", "100% guaranteed", "money back", "warranty"]
 LEGAL_MEDICAL_TERMS = ["legal advice", "medical advice", "diagnosis", "prescription", "lawyer up", "sue them", "lawsuit"]
 
@@ -64,7 +64,11 @@ def parse_ai_output(raw_text: str) -> Tuple[Optional[Dict[str, Any]], Optional[s
     return data, None
 
 
-def validate_reply_content(data: Dict[str, Any], config: AIAssistantConfig) -> Tuple[bool, Optional[str]]:
+def validate_reply_content(
+    data: Dict[str, Any],
+    config: AIAssistantConfig,
+    campaign: Optional[Any] = None,
+) -> Tuple[bool, Optional[str]]:
     """
     Validates the generated reply string against negative rules, safety topics, length,
     and unknown URLs/phone numbers.
@@ -82,7 +86,10 @@ def validate_reply_content(data: Dict[str, Any], config: AIAssistantConfig) -> T
         return False, f"Reply length ({len(reply)} chars) exceeds maximum allowed limit ({max_chars} chars)."
 
     reply_lower = reply.lower()
-    knowledge_lower = (config.knowledge or "").lower()
+    knowledge_text = config.knowledge or ""
+    if campaign and getattr(campaign, "ai_mode", None) == "custom" and getattr(campaign, "ai_special_instructions", None):
+        knowledge_text += "\n" + campaign.ai_special_instructions
+    knowledge_lower = knowledge_text.lower()
 
     # 3. Forbidden phrases in config.never_say
     if config.never_say:
@@ -94,6 +101,13 @@ def validate_reply_content(data: Dict[str, Any], config: AIAssistantConfig) -> T
     # 4. Forbidden topics: Price / Discount mentions
     for term in PRICE_TERMS:
         if term in reply_lower:
+            # If the term is explicitly mentioned in the approved campaign special instructions (e.g. promo discounts), allow it
+            if campaign and getattr(campaign, "ai_mode", None) == "custom" and getattr(campaign, "ai_special_instructions", None):
+                if term in campaign.ai_special_instructions.lower():
+                    continue
+            # If the term is explicitly mentioned in the approved business knowledge (e.g. general discounts), allow it
+            if term in knowledge_lower and term not in ["$", "dollar"]:
+                continue
             return False, f"Reply mentions prohibited price/discount topic: '{term}'."
 
     # 5. Forbidden topics: Guarantees / Legal / Medical advice
@@ -116,23 +130,31 @@ def validate_reply_content(data: Dict[str, Any], config: AIAssistantConfig) -> T
     found_phones = PHONE_REGEX.findall(reply)
     for phone in found_phones:
         phone_digits = "".join(filter(str.isdigit, phone))
-        knowledge_digits = "".join(filter(str.isdigit, config.knowledge or ""))
+        knowledge_digits = "".join(filter(str.isdigit, knowledge_text))
         if phone_digits and phone_digits not in knowledge_digits:
             return False, f"Reply contains phone number not found in approved business knowledge: '{phone}'."
 
     return True, None
 
 
-def filter_collected_answers(collected: Dict[str, Any], config: AIAssistantConfig) -> Dict[str, Any]:
+def filter_collected_answers(
+    collected: Dict[str, Any],
+    config: AIAssistantConfig,
+    campaign: Optional[Any] = None,
+) -> Dict[str, Any]:
     """
     Filters collected answers so only keys explicitly configured in qualification_questions
-    are kept.
+    (or campaign-specific qualification questions if active) are kept.
     """
     if not isinstance(collected, dict):
         return {}
 
     allowed_keys: Set[str] = set()
-    questions = config.qualification_questions if isinstance(config.qualification_questions, list) else []
+    if campaign and getattr(campaign, "ai_mode", None) == "custom" and getattr(campaign, "ai_qualification_questions", None):
+        questions = campaign.ai_qualification_questions
+    else:
+        questions = config.qualification_questions if isinstance(config.qualification_questions, list) else []
+
     for q in questions:
         if isinstance(q, dict) and "key" in q:
             allowed_keys.add(q["key"])

@@ -40,6 +40,93 @@ def _is_ajax(request) -> bool:
 
 
 @login_required
+def export_contacts_csv(request):
+    """
+    Exports organization contacts as a CSV file.
+    Respects active filters: query (q), status, and list.
+    Includes phone, first_name, last_name, email, sms_status, stage, lists, created_at,
+    and all registered custom fields.
+    """
+    import csv
+    from django.utils import timezone
+
+    org = request.user.organization
+    if not org:
+        return HttpResponse("No organization", status=400)
+
+    contacts_qs = Contact.objects.filter(organization=org).prefetch_related("lists").order_by("-created_at")
+
+    # Search query (supports single terms and full name "First Last")
+    q = request.GET.get("q", "").strip()
+    if q:
+        from django.db.models import Value
+        from django.db.models.functions import Concat
+        contacts_qs = contacts_qs.annotate(
+            full_name=Concat("first_name", Value(" "), "last_name")
+        ).filter(
+            Q(phone__icontains=q) |
+            Q(first_name__icontains=q) |
+            Q(last_name__icontains=q) |
+            Q(full_name__icontains=q) |
+            Q(email__icontains=q)
+        )
+
+    # Status filter
+    status = request.GET.get("status", "").strip()
+    if status in Contact.SMSStatus.values:
+        contacts_qs = contacts_qs.filter(sms_status=status)
+
+    # List filter
+    list_id = request.GET.get("list", "").strip()
+    if list_id:
+        try:
+            selected_list = ContactList.objects.get(id=list_id, organization=org)
+            contacts_qs = contacts_qs.filter(lists=selected_list)
+        except (ContactList.DoesNotExist, ValueError):
+            pass
+
+    # Approved custom fields for this org
+    custom_field_keys = list(
+        ContactField.objects.filter(organization=org).values_list("key", flat=True)
+    )
+
+    response = HttpResponse(content_type="text/csv")
+    filename = f"sparktext_contacts_{timezone.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+
+    writer = csv.writer(response)
+    header = [
+        "Phone",
+        "First Name",
+        "Last Name",
+        "Email",
+        "SMS Status",
+        "Stage",
+        "Lists",
+        "Created At (UTC)",
+    ] + [f"Field: {k}" for k in custom_field_keys]
+    writer.writerow(header)
+
+    for c in contacts_qs.iterator(chunk_size=1000):
+        c_fields = c.custom_fields if isinstance(c.custom_fields, dict) else {}
+        stage = c_fields.get("stage", "")
+        list_names = ", ".join(l.name for l in c.lists.all())
+        row = [
+            c.phone,
+            c.first_name,
+            c.last_name,
+            c.email,
+            c.get_sms_status_display(),
+            stage,
+            list_names,
+            c.created_at.strftime("%Y-%m-%d %H:%M:%S") if c.created_at else "",
+        ] + [c_fields.get(k, "") for k in custom_field_keys]
+        writer.writerow(row)
+
+    return response
+
+
+@login_required
 def contacts_list(request):
     """
     Main Contacts management page:
@@ -54,13 +141,18 @@ def contacts_list(request):
 
     contacts_qs = Contact.objects.filter(organization=org).order_by("-created_at")
 
-    # Search query
+    # Search query (supports single terms and full name "First Last")
     q = request.GET.get("q", "").strip()
     if q:
-        contacts_qs = contacts_qs.filter(
+        from django.db.models import Value
+        from django.db.models.functions import Concat
+        contacts_qs = contacts_qs.annotate(
+            full_name=Concat("first_name", Value(" "), "last_name")
+        ).filter(
             Q(phone__icontains=q) |
             Q(first_name__icontains=q) |
             Q(last_name__icontains=q) |
+            Q(full_name__icontains=q) |
             Q(email__icontains=q)
         )
 
@@ -138,6 +230,8 @@ def contacts_list(request):
         "contact_lists": contact_lists,
         "contact_fields": all_display_fields,
     }
+    if request.GET.get("partial") == "1":
+        return render(request, "contacts/partials/contacts_table.html", context)
     return render(request, "contacts/contacts_list.html", context)
 
 
@@ -313,8 +407,12 @@ def contact_detail(request, contact_id):
     Detailed profile view for a single Contact:
     - View and edit all contact fields (name, phone, email, timezone, custom fields)
     - View lists the contact belongs to, with option to manage list assignments
+    - Full SMS conversation history + live inline reply capability
     - Complete timeline of consent events from the append-only ledger (with exact proof text)
     """
+    from messaging.models import PhoneNumber
+    from messaging.services import can_send_manual
+
     org = request.user.organization
     if not org:
         return render(request, "contacts/no_organization.html")
@@ -325,6 +423,96 @@ def contact_detail(request, contact_id):
     contact_list_ids = set(contact.lists.values_list("id", flat=True))
     all_fields = ContactField.objects.filter(organization=org).order_by("label")
 
+    # Fetch conversations for this contact (newest first)
+    conversations = list(
+        contact.conversations.select_related("phone_number", "assigned_to", "last_campaign").order_by("-last_message_at")
+    )
+    active_conv = None
+    conv_id = request.GET.get("conv", "").strip()
+    if conv_id and conv_id.isdigit():
+        for c in conversations:
+            if str(c.id) == conv_id:
+                active_conv = c
+                break
+    if not active_conv and conversations:
+        active_conv = conversations[0]
+
+    from messaging.models import Message
+    from messaging.views import get_recent_thread_slice
+
+    chat_messages = []
+    has_older_messages = False
+    oldest_msg_id = None
+    total_msg_count = 0
+    non_sys_total = 0
+    inbound_count = 0
+    outbound_count = 0
+    ai_count = 0
+    campaign_count = 0
+    human_count = 0
+    if active_conv:
+        chat_messages, has_older_messages, oldest_msg_id = get_recent_thread_slice(active_conv)
+        msg_stats = active_conv.messages.aggregate(
+            total_all=Count("id"),
+            non_sys=Count("id", filter=~Q(sender_type=Message.SenderType.SYSTEM)),
+            inbound=Count(
+                "id",
+                filter=Q(direction=Message.Direction.INBOUND) & ~Q(sender_type=Message.SenderType.SYSTEM),
+            ),
+            outbound=Count(
+                "id",
+                filter=Q(direction=Message.Direction.OUTBOUND) & ~Q(sender_type=Message.SenderType.SYSTEM),
+            ),
+            ai_count=Count("id", filter=Q(direction=Message.Direction.OUTBOUND, sender_type=Message.SenderType.AI)),
+            campaign_count=Count("id", filter=Q(direction=Message.Direction.OUTBOUND, sender_type=Message.SenderType.CAMPAIGN)),
+            human_count=Count("id", filter=Q(direction=Message.Direction.OUTBOUND, sender_type=Message.SenderType.HUMAN)),
+        )
+        total_msg_count = msg_stats["total_all"] or 0
+        non_sys_total = msg_stats["non_sys"] or 0
+        inbound_count = msg_stats["inbound"] or 0
+        outbound_count = msg_stats["outbound"] or 0
+        ai_count = msg_stats["ai_count"] or 0
+        campaign_count = msg_stats["campaign_count"] or 0
+        human_count = msg_stats["human_count"] or 0
+
+    # Build instant structured conversation summary for right-hand summary panel
+    qual_answers = (
+        active_conv.qualification_answers
+        if active_conv and isinstance(active_conv.qualification_answers, dict)
+        else {}
+    )
+    qualification_items = [
+        {"label": str(k).replace("_", " ").title(), "value": str(v)}
+        for k, v in qual_answers.items()
+        if v not in (None, "")
+    ]
+    conv_summary = {
+        "total": non_sys_total,
+        "inbound": inbound_count,
+        "outbound": outbound_count,
+        "ai_count": ai_count,
+        "campaign_count": campaign_count,
+        "human_count": human_count,
+        "qualification_items": qualification_items,
+        "stage": (contact.custom_fields or {}).get("stage", "") if isinstance(contact.custom_fields, dict) else "",
+    }
+
+    active_phones = list(
+        PhoneNumber.objects.filter(organization=org, is_active=True).order_by("-is_default", "e164")
+    )
+
+    from core.models import User
+    org_members = list(
+        User.objects.filter(organization=org, is_active=True).order_by("first_name", "email")
+    )
+    standard_stages = ["New Lead", "Contacted", "Qualified", "Quote Sent", "Won", "Lost"]
+
+    if not active_phones and not active_conv:
+        can_send = False
+        block_reason = "No active business phone number is configured for your organization yet."
+    else:
+        can_send, block_reason = can_send_manual(contact, active_conv)
+
     context = {
         "org": org,
         "contact": contact,
@@ -332,8 +520,290 @@ def contact_detail(request, contact_id):
         "all_lists": all_lists,
         "contact_list_ids": contact_list_ids,
         "all_fields": all_fields,
+        "conversations": conversations,
+        "active_conv": active_conv,
+        "chat_messages": chat_messages,
+        "total_msg_count": total_msg_count,
+        "has_older_messages": has_older_messages,
+        "oldest_msg_id": oldest_msg_id or 0,
+        "conv_summary": conv_summary,
+        "active_phones": active_phones,
+        "org_members": org_members,
+        "standard_stages": standard_stages,
+        "can_send": can_send,
+        "block_reason": block_reason,
     }
     return render(request, "contacts/contact_detail.html", context)
+
+
+@login_required
+@require_POST
+def send_contact_message(request, contact_id):
+    """
+    Sends a manual outbound SMS directly from the Contact Detail page.
+    - Resolves or creates a Conversation row cleanly.
+    - Enforces TCPA compliance guards via send_message().
+    - Performs automatic Human Takeover (pauses AI) if active.
+    - Supports AJAX requests with full message JSON response.
+    """
+    from django.core.exceptions import PermissionDenied
+    from messaging.models import Conversation, Message, PhoneNumber
+    from messaging.services import send_message
+    from messaging.ws_broadcast import broadcast_chat_event, broadcast_inbox_event
+    from django.db.models import Sum
+
+    org = request.user.organization
+    if not org:
+        return JsonResponse({"status": "error", "message": "No organization."}, status=400)
+
+    contact = get_object_or_404(Contact, id=contact_id, organization=org)
+    body = request.POST.get("body", "").strip()
+    conv_id = request.POST.get("conversation_id", "").strip()
+    phone_number_id = request.POST.get("phone_number_id", "").strip()
+
+    is_ajax = (
+        _is_ajax(request)
+        or request.content_type == "application/json"
+    )
+
+    conversation = None
+    if conv_id and conv_id.isdigit():
+        conversation = (
+            Conversation.objects.filter(id=int(conv_id), contact=contact, organization=org)
+            .select_related("phone_number", "contact")
+            .first()
+        )
+
+    if not conversation:
+        phone_num = None
+        if phone_number_id and phone_number_id.isdigit():
+            phone_num = PhoneNumber.objects.filter(id=int(phone_number_id), organization=org, is_active=True).first()
+        if not phone_num:
+            phone_num = (
+                PhoneNumber.objects.filter(organization=org, is_active=True, is_default=True).first()
+                or PhoneNumber.objects.filter(organization=org, is_active=True).first()
+            )
+        if not phone_num:
+            err = "No active business phone number is configured yet. Add one in Settings first."
+            if is_ajax:
+                return JsonResponse({"status": "error", "message": err}, status=400)
+            messages.error(request, err)
+            return redirect("contacts:detail", contact_id=contact.id)
+
+        conversation, _ = Conversation.objects.get_or_create(
+            organization=org,
+            contact=contact,
+            phone_number=phone_num,
+            defaults={"status": Conversation.Status.OPEN},
+        )
+
+    try:
+        msg = send_message(conversation=conversation, body=body, user=request.user)
+
+        # Clear unread count since the agent just replied
+        fields_to_update = []
+        if conversation.unread_count > 0:
+            conversation.unread_count = 0
+            fields_to_update.append("unread_count")
+
+        # Automatic Human Takeover: Pause AI when human rep replies manually
+        sys_msg_data = None
+        ai_mode_changed = False
+        if conversation.ai_mode != Conversation.AIMode.OFF:
+            conversation.ai_mode = Conversation.AIMode.OFF
+            fields_to_update.append("ai_mode")
+            ai_mode_changed = True
+
+        if fields_to_update:
+            conversation.save(update_fields=fields_to_update)
+
+        if ai_mode_changed:
+            from messaging.utils import format_chat_timestamp
+            sys_msg = Message.objects.create(
+                conversation=conversation,
+                organization=org,
+                direction=Message.Direction.OUTBOUND,
+                sender_type=Message.SenderType.SYSTEM,
+                body=f"Human agent {request.user.first_name or request.user.email} took over. AI paused for this chat.",
+                status=Message.Status.DELIVERED,
+            )
+            sys_msg_data = {
+                "id": sys_msg.id,
+                "body": sys_msg.body,
+                "direction": sys_msg.direction,
+                "sender_type": sys_msg.sender_type,
+                "created_at": format_chat_timestamp(sys_msg.created_at),
+                "status": sys_msg.status,
+            }
+            try:
+                broadcast_chat_event(
+                    conversation.id,
+                    {"event": "new_message", "message": sys_msg_data},
+                )
+            except Exception:
+                pass
+
+        # Broadcast updated unread count if cleared
+        if "unread_count" in fields_to_update:
+            try:
+                total_unread = (
+                    Conversation.objects.filter(
+                        organization_id=org.id,
+                        status__in=[Conversation.Status.OPEN, Conversation.Status.NEEDS_HUMAN],
+                    ).aggregate(total=Sum("unread_count"))["total"]
+                    or 0
+                )
+                broadcast_inbox_event(
+                    org.id,
+                    {
+                        "event": "inbox_update",
+                        "conversation": {"id": conversation.id, "unread_count": 0},
+                        "nav_unread_count": total_unread,
+                    },
+                )
+            except Exception:
+                pass
+
+        if is_ajax:
+            from messaging.utils import format_chat_timestamp
+            return JsonResponse({
+                "status": "success",
+                "conversation_id": conversation.id,
+                "phone_e164": conversation.phone_number.e164,
+                "message": {
+                    "id": msg.id,
+                    "body": msg.body,
+                    "direction": msg.direction,
+                    "sender_type": msg.sender_type,
+                    "sent_by": request.user.first_name or request.user.email,
+                    "status": msg.status,
+                    "created_at": format_chat_timestamp(msg.sent_at or msg.created_at),
+                },
+                "system_message": sys_msg_data,
+                "ai_mode": conversation.ai_mode,
+                "ai_mode_changed": ai_mode_changed,
+            })
+
+        messages.success(request, "Message sent.")
+        return redirect("contacts:detail", contact_id=contact.id)
+
+    except (ValidationError, PermissionDenied) as exc:
+        err_msg = exc.message_dict.get("non_field_errors", [str(exc)])[0] if hasattr(exc, "message_dict") else str(exc)
+        if is_ajax:
+            return JsonResponse({"status": "error", "message": err_msg}, status=400)
+        messages.error(request, err_msg)
+        return redirect("contacts:detail", contact_id=contact.id)
+
+
+@login_required
+@require_POST
+def summarize_contact_conversation(request, contact_id):
+    """
+    Generates a concise AI summary of the contact's SMS conversation history using Gemma.
+    Falls back cleanly to a structured extractive summary if the local LLM endpoint is offline.
+    """
+    from messaging.models import Conversation, Message
+    from messaging.ai import get_ai_client
+
+    org = request.user.organization
+    if not org:
+        return JsonResponse({"status": "error", "message": "No organization."}, status=400)
+
+    contact = get_object_or_404(Contact, id=contact_id, organization=org)
+    conv_id = request.POST.get("conversation_id", "").strip()
+
+    conv_qs = contact.conversations.filter(organization=org)
+    if conv_id and conv_id.isdigit():
+        conv = conv_qs.filter(id=int(conv_id)).first()
+    else:
+        conv = conv_qs.order_by("-last_message_at").first()
+
+    if not conv:
+        return JsonResponse({
+            "status": "success",
+            "summary": "No conversation started with this contact yet.",
+            "source": "instant",
+        })
+
+    msgs = list(
+        conv.messages.exclude(sender_type=Message.SenderType.SYSTEM)
+        .order_by("-created_at", "-id")[:30]
+    )
+    msgs.reverse()
+
+    if not msgs:
+        return JsonResponse({
+            "status": "success",
+            "summary": "No SMS messages have been exchanged in this thread yet.",
+            "source": "instant",
+        })
+
+    transcript_lines = []
+    for m in msgs:
+        speaker = contact.first_name or "Customer" if m.direction == Message.Direction.INBOUND else (
+            "AI" if m.sender_type == Message.SenderType.AI else (
+                "Campaign" if m.sender_type == Message.SenderType.CAMPAIGN else "Agent"
+            )
+        )
+        transcript_lines.append(f"{speaker}: {m.body}")
+    transcript = "\n".join(transcript_lines)
+
+    qual_info = ""
+    if isinstance(conv.qualification_answers, dict) and conv.qualification_answers:
+        qual_pairs = [f"{k}: {v}" for k, v in conv.qualification_answers.items() if v]
+        if qual_pairs:
+            qual_info = "\nCollected Details: " + ", ".join(qual_pairs)
+
+    system_prompt = (
+        f"You are a concise CRM assistant for {org.name}. Summarize this SMS conversation "
+        "in 2 to 3 clear bullet points covering:\n"
+        "- Customer intent or main inquiry\n"
+        "- Key details shared by the customer\n"
+        "- Recommended next step for the sales rep\n"
+        "Be brief, factual, and direct. Do not invent facts."
+    )
+    user_prompt = f"SMS Transcript:\n{transcript}{qual_info}"
+
+    try:
+        client = get_ai_client()
+        resp = client.generate(
+            system_prompt=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}],
+            schema=None,
+        )
+        raw_text = (resp.text or "").strip()
+        # Handle JSON-formatted responses cleanly (e.g. FakeAIClient default in tests)
+        if raw_text.startswith("{"):
+            try:
+                parsed = json.loads(raw_text)
+                raw_text = parsed.get("summary") or parsed.get("reply") or raw_text
+            except Exception:
+                pass
+        if raw_text:
+            return JsonResponse({"status": "success", "summary": raw_text, "source": "ai"})
+    except Exception as exc:
+        logger.debug("AI summary fallback triggered for contact %s: %s", contact.id, exc)
+
+    # Instant deterministic extractive fallback
+    inbound = [m for m in msgs if m.direction == Message.Direction.INBOUND]
+    outbound = [m for m in msgs if m.direction == Message.Direction.OUTBOUND]
+    parts = [f"• {len(msgs)} total message(s) ({len(inbound)} from contact, {len(outbound)} sent)."]
+    if inbound:
+        last_in = inbound[-1].body.strip()
+        parts.append(f"• Latest customer message: \"{last_in[:120]}{'...' if len(last_in) > 120 else ''}\"")
+    else:
+        parts.append("• Awaiting customer's first reply.")
+    if conv.handoff_reason:
+        parts.append(f"• Attention note: {conv.handoff_reason}")
+    elif outbound:
+        last_out = outbound[-1].body.strip()
+        parts.append(f"• Last outreach: \"{last_out[:100]}{'...' if len(last_out) > 100 else ''}\"")
+
+    return JsonResponse({
+        "status": "success",
+        "summary": "\n".join(parts),
+        "source": "instant",
+    })
 
 
 @login_required
@@ -509,25 +979,38 @@ def lists_index(request):
     if not org:
         return render(request, "contacts/no_organization.html")
 
-    lists_qs = (
+    lists = list(
         ContactList.objects.filter(organization=org)
-        .annotate(contact_count=Count("contacts"))
-        .prefetch_related("contacts")
+        .annotate(
+            contact_count=Count("contacts", distinct=True),
+            opted_in_count=Count(
+                "contacts",
+                filter=Q(contacts__sms_status=Contact.SMSStatus.OPTED_IN),
+                distinct=True,
+            ),
+        )
         .order_by("name")
     )
 
     all_contacts = Contact.objects.filter(organization=org).order_by("first_name", "last_name", "phone")
 
-    # Map of list_id -> [contact_id, ...] for instant membership status in modal
-    memberships = {
-        cl.id: list(cl.contacts.values_list("id", flat=True))
-        for cl in lists_qs
-    }
+    # Fetch all list memberships in a single query for modal status badges
+    memberships = {cl.id: [] for cl in lists}
+    if lists:
+        for cl_id, c_id in ContactList.contacts.through.objects.filter(
+            contactlist_id__in=list(memberships.keys())
+        ).values_list("contactlist_id", "contact_id"):
+            memberships[cl_id].append(c_id)
+
+    total_memberships = sum(cl.contact_count for cl in lists)
+    total_opted_in = sum(cl.opted_in_count for cl in lists)
 
     context = {
         "org": org,
-        "lists": lists_qs,
-        "total_lists": lists_qs.count(),
+        "lists": lists,
+        "total_lists": len(lists),
+        "total_memberships": total_memberships,
+        "total_opted_in": total_opted_in,
         "all_contacts": all_contacts,
         "memberships_json": json.dumps(memberships),
     }

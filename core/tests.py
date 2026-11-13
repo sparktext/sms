@@ -207,3 +207,97 @@ class SettingsAndTeamTests(TestCase):
         resp_again = self.client.get(f"/join/{invite.token}/")
         self.assertEqual(resp_again.status_code, 200)
         self.assertContains(resp_again, "Invitation No Longer Valid")
+
+    def test_60px_global_header_and_adapted_pages(self):
+        from messaging.models import PhoneNumber
+        from campaigns.models import Campaign
+
+        phone = PhoneNumber.objects.create(
+            organization=self.org,
+            e164="+14155550100",
+            is_active=True,
+        )
+        campaign = Campaign.objects.create(
+            organization=self.org,
+            created_by=self.owner,
+            name="Spring Promo",
+            phone_number=phone,
+            message_template="Hello {{ first_name }}",
+            status=Campaign.Status.DRAFT,
+        )
+
+        self.client.force_login(self.owner)
+
+        routes_and_breadcrumbs = [
+            ("/dashboard/", "Dashboard"),
+            ("/inbox/", "Inbox"),
+            ("/ai-assistant/", "AI Assistant"),
+            ("/contacts/", "Contacts"),
+            ("/contacts/lists/", "Contact Lists"),
+            ("/contacts/fields/", "Custom Fields"),
+            ("/campaigns/", "Campaigns"),
+            ("/campaigns/new/", "New Campaign"),
+            (f"/campaigns/{campaign.id}/", "Spring Promo"),
+            ("/campaigns/templates/", "SMS Templates"),
+            ("/compliance/", "Compliance"),
+            ("/settings/profile/", "Company Profile"),
+            ("/settings/team/", "Team Members"),
+            ("/settings/routing/", "Lead Routing"),
+            ("/settings/phone-numbers/", "Phone Numbers"),
+        ]
+
+        for url, expected_crumb in routes_and_breadcrumbs:
+            resp = self.client.get(url)
+            self.assertEqual(resp.status_code, 200, f"Unexpected status for {url}")
+            html = resp.content.decode("utf-8")
+            header_idx = html.index("<header")
+            main_idx = html.index("<main")
+            global_header = html[header_idx:main_idx]
+            self.assertIn("h-[60px]", global_header, f"Missing 60px header on {url}")
+            self.assertIn('id="nav-availability-btn"', global_header, f"Missing availability pill in global header on {url}")
+            self.assertIn(expected_crumb, global_header, f"Missing breadcrumb '{expected_crumb}' on {url}")
+            self.assertNotIn('id="nav-availability-btn"', html[main_idx:], f"Availability pill leaked into <main> on {url}")
+
+        # Dashboard consolidates heading inside Page Header without duplicate overview block
+        dash_html = self.client.get("/dashboard/").content.decode("utf-8")
+        self.assertIn("Welcome, Alice", dash_html[dash_html.index("<main"):])
+        self.assertNotIn("Overview and activity", dash_html)
+
+        # Inbox omits <main> page header and uses adapted viewport calc height
+        inbox_html = self.client.get("/inbox/").content.decode("utf-8")
+        self.assertNotIn("<!-- Page Header -->", inbox_html)
+        self.assertIn("sm:h-[calc(100vh-7rem)]", inbox_html)
+
+        # Centered 5xl settings/AI pages align Page Header width with cards
+        for aligned_url in (
+            "/ai-assistant/",
+            "/settings/profile/",
+            "/settings/team/",
+            "/settings/routing/",
+            "/settings/phone-numbers/",
+        ):
+            aligned_html = self.client.get(aligned_url).content.decode("utf-8")
+            self.assertIn("max-w-5xl w-full mx-auto", aligned_html[aligned_html.index("<main"):], aligned_url)
+            if "/settings/" in aligned_url:
+                self.assertRegex(aligned_html[aligned_html.index("<main"):], r"<h1[^>]*>\s*Settings\s*</h1>")
+
+        # Campaign create & detail pages use icon-only back arrows inline in the Page Header
+        create_html = self.client.get("/campaigns/new/").content.decode("utf-8")
+        create_main = create_html.index("<main")
+        self.assertIn("max-w-4xl", create_html[create_main:])
+        self.assertIn('aria-label="Back"', create_html[create_main:])
+        self.assertLess(
+            create_html.index("Create SMS Campaign", create_main),
+            create_html.index("Save Draft", create_main),
+        )
+        self.assertNotIn("← Cancel &amp; Back", create_html)
+        self.assertNotIn("← Cancel & Back", create_html)
+
+        detail_html = self.client.get(f"/campaigns/{campaign.id}/").content.decode("utf-8")
+        detail_main = detail_html.index("<main")
+        self.assertIn('aria-label="Back to Campaigns"', detail_html[detail_main:])
+        self.assertLess(
+            detail_html.index("Spring Promo", detail_main),
+            detail_html.index("Duplicate", detail_main),
+        )
+        self.assertNotIn("← All Campaigns", detail_html)

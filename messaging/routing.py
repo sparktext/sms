@@ -53,20 +53,19 @@ def assign_qualified_lead(
         logger.warning("No active team members found in organization '%s' for lead routing.", org.name)
         return None
 
-    # Filter by availability status if required
-    if org.route_only_available:
-        eligible_users = [u for u in eligible_users if u.is_available_for_leads]
-        if not eligible_users:
-            logger.info("All team members in '%s' are currently marked Away. Lead remains unassigned.", org.name)
-            Message.objects.create(
-                conversation=conversation,
-                organization=org,
-                sender_type=Message.SenderType.SYSTEM,
-                direction=Message.Direction.OUTBOUND,
-                status=Message.Status.DELIVERED,
-                body="All sales team members are currently marked Away. Lead placed in shared unassigned queue.",
-            )
-            return None
+    # Strictly route only to team members currently toggled Available for leads
+    eligible_users = [u for u in eligible_users if u.is_available_for_leads]
+    if not eligible_users:
+        logger.info("All team members in '%s' are currently marked Away. Lead remains unassigned.", org.name)
+        Message.objects.create(
+            conversation=conversation,
+            organization=org,
+            sender_type=Message.SenderType.SYSTEM,
+            direction=Message.Direction.OUTBOUND,
+            status=Message.Status.DELIVERED,
+            body="All sales team members are currently marked Away. Lead placed in shared unassigned queue.",
+        )
+        return None
 
     # Compute current active workloads (open or needs_human conversations)
     active_statuses = [Conversation.Status.OPEN, Conversation.Status.NEEDS_HUMAN]
@@ -174,7 +173,7 @@ def assign_qualified_lead(
         chosen_load,
     )
 
-    Message.objects.create(
+    sys_msg = Message.objects.create(
         conversation=conversation,
         organization=org,
         sender_type=Message.SenderType.SYSTEM,
@@ -182,6 +181,52 @@ def assign_qualified_lead(
         status=Message.Status.DELIVERED,
         body=f"Lead automatically assigned to {rep_name} via {strat_label} ({chosen_load} active chats).",
     )
+
+    # Real-time WebSocket lead assignment notification
+    try:
+        from messaging.ws_broadcast import broadcast_user_event, broadcast_chat_event
+        contact = conversation.contact
+        contact_name = (contact.first_name + (" " + contact.last_name if contact.last_name else "")).strip() if (contact.first_name or contact.last_name) else contact.phone
+        phone_display = f" ({contact.phone})" if contact.phone and contact_name != contact.phone else ""
+        lead_summary = f"{contact_name}{phone_display}"
+
+        broadcast_user_event(
+            chosen_user.id,
+            {
+                "event": "inbox_update",
+                "conversation": {
+                    "id": conversation.id,
+                    "last_body": sys_msg.body,
+                    "direction": sys_msg.direction,
+                    "last_message_at_display": "just now",
+                    "assigned_to_id": chosen_user.id,
+                },
+                "toast": {
+                    "type": "lead_assigned",
+                    "title": "🎯 New Qualified Lead Assigned",
+                    "body": lead_summary,
+                    "conversation_id": conversation.id,
+                    "contact_name": contact_name,
+                    "contact_phone": contact.phone,
+                },
+            },
+        )
+        broadcast_chat_event(
+            conversation.id,
+            {
+                "event": "new_message",
+                "message": {
+                    "id": sys_msg.id,
+                    "body": sys_msg.body,
+                    "direction": sys_msg.direction,
+                    "sender_type": sys_msg.sender_type,
+                    "created_at": sys_msg.created_at.strftime("%I:%M %p"),
+                    "status": sys_msg.status,
+                },
+            },
+        )
+    except Exception as exc:
+        logger.warning("Failed to broadcast lead assignment alert for user %s: %s", chosen_user.id, exc)
 
     return chosen_user
 
