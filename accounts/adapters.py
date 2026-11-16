@@ -49,6 +49,10 @@ class AccountAdapter(DefaultAccountAdapter):
     def is_open_for_signup(self, request) -> bool:
         return True
 
+    def is_login_by_code_required(self, login) -> bool:
+        """SparkText uses standard password/social auth; disable login-by-code stage to prevent allauth session bug."""
+        return False
+
     def save_user(self, request, user, form, commit: bool = True):
         """Persist email-signup users; create a matching UserProfile."""
         user = super().save_user(request, user, form, commit=False)

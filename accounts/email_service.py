@@ -88,16 +88,24 @@ def send_welcome_email(user) -> None:
     """
     Send a one-time welcome email after the user's first login/signup.
     Idempotent: will not send if welcome_email_sent_at is already set.
+    Dispatched non-blocking so SMTP/Celery latency never blocks the HTTP response.
     """
     if user.welcome_email_sent_at:
         return  # Already sent
 
-    try:
-        from accounts.tasks import task_send_welcome_email
-        task_send_welcome_email.delay(user.pk)
-    except Exception:
-        # Celery not available — fall back to synchronous send
-        _send_welcome_email_sync(user)
+    import threading
+
+    def _dispatch():
+        try:
+            from accounts.tasks import task_send_welcome_email
+            task_send_welcome_email.delay(user.pk)
+        except Exception:
+            try:
+                _send_welcome_email_sync(user)
+            except Exception as exc:
+                logger.warning("Could not send welcome email: %s", exc)
+
+    threading.Thread(target=_dispatch, daemon=True).start()
 
 
 def _send_welcome_email_sync(user) -> None:
@@ -131,11 +139,19 @@ def _send_welcome_email_sync(user) -> None:
 
 def send_password_changed_email(user) -> None:
     """Security notification email when a user changes their password."""
-    try:
-        from accounts.tasks import task_send_password_changed_email
-        task_send_password_changed_email.delay(user.pk)
-    except Exception:
-        _send_password_changed_email_sync(user)
+    import threading
+
+    def _dispatch():
+        try:
+            from accounts.tasks import task_send_password_changed_email
+            task_send_password_changed_email.delay(user.pk)
+        except Exception:
+            try:
+                _send_password_changed_email_sync(user)
+            except Exception as exc:
+                logger.warning("Could not send password changed email: %s", exc)
+
+    threading.Thread(target=_dispatch, daemon=True).start()
 
 
 def _send_password_changed_email_sync(user) -> None:

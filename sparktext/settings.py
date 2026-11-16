@@ -43,6 +43,8 @@ env = environ.Env(
     # Auth / Email additions
     BREVO_API_KEY=(str, ""),
     GOOGLE_OAUTH_JSON_PATH=(str, "secrets/google_oauth.json"),
+    GOOGLE_CLIENT_ID=(str, ""),
+    GOOGLE_CLIENT_SECRET=(str, ""),
     ANYMAIL_WEBHOOK_SECRET=(str, ""),
     REDIS_URL=(str, "redis://localhost:6379/0"),
     HTTPS_ONLY=(bool, False),
@@ -185,15 +187,13 @@ else:
 # https://docs.djangoproject.com/en/6.1/ref/settings/#databases
 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'sparktext',
-        'USER': 'postgres',
-        'PASSWORD': 'sparktext',
-        'HOST': 'localhost',
-        'PORT': '5432',
-    }
+    'default': env.db('DATABASE_URL', default=f'sqlite:///{BASE_DIR / "db.sqlite3"}')
 }
+
+# Ensure sslmode='require' for Supabase PostgreSQL
+if DATABASES['default']['ENGINE'] == 'django.db.backends.postgresql':
+    DATABASES['default'].setdefault('OPTIONS', {})
+    DATABASES['default']['OPTIONS'].setdefault('sslmode', 'require')
 
 
 # Password validation
@@ -249,29 +249,27 @@ DEFAULT_FROM_EMAIL = 'SparkText <sparktext_auth@sparktext.si>'
 SERVER_EMAIL = 'sparktext_auth@sparktext.si'
 CONTACT_EMAIL = 'info@sparktext.si'
 
-# ---- Anymail / Brevo ----
+# ---- Email Configuration ----
 BREVO_API_KEY = env('BREVO_API_KEY', default='')
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="info@sparktext.si")
+CONTACT_EMAIL = env("CONTACT_EMAIL", default="info@sparktext.si")
+EMAIL_HOST = env("EMAIL_HOST", default="smtp.hostinger.com")
+EMAIL_PORT = env.int("EMAIL_PORT", default=465)
+EMAIL_USE_SSL = env.bool("EMAIL_USE_SSL", default=True)
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="info@sparktext.si")
+
 if BREVO_API_KEY:
     EMAIL_BACKEND = 'anymail.backends.brevo.EmailBackend'
     ANYMAIL = {
         'BREVO_API_KEY': BREVO_API_KEY,
         'WEBHOOK_SECRET': env('ANYMAIL_WEBHOOK_SECRET', default=''),
     }
+elif EMAIL_HOST_PASSWORD:
+    EMAIL_BACKEND = env("EMAIL_BACKEND", default="django.core.mail.backends.smtp.EmailBackend")
 else:
-    # Fall back to console backend in development when no API key is set
-    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
-
-# Email (Standard Django SMTP Configuration via Environment)
-# https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
- 
-DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="info@sparktext.si")
-CONTACT_EMAIL = env("CONTACT_EMAIL", default="info@sparktext.si")
-EMAIL_BACKEND = env("EMAIL_BACKEND", default="django.core.mail.backends.smtp.EmailBackend")
-EMAIL_HOST = env("EMAIL_HOST", default="smtp.hostinger.com")
-EMAIL_PORT = env.int("EMAIL_PORT", default=465)
-EMAIL_USE_SSL = env.bool("EMAIL_USE_SSL", default=True)
-EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="info@sparktext.si")
-EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
+    # In development or when credentials are not configured, print to console rather than timing out
+    EMAIL_BACKEND = env("EMAIL_BACKEND", default="django.core.mail.backends.console.EmailBackend")
 
 # Messaging & Provider Settings
 TWILIO_ACCOUNT_SID = env("TWILIO_ACCOUNT_SID", default="")
@@ -328,25 +326,33 @@ SOCIALACCOUNT_EMAIL_VERIFICATION = 'none'   # Google verifies emails
 SOCIALACCOUNT_AUTO_SIGNUP = True
 SOCIALACCOUNT_LOGIN_ON_GET = True           # allow GET-based callback (needed for OAuth)
 
-# Parse Google credentials from JSON file
-_google_json_path = BASE_DIR / env('GOOGLE_OAUTH_JSON_PATH', default='secrets/google_oauth.json')
-try:
-    import json as _json
-    with open(_google_json_path) as _f:
-        _google_creds = _json.load(_f)['web']
-    SOCIALACCOUNT_PROVIDERS = {
-        'google': {
-            'APPS': [{
-                'client_id': _google_creds['client_id'],
-                'secret': _google_creds['client_secret'],
-                'key': '',
-            }],
-            'SCOPE': ['openid', 'email', 'profile'],
-            'AUTH_PARAMS': {'access_type': 'online'},
-        }
+# Parse Google credentials from environment variables or JSON file
+_google_client_id = env('GOOGLE_CLIENT_ID', default='').strip()
+_google_client_secret = env('GOOGLE_CLIENT_SECRET', default='').strip()
+
+if not (_google_client_id and _google_client_secret):
+    _google_json_path = BASE_DIR / env('GOOGLE_OAUTH_JSON_PATH', default='secrets/google_oauth.json')
+    try:
+        import json as _json
+        with open(_google_json_path) as _f:
+            _file_data = _json.load(_f)
+            _google_creds = _file_data.get('web') or _file_data.get('installed') or _file_data
+            _google_client_id = _google_client_id or _google_creds.get('client_id', '')
+            _google_client_secret = _google_client_secret or _google_creds.get('client_secret', '')
+    except (FileNotFoundError, KeyError, Exception):
+        pass
+
+SOCIALACCOUNT_PROVIDERS = {
+    'google': {
+        'APPS': [{
+            'client_id': _google_client_id or 'not-configured',
+            'secret': _google_client_secret or 'not-configured',
+            'key': '',
+        }],
+        'SCOPE': ['openid', 'email', 'profile'],
+        'AUTH_PARAMS': {'access_type': 'online'},
     }
-except (FileNotFoundError, KeyError, Exception):
-    SOCIALACCOUNT_PROVIDERS = {}
+}
 
 # =============================================================================
 # django-axes (brute-force protection)
@@ -374,6 +380,8 @@ CELERY_BROKER_URL = REDIS_URL
 CELERY_RESULT_BACKEND = REDIS_URL
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = False
+CELERY_BROKER_CONNECTION_TIMEOUT = 1
 
 # Update channel layer to use Redis when available (falls back to in-memory)
 CHANNEL_LAYERS = {
