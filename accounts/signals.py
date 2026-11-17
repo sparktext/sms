@@ -15,6 +15,30 @@ from typing import Any
 from django.contrib.auth.signals import user_logged_in, user_logged_out, user_login_failed
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+from django.db.models.signals import post_save
+from django.contrib.auth.models import User
+from django.dispatch import receiver
+
+
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+
+
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+
+from core.models import User, UserProfile
+
+
+@receiver(post_save, sender=User)
+def create_user_profile(sender, instance, created, **kwargs):
+    if created:
+        UserProfile.objects.get_or_create(user=instance)
+
+
+
+
+
 
 logger = logging.getLogger(__name__)
 

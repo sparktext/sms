@@ -109,6 +109,7 @@ INSTALLED_APPS = [
     'campaigns',
     'core',
     'website',
+    
 ]
 
 SITE_ID = 1
