@@ -137,6 +137,13 @@ def _trigger_handoff(
             status=Message.Status.DELIVERED,
         )
 
+        # Attempt automated sales rep routing first if configured
+        try:
+            assign_qualified_lead(conversation, trigger_reason=f"Human handoff: {reason}")
+            conversation.refresh_from_db(fields=["assigned_to"])
+        except Exception as exc:
+            logger.exception("Error during auto lead assignment on handoff: %s", exc)
+
         # Broadcast live handoff banner drop-down and system message to conversation room
         try:
             from messaging.ws_broadcast import broadcast_chat_event, broadcast_inbox_event
@@ -179,6 +186,7 @@ def _trigger_handoff(
                         "last_message_at_display": "just now",
                         "contact_name": contact_name,
                         "contact_phone": contact.phone,
+                        "assigned_to_id": conversation.assigned_to_id,
                     },
                     "nav_unread_count": total_unread,
                     "counts": get_org_status_counts(conversation.organization_id),
@@ -187,16 +195,16 @@ def _trigger_handoff(
                         "body": f"{contact_name}: {display_reason}",
                         "conversation_id": conversation.id,
                         "type": "needs_human",
+                        "status": "needs_human",
+                        "assigned_to_id": conversation.assigned_to_id,
+                        "assigned_to_name": (conversation.assigned_to.get_full_name() or conversation.assigned_to.email) if conversation.assigned_to else None,
+                        "notification_sound": getattr(conversation.organization, "notification_sound", "sales_flourish"),
+                        "custom_sound_url": conversation.organization.custom_notification_sound.url if (conversation.organization and conversation.organization.custom_notification_sound) else None,
                     },
                 },
             )
         except Exception as exc:
             logger.warning("Failed to broadcast handoff event for conv %d: %s", conversation.id, exc)
-
-        # Attempt automated sales rep routing if configured
-        try:
-            assign_qualified_lead(conversation, trigger_reason=f"Human handoff: {reason}")
-        except Exception as exc:
             logger.exception("Error during auto lead assignment on handoff: %s", exc)
 
     return AIReply.objects.create(

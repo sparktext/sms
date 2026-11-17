@@ -202,6 +202,29 @@ def _handle_inbound_sms(
             or 0
         )
         contact_name = (contact.first_name + (" " + contact.last_name if contact.last_name else "")).strip() if (contact.first_name or contact.last_name) else contact.phone
+
+        # Only notify (floating toast & chime) when conversation is in or needs a human agent.
+        # Routine messages handled by AI update the inbox silently in real-time.
+        toast_payload = None
+        if conversation.status == Conversation.Status.NEEDS_HUMAN:
+            assigned_name = (
+                (conversation.assigned_to.get_full_name() or conversation.assigned_to.email)
+                if conversation.assigned_to
+                else None
+            )
+            custom_sound_url = org.custom_notification_sound.url if getattr(org, "custom_notification_sound", None) else None
+            toast_payload = {
+                "title": "Needs Human Attention",
+                "body": f"{contact_name}: {message.body[:140]}",
+                "conversation_id": conversation.id,
+                "type": "needs_human",
+                "status": "needs_human",
+                "assigned_to_id": conversation.assigned_to_id,
+                "assigned_to_name": assigned_name,
+                "notification_sound": getattr(org, "notification_sound", "sales_flourish"),
+                "custom_sound_url": custom_sound_url,
+            }
+
         broadcast_inbox_event(
             org.id,
             {
@@ -215,15 +238,11 @@ def _handle_inbound_sms(
                     "status": conversation.status,
                     "contact_name": contact_name,
                     "contact_phone": contact.phone,
+                    "assigned_to_id": conversation.assigned_to_id,
                 },
                 "nav_unread_count": total_unread,
                 "counts": get_org_status_counts(org),
-                "toast": {
-                    "title": f"New message from {contact_name}",
-                    "body": message.body[:140],
-                    "conversation_id": conversation.id,
-                    "type": "inbound_message",
-                },
+                "toast": toast_payload,
             },
         )
     except Exception as exc:

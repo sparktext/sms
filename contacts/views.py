@@ -245,6 +245,9 @@ def add_contact(request):
     if not org:
         return JsonResponse({"status": "error", "message": "No organization associated with this account."}, status=400)
 
+    if getattr(request.user, "is_read_only", False) or getattr(request.user, "role", "") == "readonly":
+        return JsonResponse({"status": "error", "message": "You have read-only access and cannot add contacts."}, status=403)
+
     phone = request.POST.get("phone", "").strip()
     first_name = request.POST.get("first_name", "").strip()
     last_name = request.POST.get("last_name", "").strip()
@@ -557,6 +560,14 @@ def send_contact_message(request, contact_id):
         return JsonResponse({"status": "error", "message": "No organization."}, status=400)
 
     contact = get_object_or_404(Contact, id=contact_id, organization=org)
+
+    if getattr(request.user, "is_read_only", False) or getattr(request.user, "role", "") == "readonly":
+        is_ajax_req = _is_ajax(request) or request.content_type == "application/json"
+        if is_ajax_req:
+            return JsonResponse({"status": "error", "message": "You have read-only access and cannot send SMS messages."}, status=403)
+        messages.error(request, "You have read-only access and cannot send SMS messages.")
+        return redirect("contacts:detail", contact_id=contact.id)
+
     body = request.POST.get("body", "").strip()
     conv_id = request.POST.get("conversation_id", "").strip()
     phone_number_id = request.POST.get("phone_number_id", "").strip()

@@ -155,7 +155,7 @@ DATABASES = {
         'NAME': 'sparktext',
         'USER': 'postgres',
         'PASSWORD': 'sparktext',
-        'HOST': 'localhost',
+        'HOST': env("DB_HOST", default="localhost") ,
         'PORT': '5432',
     }
 }
@@ -198,6 +198,9 @@ USE_TZ = True
 STATIC_URL = '/static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
 
 
 # Email (Standard Django SMTP Configuration via Environment)

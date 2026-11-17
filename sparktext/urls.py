@@ -1,5 +1,7 @@
 from django.contrib import admin
-from django.urls import path, include
+from django.urls import path, include, re_path
+from django.conf import settings
+from django.views.static import serve
 from contacts import views as contacts_views
 from campaigns import views as campaigns_views
 
@@ -15,4 +17,5 @@ urlpatterns = [
     path('', include('campaigns.urls', namespace='campaigns')),
     path('', include('website.urls', namespace='website')),
     path("", include("core.urls")),
+    re_path(r'^media/(?P<path>.*)$', serve, {'document_root': settings.MEDIA_ROOT}),
 ]

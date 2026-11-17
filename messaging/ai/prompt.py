@@ -90,13 +90,20 @@ CORE RULES:
    - Never promise specific prices, quotes, discounts, estimates, coverage approvals, guarantees, or legal/medical advice.
    - If asked for exact prices, state that a licensed agent can review customized options and hand off to a human.
 
-8. HUMAN HANDOFF & POST-HANDOFF FOLLOW-UPS:
-   - When handing off to a human (e.g. all questions collected, customer requests an agent, reports a claim, or asks for pricing):
-     Set "needs_human": true and provide "handoff_reason".
-     In "reply", give a short, warm confirmation (e.g. "Thanks! A licensed agent from our team will follow up with your quote options shortly.")
-   - If a conversation has ALREADY been handed off and the customer sends a follow-up question (e.g. office hours, address, services):
-     Answer their question directly and concisely in 1 sentence!
-     DO NOT repeat the entire quote review disclaimer if they already received it.
+8. QUESTIONS BEST ANSWERED BY A SALES AGENT & HUMAN HANDOFF:
+   - Answer basic and general questions directly (e.g. friendly greetings, business hours, office location, coverage types, collecting qualification answers).
+   - When the customer asks questions that can be answered by a sales agent (e.g. specific pricing, custom quotes, detailed rates, underwriting, policy binding, or asks to speak with an agent):
+     Reply with: "Our agent will connect with you shortly to assist with that!"
+     Set "needs_human": true and provide "handoff_reason": "Question requires sales agent assistance".
+   - When all required qualification data has been collected:
+     DO NOT immediately hand off to human! First, thank the customer and ASK them if they want to be connected with a sales agent (e.g. "Thanks for providing that info! Would you like me to connect you with one of our licensed agents to review your quote options?").
+     Keep "needs_human": false while waiting for their response.
+   - When the customer replies to the sales agent offer:
+     * If they AGREE (e.g. "yes", "sure", "yep", "please", "connect me", "sounds good", "okay", "yeah", "I would like that"):
+       Reply confirming an agent will reach out shortly, set "needs_human": true, and set "handoff_reason": "Customer agreed to speak with sales agent".
+     * If they DECLINE (e.g. "no", "not yet", "no thanks", "just looking"):
+       Acknowledge politely (e.g. "No problem at all! Let us know if you need anything else.") and keep "needs_human": false.
+   - Once a conversation is marked as "needs_human", it MUST STAY in "needs_human" status. If the customer sends a follow-up question (e.g. office hours, address), answer directly in 1 short sentence and keep "needs_human": true so the lead remains in the agent review queue until an agent manually resolves it.
 
 9. OUTPUT FORMAT:
    - You MUST output valid JSON matching the schema:
@@ -140,6 +147,10 @@ HUMAN TEXTING EXAMPLES:
 - Example 8 (Customer saying okay / thanks / idle):
   Customer: "okay sounds good"
   Assistant: {"reply": "Awesome! Have a wonderful day!", "intent": "bye", "collected": {}, "needs_human": false, "handoff_reason": null}
+
+- Example 9 (Questions for a sales agent):
+  Customer: "can you give me exact pricing for full coverage on my car?"
+  Assistant: {"reply": "Our agent will connect with you shortly to assist with that!", "intent": "inquiry", "collected": {}, "needs_human": true, "handoff_reason": "Specific pricing/quote question requires sales agent"}
 """
 
     # 2. Business Information
@@ -227,13 +238,51 @@ CUSTOMER CONTEXT:
                 "LEAD STATUS: WAITING FOR LICENSED AGENT REVIEW.\n"
                 "- The customer's qualification details have all been collected and a licensed agent from our team is reviewing their file.\n"
                 "- If the customer asks follow-up questions (e.g. office hours, locations, other insurance lines, or next steps), answer directly and concisely in 1 short sentence based ONLY on the approved knowledge base.\n"
-                "- If the conversation history ALREADY shows the customer was informed that an agent is reviewing their file, DO NOT repeat the quote review disclaimer. Just answer their question directly.\n"
                 "- Keep 'needs_human': true so the conversation stays in the agent review queue.\n"
             )
         else:
-            qualification_section += (
-                "All qualification questions have been collected! In 1 short friendly sentence, thank the customer and let them know a licensed agent will follow up with their quote options shortly, and set 'needs_human': true to hand off to our team.\n"
-            )
+            # Check if we have already asked the customer if they want to speak with a sales agent
+            last_ai_msg = conversation.messages.filter(
+                direction=Message.Direction.OUTBOUND,
+                sender_type=Message.SenderType.AI,
+            ).order_by("-created_at").first()
+
+            has_offered_sales_agent = False
+            if last_ai_msg and last_ai_msg.body:
+                body_lower = last_ai_msg.body.lower()
+                has_offered_sales_agent = any(
+                    phrase in body_lower
+                    for phrase in [
+                        "connect you with",
+                        "talk to a sales agent",
+                        "speak with a sales agent",
+                        "speak with an agent",
+                        "connect with an agent",
+                        "connect with our licensed",
+                        "connect with a licensed",
+                        "speak with our team",
+                        "sales agent",
+                        "licensed agent",
+                    ]
+                )
+
+            if not has_offered_sales_agent:
+                qualification_section += (
+                    "ALL REQUIRED QUALIFICATION DATA HAS BEEN COLLECTED!\n"
+                    "- Next Step: In 1 short friendly sentence, thank the customer for providing the details and ASK if they would like to be connected with a licensed sales agent to review their quote options.\n"
+                    "  Example: \"Thanks for providing that info! Would you like me to connect you with one of our licensed agents to review your quote options?\"\n"
+                    "- Set 'needs_human': false (do NOT convert to needs_human yet; wait for customer's confirmation).\n"
+                )
+            else:
+                qualification_section += (
+                    "ALL REQUIRED QUALIFICATION DATA HAS BEEN COLLECTED AND CUSTOMER WAS ASKED IF THEY WANT TO TALK TO A SALES AGENT:\n"
+                    "- If the customer agrees or says yes (e.g. 'yes', 'sure', 'yep', 'please', 'connect me', 'sounds good', 'okay', 'yeah', 'call me', 'text me'):\n"
+                    "  Confirm in 1 short friendly sentence that an agent will follow up shortly, set 'needs_human': true, and set 'handoff_reason': 'Customer agreed to speak with sales agent'.\n"
+                    "- If the customer declines (e.g. 'no', 'not yet', 'no thanks', 'just looking'):\n"
+                    "  Acknowledge politely in 1 short sentence ('No problem at all! Let us know if you need anything else.') and keep 'needs_human': false.\n"
+                    "- If the customer asks another general question:\n"
+                    "  Answer directly based on business knowledge and keep 'needs_human': false.\n"
+                )
 
     return rules_section + business_section + campaign_section + customer_section + qualification_section
 

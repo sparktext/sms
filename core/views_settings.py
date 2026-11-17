@@ -112,14 +112,32 @@ def team_members(request):
 
     is_admin = request.user.role in [User.Role.OWNER, User.Role.ADMIN]
 
-    members = User.objects.filter(organization=org, is_active=True).order_by("first_name", "email")
+    from messaging.models import Conversation
+    active_statuses = [Conversation.Status.OPEN, Conversation.Status.NEEDS_HUMAN]
+
+    members = list(User.objects.filter(organization=org, is_active=True).order_by("first_name", "email"))
+    workload_map = dict(
+        Conversation.objects.filter(
+            organization=org,
+            assigned_to__in=members,
+            status__in=active_statuses,
+        )
+        .values("assigned_to_id")
+        .annotate(total=Count("id"))
+        .values_list("assigned_to_id", "total")
+    )
+
+    for m in members:
+        m.active_leads_count = workload_map.get(m.id, 0)
+        m.is_capped = (org.max_leads_per_agent > 0 and m.active_leads_count >= org.max_leads_per_agent)
+
     pending_invites = OrganizationInvite.objects.filter(
         organization=org,
         status=OrganizationInvite.Status.PENDING,
         expires_at__gt=timezone.now(),
     ).order_by("-created_at")
 
-    owner_count = members.filter(role=User.Role.OWNER).count()
+    owner_count = sum(1 for m in members if m.role == User.Role.OWNER)
 
     context = {
         "org": org,
@@ -128,6 +146,7 @@ def team_members(request):
         "pending_invites": pending_invites,
         "owner_count": owner_count,
         "role_choices": User.Role.choices,
+        "strategies": Organization.LeadRoutingStrategy.choices,
         "current_tab": "team",
     }
     return render(request, "core/team_members.html", context)
@@ -145,6 +164,8 @@ def team_invite_create(request):
 
     email = request.POST.get("email", "").strip().lower()
     role = request.POST.get("role", User.Role.AGENT).strip().lower()
+    if role in ["viewer", "read_only", "readonly"]:
+        role = User.Role.READONLY
 
     if not email:
         return JsonResponse({"status": "error", "message": "Please enter a valid email address."}, status=400)
@@ -224,6 +245,8 @@ def team_member_update_role(request, user_id):
 
     target_user = get_object_or_404(User, id=user_id, organization=org)
     new_role = request.POST.get("role", "").strip().lower()
+    if new_role in ["viewer", "read_only", "readonly"]:
+        new_role = User.Role.READONLY
 
     valid_roles = [r[0] for r in User.Role.choices]
     if new_role not in valid_roles:
@@ -393,7 +416,7 @@ def lead_routing_settings(request):
     if request.method == "POST":
         if not is_admin:
             messages.error(request, "Only Owners and Admins can update Lead Routing settings.")
-            return redirect("lead_routing_settings")
+            return redirect("team_members")
 
         strategy = request.POST.get("lead_routing_strategy", "").strip()
         valid_strategies = [s[0] for s in Organization.LeadRoutingStrategy.choices]
@@ -416,35 +439,9 @@ def lead_routing_settings(request):
             })
 
         messages.success(request, "Lead routing settings saved successfully.")
-        return redirect("lead_routing_settings")
+        return redirect("team_members")
 
-    # Team members with active workload calculation
-    from messaging.models import Conversation
-    active_statuses = [Conversation.Status.OPEN, Conversation.Status.NEEDS_HUMAN]
-
-    members = list(User.objects.filter(organization=org, is_active=True).order_by("role", "first_name"))
-    workload_map = dict(
-        Conversation.objects.filter(
-            organization=org,
-            assigned_to__in=members,
-            status__in=active_statuses,
-        )
-        .values("assigned_to_id")
-        .annotate(total=Count("id"))
-        .values_list("assigned_to_id", "total")
-    )
-
-    for m in members:
-        m.active_leads_count = workload_map.get(m.id, 0)
-        m.is_capped = (org.max_leads_per_agent > 0 and m.active_leads_count >= org.max_leads_per_agent)
-
-    context = {
-        "org": org,
-        "is_admin": is_admin,
-        "strategies": Organization.LeadRoutingStrategy.choices,
-        "members": members,
-    }
-    return render(request, "core/lead_routing_settings.html", context)
+    return team_members(request)
 
 
 @login_required
@@ -459,6 +456,9 @@ def toggle_agent_availability(request, user_id=None):
         if request.user.role not in [User.Role.OWNER, User.Role.ADMIN]:
             return JsonResponse({"status": "error", "message": "Permission denied."}, status=403)
         target_user = get_object_or_404(User, id=user_id, organization=org)
+
+    if target_user.role == User.Role.READONLY:
+        return JsonResponse({"status": "error", "message": "Read-only members do not participate in lead routing."}, status=400)
 
     target_user.is_available_for_leads = not target_user.is_available_for_leads
     target_user.save(update_fields=["is_available_for_leads"])
@@ -476,3 +476,177 @@ def toggle_agent_availability(request, user_id=None):
 
     messages.success(request, f"Status updated: {target_user.first_name or target_user.email} is now {label}.")
     return redirect(request.META.get("HTTP_REFERER") or "lead_routing_settings")
+
+
+# =========================================================================
+# NOTIFICATION SOUNDS & CHIME SETTINGS
+# =========================================================================
+
+PRESET_SOUND_METADATA = [
+    {
+        "id": Organization.NotificationSound.SALES_FLOURISH,
+        "name": "Sales Flourish (Ascending Major Chime)",
+        "badge": "Recommended for Sales",
+        "badge_color": "emerald",
+        "description": "Bright 4-note ascending G-major arpeggio (G5 -> B5 -> D6 -> G6) with crystal bell harmonics and vibrant ring-out. High dopamine, ideal for sales reps.",
+        "category": "High Energy",
+    },
+    {
+        "id": Organization.NotificationSound.CASH_REGISTER,
+        "name": "Cash Register (Cha-Ching)",
+        "badge": "Classic Closer",
+        "badge_color": "amber",
+        "description": "Crisp mechanical roller click followed by a dual high-bell metallic ring. The timeless sound of revenue and closed deals.",
+        "category": "Celebratory",
+    },
+    {
+        "id": Organization.NotificationSound.CRYSTAL_BELL,
+        "name": "Crystal Bell Ding",
+        "badge": "Minimalist",
+        "badge_color": "blue",
+        "description": "Single pristine luxury glass bell ding (1318 Hz) with long overtone sustain. Clean, elegant, and non-intrusive.",
+        "category": "Subtle & Elegant",
+    },
+    {
+        "id": Organization.NotificationSound.BRIGHT_POP,
+        "name": "Crisp Pop & Marimba",
+        "badge": "Playful",
+        "badge_color": "purple",
+        "description": "Energetic wooden marimba pop with a bright high-G harmonic bounce. Playful, friendly, and cuts through any background noise.",
+        "category": "Distinctive",
+    },
+    {
+        "id": Organization.NotificationSound.CHIME_TRIO,
+        "name": "Elevate (Harmonic Trio)",
+        "badge": "Modern SaaS",
+        "badge_color": "indigo",
+        "description": "Upbeat 3-note ascending chord (E5 -> A5 -> C#6) with warm chorus detune. Modern Slack/Linear-style workflow chime.",
+        "category": "Corporate",
+    },
+    {
+        "id": Organization.NotificationSound.CLASSIC_RING,
+        "name": "Classic Digital Ring",
+        "badge": "High Urgency",
+        "badge_color": "rose",
+        "description": "Double digital pulse (A5 -> D6) with sharp attack. Designed for high urgency when instant lead response is critical.",
+        "category": "Urgent",
+    },
+]
+
+
+def _broadcast_sound_update(org):
+    try:
+        from messaging.ws_broadcast import broadcast_inbox_event
+        broadcast_inbox_event(
+            org.id,
+            {
+                "event": "notification_sound_update",
+                "notification_sound": org.notification_sound,
+                "notification_sound_display": org.get_notification_sound_display(),
+                "custom_sound_url": org.custom_notification_sound.url if org.custom_notification_sound else None,
+            },
+        )
+    except Exception:
+        pass
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def notification_sound_settings(request):
+    org = request.user.organization
+    if not org:
+        messages.error(request, "No organization associated with this account.")
+        return redirect("messaging:dashboard")
+
+    is_admin = request.user.role in [User.Role.OWNER, User.Role.ADMIN]
+
+    if request.method == "POST":
+        if not is_admin:
+            if _is_ajax(request):
+                return JsonResponse({"status": "error", "message": "Only agency Owners and Admins can update notification sounds."}, status=403)
+            messages.error(request, "Only agency Owners and Admins can update notification sounds.")
+            return redirect("notification_sound_settings")
+
+        action = request.POST.get("action", "save")
+        sound = request.POST.get("notification_sound", "").strip()
+
+        # Handle removing custom sound file
+        if action == "remove_custom" or request.POST.get("remove_custom_sound") == "true":
+            if org.custom_notification_sound:
+                org.custom_notification_sound.delete(save=False)
+                org.custom_notification_sound = None
+            if org.notification_sound == Organization.NotificationSound.CUSTOM:
+                org.notification_sound = Organization.NotificationSound.SALES_FLOURISH
+            org.save(update_fields=["custom_notification_sound", "notification_sound"])
+            _broadcast_sound_update(org)
+            if _is_ajax(request):
+                return JsonResponse({"status": "success", "message": "Custom sound removed."})
+            messages.success(request, "Custom sound removed. Defaulted to Sales Flourish.")
+            return redirect("notification_sound_settings")
+
+        # Handle uploading custom sound
+        custom_file = request.FILES.get("custom_notification_sound")
+        if custom_file:
+            ext = custom_file.name.split(".")[-1].lower() if "." in custom_file.name else ""
+            allowed_exts = ["mp3", "wav", "ogg", "m4a", "aac", "weba", "flac"]
+            if ext not in allowed_exts:
+                err_msg = f"Invalid audio format '.{ext}'. Supported formats: MP3, WAV, OGG, M4A, AAC."
+                if _is_ajax(request):
+                    return JsonResponse({"status": "error", "message": err_msg}, status=400)
+                messages.error(request, err_msg)
+                return redirect("notification_sound_settings")
+
+            if custom_file.size > 5 * 1024 * 1024:
+                err_msg = "Audio file exceeds maximum size of 5MB."
+                if _is_ajax(request):
+                    return JsonResponse({"status": "error", "message": err_msg}, status=400)
+                messages.error(request, err_msg)
+                return redirect("notification_sound_settings")
+
+            if org.custom_notification_sound:
+                org.custom_notification_sound.delete(save=False)
+
+            org.custom_notification_sound = custom_file
+            org.notification_sound = Organization.NotificationSound.CUSTOM
+            org.save(update_fields=["custom_notification_sound", "notification_sound"])
+            _broadcast_sound_update(org)
+
+            if _is_ajax(request):
+                return JsonResponse({
+                    "status": "success",
+                    "message": "Custom sound uploaded and set as active.",
+                    "custom_sound_url": org.custom_notification_sound.url,
+                    "notification_sound": org.notification_sound,
+                })
+            messages.success(request, "Custom audio file uploaded and activated successfully.")
+            return redirect("notification_sound_settings")
+
+        # Handle preset sound selection
+        valid_choices = [c[0] for c in Organization.NotificationSound.choices]
+        if sound in valid_choices:
+            if sound == Organization.NotificationSound.CUSTOM and not org.custom_notification_sound:
+                org.notification_sound = Organization.NotificationSound.SALES_FLOURISH
+            else:
+                org.notification_sound = sound
+            org.save(update_fields=["notification_sound"])
+            _broadcast_sound_update(org)
+
+        if _is_ajax(request):
+            return JsonResponse({
+                "status": "success",
+                "message": "Notification sound updated successfully.",
+                "notification_sound": org.notification_sound,
+            })
+
+        messages.success(request, "Notification sound updated successfully.")
+        return redirect("notification_sound_settings")
+
+    context = {
+        "org": org,
+        "is_admin": is_admin,
+        "current_sound": org.notification_sound,
+        "custom_sound_url": org.custom_notification_sound.url if org.custom_notification_sound else None,
+        "preset_sounds": PRESET_SOUND_METADATA,
+        "current_tab": "sounds",
+    }
+    return render(request, "core/notification_sounds.html", context)

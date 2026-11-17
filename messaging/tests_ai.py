@@ -684,4 +684,66 @@ class AIAssistantTests(TestCase):
         self.assertFalse(allowed)
         self.assertIn("Human Takeover mode", reason)
 
+    def test_qualification_complete_prompts_to_ask_user_before_needs_human(self):
+        """When all qualification info is collected, AI asks if customer wants to connect with sales agent first."""
+        # Setup conversation with all questions answered
+        self.conv_a.qualification_answers = {"service_type": "water_leak", "timeline": "asap"}
+        self.conv_a.save()
+
+        # Step 1: Prompt before asking sales agent offer
+        prompt = build_system_prompt(self.config_a, self.conv_a)
+        self.assertIn("ALL REQUIRED QUALIFICATION DATA HAS BEEN COLLECTED!", prompt)
+        self.assertIn("ASK if they would like to be connected with a licensed sales agent", prompt)
+        self.assertIn("Set 'needs_human': false (do NOT convert to needs_human yet", prompt)
+
+        # Step 2: AI asks the customer if they want to speak with a sales agent
+        Message.objects.create(
+            organization=self.org_a,
+            conversation=self.conv_a,
+            direction=Message.Direction.OUTBOUND,
+            sender_type=Message.SenderType.AI,
+            body="Thanks for providing that info! Would you like me to connect you with one of our licensed agents to review your quote options?",
+        )
+
+        # Step 3: Prompt after offering sales agent
+        prompt2 = build_system_prompt(self.config_a, self.conv_a)
+        self.assertIn("CUSTOMER WAS ASKED IF THEY WANT TO TALK TO A SALES AGENT", prompt2)
+        self.assertIn("If the customer agrees or says yes", prompt2)
+        self.assertIn("set 'needs_human': true", prompt2)
+
+    def test_conversation_in_needs_human_never_reverts_to_open_automatically(self):
+        """A conversation in needs_human status must never automatically revert to open."""
+        self.conv_a.status = Conversation.Status.NEEDS_HUMAN
+        self.conv_a.handoff_reason = "Customer agreed to speak with sales agent"
+        self.conv_a.save()
+
+        msg = Message.objects.create(
+            conversation=self.conv_a,
+            organization=self.org_a,
+            direction=Message.Direction.INBOUND,
+            sender_type=Message.SenderType.CUSTOMER,
+            body="Thanks, I will wait for their call.",
+            status=Message.Status.RECEIVED,
+        )
+
+        FakeAIClient.push_response({
+            "reply": "You're very welcome! Our agent will be in touch shortly.",
+            "intent": "answer",
+            "collected": {},
+            "needs_human": False,
+            "handoff_reason": None,
+        })
+
+        job = AIJob.objects.create(
+            conversation=self.conv_a,
+            trigger_message=msg,
+            status=AIJob.Status.PENDING,
+            run_after=timezone.now(),
+        )
+        reply = process_ai_job(job)
+        self.conv_a.refresh_from_db()
+        # Status MUST stay NEEDS_HUMAN, never converted to OPEN
+        self.assertEqual(self.conv_a.status, Conversation.Status.NEEDS_HUMAN)
+        self.assertEqual(self.conv_a.handoff_reason, "Customer agreed to speak with sales agent")
+
 

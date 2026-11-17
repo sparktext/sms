@@ -1,6 +1,8 @@
 from datetime import timedelta
+from unittest.mock import patch
 from django.test import TestCase, Client
 from django.utils import timezone
+from django.core.files.uploadedfile import SimpleUploadedFile
 from core.models import Organization, User, OrganizationInvite
 
 
@@ -75,6 +77,61 @@ class SettingsAndTeamTests(TestCase):
         self.org.refresh_from_db()
         self.assertNotEqual(self.org.name, "Hacked Name")
 
+    def test_notification_sounds_view_by_owner(self):
+        self.client.force_login(self.owner)
+        resp = self.client.get("/settings/sounds/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Agency Alert Chime")
+        self.assertContains(resp, "Cash Register")
+        self.assertContains(resp, "Sales Flourish")
+        self.assertContains(resp, "Custom Audio Sound")
+
+    @patch("messaging.ws_broadcast.broadcast_inbox_event")
+    def test_notification_sound_update_by_owner(self, mock_broadcast):
+        self.client.force_login(self.owner)
+        resp = self.client.post("/settings/sounds/", {
+            "notification_sound": Organization.NotificationSound.CASH_REGISTER,
+        })
+        self.assertRedirects(resp, "/settings/sounds/")
+        self.org.refresh_from_db()
+        self.assertEqual(self.org.notification_sound, Organization.NotificationSound.CASH_REGISTER)
+        mock_broadcast.assert_called()
+        call_args = mock_broadcast.call_args[0]
+        self.assertEqual(call_args[0], self.org.id)
+        self.assertEqual(call_args[1]["event"], "notification_sound_update")
+        self.assertEqual(call_args[1]["notification_sound"], Organization.NotificationSound.CASH_REGISTER)
+
+    def test_notification_sound_update_forbidden_for_agent(self):
+        self.client.force_login(self.agent)
+        resp = self.client.post("/settings/sounds/", {
+            "notification_sound": Organization.NotificationSound.BRIGHT_POP,
+        })
+        self.assertRedirects(resp, "/settings/sounds/")
+        self.org.refresh_from_db()
+        self.assertNotEqual(self.org.notification_sound, Organization.NotificationSound.BRIGHT_POP)
+
+    def test_custom_notification_sound_upload_and_removal(self):
+        self.client.force_login(self.owner)
+        dummy_audio = SimpleUploadedFile("chime.mp3", b"ID3\x03\x00\x00\x00\x00\x00\x00dummy audio content", content_type="audio/mpeg")
+        resp = self.client.post("/settings/sounds/", {
+            "notification_sound": "custom",
+            "custom_notification_sound": dummy_audio,
+        })
+        self.assertRedirects(resp, "/settings/sounds/")
+        self.org.refresh_from_db()
+        self.assertEqual(self.org.notification_sound, Organization.NotificationSound.CUSTOM)
+        self.assertTrue(bool(self.org.custom_notification_sound))
+        self.assertTrue(self.org.custom_notification_sound.name.endswith(".mp3"))
+
+        # Test remove custom sound
+        resp2 = self.client.post("/settings/sounds/", {
+            "action": "remove_custom",
+        })
+        self.assertRedirects(resp2, "/settings/sounds/")
+        self.org.refresh_from_db()
+        self.assertEqual(self.org.notification_sound, Organization.NotificationSound.SALES_FLOURISH)
+        self.assertFalse(bool(self.org.custom_notification_sound))
+
     def test_team_members_view(self):
         self.client.force_login(self.owner)
         resp = self.client.get("/settings/team/")
@@ -138,6 +195,29 @@ class SettingsAndTeamTests(TestCase):
         self.agent.refresh_from_db()
         self.assertEqual(self.agent.role, User.Role.ADMIN)
 
+    def test_team_member_update_to_readonly_role(self):
+        self.client.force_login(self.owner)
+        resp = self.client.post(
+            f"/settings/team/members/{self.agent.id}/role/",
+            {"role": "readonly"},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.agent.refresh_from_db()
+        self.assertEqual(self.agent.role, User.Role.READONLY)
+        self.assertTrue(self.agent.is_read_only)
+
+    def test_team_invite_create_readonly(self):
+        self.client.force_login(self.owner)
+        resp = self.client.post(
+            "/settings/team/invite/",
+            {"email": "auditor@apex.com", "role": "readonly"},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(resp.status_code, 201)
+        invite = OrganizationInvite.objects.get(email="auditor@apex.com", organization=self.org)
+        self.assertEqual(invite.role, User.Role.READONLY)
+
     def test_cannot_demote_sole_owner(self):
         self.client.force_login(self.owner)
         resp = self.client.post(
@@ -169,6 +249,17 @@ class SettingsAndTeamTests(TestCase):
         self.agent.refresh_from_db()
         self.assertIsNone(self.agent.organization)
         self.assertFalse(self.agent.is_active)
+
+    def test_readonly_user_availability_toggle_blocked(self):
+        self.agent.role = User.Role.READONLY
+        self.agent.save(update_fields=["role"])
+        self.client.force_login(self.agent)
+        resp = self.client.post(
+            "/settings/availability/toggle/",
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("Read-only members do not participate", resp.json()["message"])
 
     def test_accept_invite_flow(self):
         invite = OrganizationInvite.objects.create(
@@ -275,6 +366,7 @@ class SettingsAndTeamTests(TestCase):
             "/settings/team/",
             "/settings/routing/",
             "/settings/phone-numbers/",
+            "/settings/sounds/",
         ):
             aligned_html = self.client.get(aligned_url).content.decode("utf-8")
             self.assertIn("max-w-5xl w-full mx-auto", aligned_html[aligned_html.index("<main"):], aligned_url)

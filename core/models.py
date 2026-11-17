@@ -82,6 +82,28 @@ class Organization(models.Model):
         default=False,
         help_text="Whether default starter SMS templates and categories have been initialized for this workspace",
     )
+    # Notification Chime & Sound Preferences
+    class NotificationSound(models.TextChoices):
+        SALES_FLOURISH = "sales_flourish", "Sales Flourish (Ascending Major Chime)"
+        CASH_REGISTER = "cash_register", "Cash Register (Cha-Ching)"
+        CRYSTAL_BELL = "crystal_bell", "Crystal Bell Ding"
+        BRIGHT_POP = "bright_pop", "Crisp Pop & Marimba"
+        CHIME_TRIO = "chime_trio", "Elevate (Harmonic Trio)"
+        CLASSIC_RING = "classic_ring", "Classic Digital Ring"
+        CUSTOM = "custom", "Custom Audio File"
+
+    notification_sound = models.CharField(
+        max_length=50,
+        choices=NotificationSound.choices,
+        default=NotificationSound.SALES_FLOURISH,
+        help_text="Notification chime played when a lead needs human attention or is assigned",
+    )
+    custom_notification_sound = models.FileField(
+        upload_to="notification_sounds/",
+        blank=True,
+        null=True,
+        help_text="Custom audio file (MP3, WAV, OGG, M4A) for notification chime",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
@@ -125,6 +147,7 @@ class User(AbstractUser):
         OWNER = "owner", "Owner"
         ADMIN = "admin", "Admin"
         AGENT = "agent", "Agent"
+        READONLY = "readonly", "Read-Only"
 
     username = None
     email = models.EmailField(unique=True)
@@ -151,6 +174,14 @@ class User(AbstractUser):
 
     def __str__(self):
         return self.email
+
+    @property
+    def is_read_only(self) -> bool:
+        return self.role == self.Role.READONLY
+
+    @property
+    def is_admin_or_owner(self) -> bool:
+        return self.role in [self.Role.OWNER, self.Role.ADMIN]
 
 
 class OrganizationInvite(models.Model):

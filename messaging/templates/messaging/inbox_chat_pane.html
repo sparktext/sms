@@ -14,6 +14,8 @@
      data-has-older="{% if has_older_messages %}true{% else %}false{% endif %}"
      data-oldest-msg-id="{{ oldest_msg_id|default:0 }}"
      data-nav-unread="{{ nav_unread_count|default:0 }}"
+     data-status="{{ conversation.status }}"
+     data-assigned-to-id="{% if conversation.assigned_to_id %}{{ conversation.assigned_to_id }}{% endif %}"
      class="hidden"></div>
 {% endif %}
 
@@ -60,27 +62,11 @@
               </svg>
             </a>
 
-            {% if conversation.contact.sms_status == "opted_in" %}
-            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 whitespace-nowrap shrink-0">
-              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-              <span>Opted In</span>
-            </span>
-            {% elif conversation.contact.sms_status == "opted_out" %}
-            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-50 text-rose-700 whitespace-nowrap shrink-0">
-              <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
-              <span>Opted Out</span>
-            </span>
-            {% else %}
-            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 whitespace-nowrap shrink-0">
-              <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-              <span>No consent</span>
-            </span>
-            {% endif %}
+            
           </div>
           <div class="flex items-center gap-1.5 mt-1 text-[11px] leading-none text-gray-500 min-w-0">
             <span class="font-mono text-gray-600 whitespace-nowrap shrink-0">{{ conversation.contact.phone }}</span>
-            <span class="text-gray-300 shrink-0 select-none">·</span>
-            <span class="text-gray-400 truncate whitespace-nowrap min-w-0" title="via {{ conversation.phone_number.e164 }}{% if conversation.phone_number.label %} ({{ conversation.phone_number.label }}){% endif %}">via <span class="font-mono text-gray-500">{{ conversation.phone_number.e164 }}</span>{% if conversation.phone_number.label %} ({{ conversation.phone_number.label }}){% endif %}</span>
+            
           </div>
         </div>
       </div>
@@ -131,20 +117,6 @@
           <span id="ws-status-dot" class="w-1.5 h-1.5 rounded-full bg-gray-400 shrink-0"></span>
           <span id="ws-status-text" class="hidden sm:inline">Offline</span>
         </span>
-
-        <!-- Mark as Unread -->
-        <button type="button" id="btn-mark-unread" onclick="markCurrentConversationUnread()" class="w-8 h-8 inline-flex items-center justify-center rounded-lg border border-gray-200/90 bg-white hover:bg-gray-50 text-gray-500 hover:text-brand-700 shadow-2xs transition cursor-pointer" title="Mark conversation as unread">
-          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
-          </svg>
-        </button>
-
-        <!-- Notification Sound Toggle -->
-        <button type="button" id="btn-sound-toggle" onclick="toggleSound()" class="w-8 h-8 inline-flex items-center justify-center rounded-lg border border-gray-200/90 bg-white hover:bg-gray-50 text-gray-600 shadow-2xs transition cursor-pointer" title="Notification chime (enabled)">
-          <svg class="w-3.5 h-3.5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
-          </svg>
-        </button>
 
         <!-- Toggle Lead Dossier Panel Button -->
         <button type="button" id="btn-toggle-dossier" onclick="toggleLeadDossier()" class="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-medium rounded-lg border border-gray-200 bg-white hover:bg-brand-50 hover:text-brand-700 hover:border-brand-200 text-gray-700 shadow-2xs transition cursor-pointer whitespace-nowrap" title="Toggle Lead Profile & Qualification Dossier">
@@ -422,9 +394,11 @@
       <p class="text-xs text-gray-500 max-w-sm mx-auto mb-6 leading-relaxed">
         Select a contact from the left pane to view message history, check compliance status, and send text messages.
       </p>
+      {% if request.user.role != 'readonly' %}
       <button type="button" onclick="openNewChatModal()" class="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition shadow-xs cursor-pointer">
         Start a Conversation ⚡
       </button>
+      {% endif %}
     </div>
   {% endif %}
 

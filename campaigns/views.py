@@ -104,6 +104,10 @@ def campaign_create(request):
     if not org:
         raise PermissionDenied("User is not associated with an organization.")
 
+    if getattr(request.user, "is_read_only", False) or getattr(request.user, "role", "") == "readonly":
+        messages.error(request, "You have read-only access and cannot create campaigns.")
+        return redirect("campaigns:list")
+
     phone_numbers = PhoneNumber.objects.filter(organization=org, is_active=True)
     if not phone_numbers.exists():
         messages.error(request, "You must have at least one active phone number to create a campaign.")
@@ -394,6 +398,10 @@ def campaign_action(request, campaign_id):
     org = request.user.organization
     if not org:
         raise PermissionDenied("User is not associated with an organization.")
+
+    if getattr(request.user, "is_read_only", False) or getattr(request.user, "role", "") == "readonly":
+        messages.error(request, "Permission denied: read-only access.")
+        return redirect("campaigns:detail", campaign_id=campaign_id)
 
     campaign = get_object_or_404(Campaign, id=campaign_id, organization=org)
     action = request.POST.get("action", "").strip().lower()

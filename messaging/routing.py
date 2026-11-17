@@ -184,7 +184,7 @@ def assign_qualified_lead(
 
     # Real-time WebSocket lead assignment notification
     try:
-        from messaging.ws_broadcast import broadcast_user_event, broadcast_chat_event
+        from messaging.ws_broadcast import broadcast_user_event, broadcast_chat_event, broadcast_inbox_event
         contact = conversation.contact
         contact_name = (contact.first_name + (" " + contact.last_name if contact.last_name else "")).strip() if (contact.first_name or contact.last_name) else contact.phone
         phone_display = f" ({contact.phone})" if contact.phone and contact_name != contact.phone else ""
@@ -208,7 +208,20 @@ def assign_qualified_lead(
                     "conversation_id": conversation.id,
                     "contact_name": contact_name,
                     "contact_phone": contact.phone,
+                    "assigned_to_id": chosen_user.id,
+                    "assigned_to_name": chosen_user.get_full_name() or chosen_user.email,
+                    "notification_sound": getattr(conversation.organization, "notification_sound", "sales_flourish"),
+                    "custom_sound_url": conversation.organization.custom_notification_sound.url if (conversation.organization and conversation.organization.custom_notification_sound) else None,
                 },
+            },
+        )
+        broadcast_inbox_event(
+            conversation.organization_id,
+            {
+                "event": "conversation_assigned",
+                "conversation_id": conversation.id,
+                "assigned_to_id": chosen_user.id,
+                "assigned_to_name": chosen_user.get_full_name() or chosen_user.email,
             },
         )
         broadcast_chat_event(

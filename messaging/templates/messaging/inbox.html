@@ -25,11 +25,12 @@
       <div class="flex items-center justify-between">
         <div>
           <h2 class="text-base font-bold text-gray-900 leading-tight">Messages</h2>
-          <p class="text-[11px] text-gray-400">Two-way customer SMS</p>
         </div>
+        {% if request.user.role != 'readonly' %}
         <button type="button" onclick="openNewChatModal()" class="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-brand-600 bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-lg transition cursor-pointer" title="Start new conversation with any phone number or contact">
           <span>+ New Chat</span>
         </button>
+        {% endif %}
       </div>
 
       <!-- Search bar & Sub-Filter Dropdown -->
@@ -1382,7 +1383,6 @@
       const shouldBeOpen = saved === "open";
       updateDossierUI(shouldBeOpen);
     }
-    updateSoundButton();
     renderSnippets();
   });
 
@@ -1457,9 +1457,14 @@
     })
     .then(res => res.json())
     .then(data => {
-      if (data.status === "success" && indicator) {
-        indicator.classList.remove("hidden");
-        setTimeout(() => indicator.classList.add("hidden"), 2000);
+      if (data.status === "success") {
+        if (meta) {
+          meta.setAttribute("data-assigned-to-id", userId || "");
+        }
+        if (indicator) {
+          indicator.classList.remove("hidden");
+          setTimeout(() => indicator.classList.add("hidden"), 2000);
+        }
       }
     })
     .catch(err => console.error("Error updating assigned agent:", err));
@@ -1592,78 +1597,52 @@
   }
 
   // --- NOTIFICATION SOUND CHIME (Synthesized Web Audio API) ---
-  let soundEnabled = localStorage.getItem("sparktext_sound") !== "false";
-
-  function toggleSound() {
-    soundEnabled = !soundEnabled;
-    localStorage.setItem("sparktext_sound", soundEnabled ? "true" : "false");
-    updateSoundButton();
-    if (soundEnabled) playNotificationChime();
-  }
-
-  function updateSoundButton() {
-    const btn = document.getElementById("btn-sound-toggle");
-    if (btn) {
-      btn.innerHTML = soundEnabled
-        ? `<svg class="w-3.5 h-3.5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>`
-        : `<svg class="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" d="M5.586 15H4l1.405-1.405A2.032 2.032 0 006 12.158V11c0-1.158.316-2.244.868-3.172M13.73 21a2 2 0 01-3.46 0M9.34 5.34A6.002 6.002 0 0118 11v1.159c0 .538.214 1.055.595 1.436L20 15h-2M10 5a2 2 0 114 0v.341M3 3l18 18"/></svg>`;
-      btn.className = soundEnabled
-        ? "w-8 h-8 inline-flex items-center justify-center rounded-lg border border-gray-200/90 bg-white hover:bg-gray-50 text-gray-600 shadow-2xs transition cursor-pointer"
-        : "w-8 h-8 inline-flex items-center justify-center rounded-lg border border-gray-200/90 bg-gray-50/70 hover:bg-gray-100 text-gray-400 shadow-2xs transition cursor-pointer";
-      btn.title = soundEnabled ? "Notification sound enabled (click to mute)" : "Notification sound muted (click to enable)";
-    }
-  }
-
   function playNotificationChime() {
-    if (!soundEnabled) return;
-    try {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (!AudioCtx) return;
-      const ctx = new AudioCtx();
-      if (ctx.state === "suspended") {
-        ctx.resume();
-      }
+    const metaEl = document.getElementById("active-conversation-meta");
+    const assignedToId = metaEl ? metaEl.getAttribute("data-assigned-to-id") : null;
+    const currentUserIdNum = parseInt(currentUserId, 10);
+    const isAssignedToOther = Boolean(assignedToId && parseInt(assignedToId, 10) !== currentUserIdNum);
+    if (isAssignedToOther) return;
 
-      // Loud, rich dual-tone chime (880 Hz ding -> 1318.5 Hz dong)
-      const now = ctx.currentTime;
-      const masterGain = ctx.createGain();
-      masterGain.gain.setValueAtTime(0.65, now);
-      masterGain.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
-      masterGain.connect(ctx.destination);
-
-      // Tone 1: High crisp ding (880 Hz - A5)
-      const osc1 = ctx.createOscillator();
-      const gain1 = ctx.createGain();
-      osc1.type = "sine";
-      osc1.frequency.setValueAtTime(880, now);
-      gain1.gain.setValueAtTime(0.8, now);
-      gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
-      osc1.connect(gain1);
-      gain1.connect(masterGain);
-      osc1.start(now);
-      osc1.stop(now + 0.22);
-
-      // Tone 2: Harmonic rich chime (1318.5 Hz - E6)
-      const osc2 = ctx.createOscillator();
-      const gain2 = ctx.createGain();
-      osc2.type = "sine";
-      osc2.frequency.setValueAtTime(1318.5, now + 0.08);
-      gain2.gain.setValueAtTime(0.0, now);
-      gain2.gain.setValueAtTime(0.9, now + 0.08);
-      gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
-      osc2.connect(gain2);
-      gain2.connect(masterGain);
-      osc2.start(now + 0.08);
-      osc2.stop(now + 0.5);
-    } catch (e) {
-      console.warn("Notification sound chime error:", e);
+    if (typeof window.playGlobalNotificationChime === "function") {
+      window.playGlobalNotificationChime();
     }
+    if (document.hidden || !document.hasFocus()) {
+      if (typeof window.startTitleFlashing === "function") {
+        window.startTitleFlashing("🔔 (1) Needs Human Attention! — SparkText");
+      }
+    }
+  }
+
+  function isCurrentConversationNeedsHuman() {
+    const statusSelect = document.querySelector('select[name="status"]');
+    if (statusSelect && statusSelect.value === "needs_human") return true;
+    const metaEl = document.getElementById("active-conversation-meta");
+    if (metaEl && metaEl.getAttribute("data-status") === "needs_human") return true;
+    return false;
   }
 
   // ─────────────────────────────────────────────────────────────
   // CHAT PANE & WEBSOCKET ENGINE (Pure Real-Time, Seamless AJAX)
   // ─────────────────────────────────────────────────────────────
   let currentConvId = {% if conversation %}{{ conversation.id }}{% else %}null{% endif %};
+  window.currentConvId = currentConvId;
+  if (currentConvId && typeof window.markConversationNotificationsRead === "function") {
+    window.markConversationNotificationsRead(currentConvId);
+  }
+
+  function handleTabFocusOrVisibility() {
+    if (!document.hidden && document.hasFocus() && currentConvId) {
+      if (typeof window.markConversationNotificationsRead === "function") {
+        window.markConversationNotificationsRead(currentConvId);
+      }
+      if (typeof clearCardUnreadBadge === "function") {
+        clearCardUnreadBadge(currentConvId);
+      }
+    }
+  }
+  window.addEventListener("focus", handleTabFocusOrVisibility);
+  document.addEventListener("visibilitychange", handleTabFocusOrVisibility);
   let lastMsgId = 0;
   let oldestMsgId = 0;
   let hasOlderMessages = false;
@@ -1904,7 +1883,57 @@
     lastMsgId = Math.max(lastMsgId, parseInt(msgId, 10) || 0);
 
     if (m.sender_type !== "system" && m.direction !== "outbound") {
-      playNotificationChime();
+      const isNeedsHuman = isCurrentConversationNeedsHuman();
+
+      // STRICT RULE: Notifications (sound, title flashing, desktop notification) ONLY for leads marked as needs_human!
+      // Routine messages (AI handled or open) update silently in real-time.
+      if (isNeedsHuman) {
+        const metaEl = document.getElementById("active-conversation-meta");
+        const assignedToId = metaEl ? metaEl.getAttribute("data-assigned-to-id") : null;
+        const currentUserIdNum = parseInt(currentUserId, 10);
+        const isAssignedToOther = Boolean(assignedToId && parseInt(assignedToId, 10) !== currentUserIdNum);
+
+        // TARGETED ROUTING RULE:
+        // If assigned to another agent: do NOT chime, flash, or show desktop notification for this user!
+        if (!isAssignedToOther) {
+          let contactName = "";
+          if (metaEl) {
+            const fn = (metaEl.getAttribute("data-first-name") || "").trim();
+            const ln = (metaEl.getAttribute("data-last-name") || "").trim();
+            const phone = (metaEl.getAttribute("data-phone") || "").trim();
+            contactName = (fn + " " + ln).trim() || phone;
+          }
+          if (!contactName) {
+            const breadcrumbConv = document.getElementById("global-breadcrumb-conv");
+            if (breadcrumbConv && breadcrumbConv.textContent.trim()) {
+              contactName = breadcrumbConv.textContent.trim();
+            }
+          }
+          if (!contactName) contactName = "Customer";
+
+          if (typeof window.playGlobalNotificationChime === "function") {
+            window.playGlobalNotificationChime();
+          }
+
+          const isTabBackground = document.hidden || !document.hasFocus();
+          if (isTabBackground) {
+            if (typeof window.startTitleFlashing === "function") {
+              window.startTitleFlashing("🔔 (1) Needs Human Attention! — SparkText");
+            }
+            if (typeof window.showDesktopNotification === "function") {
+              window.showDesktopNotification({
+                title: "Needs Human Attention",
+                body: `${contactName}: ${m.body || "Customer requires human agent assistance."}`,
+                conversation_id: currentConvId,
+                direct_url: `/inbox/${currentConvId}/`,
+                type: "needs_human",
+                status: "needs_human",
+                assigned_to_id: assignedToId ? parseInt(assignedToId, 10) : null,
+              });
+            }
+          }
+        }
+      }
     }
   }
 
@@ -2081,6 +2110,12 @@
       statusSelect.value = "needs_human";
       syncChatHeaderSelectPill(statusSelect);
     }
+    const metaEl = document.getElementById("active-conversation-meta");
+    if (metaEl) {
+      metaEl.setAttribute("data-status", "needs_human");
+    }
+
+    playNotificationChime();
 
     if (data.message && typeof appendChatMessage === "function") {
       appendChatMessage(data.message);
@@ -2099,6 +2134,13 @@
     if (statusSelect && data.status) {
       statusSelect.value = data.status;
       syncChatHeaderSelectPill(statusSelect);
+    }
+    const metaEl = document.getElementById("active-conversation-meta");
+    if (metaEl && data.status) {
+      metaEl.setAttribute("data-status", data.status);
+    }
+    if (data.status === "needs_human") {
+      playNotificationChime();
     }
     if (data.message && typeof appendChatMessage === "function") {
       appendChatMessage(data.message);
@@ -2184,8 +2226,8 @@
           if (data.event === "new_message" && data.message) {
             appendChatMessage(data.message);
             if (data.message.direction === "inbound") {
-              clearCardUnreadBadge(convId);
-              if (document.visibilityState !== "hidden") {
+              if (!document.hidden && document.hasFocus()) {
+                clearCardUnreadBadge(convId);
                 markConversationRead(convId);
               }
             }
@@ -2201,6 +2243,15 @@
             handleStatusChange(data);
           } else if (data.event === "agent_typing") {
             handleAgentTyping(data);
+          } else if (data.event === "assignment_change") {
+            const meta = typeof getActiveMeta === "function" ? getActiveMeta() : document.getElementById("active-conversation-meta");
+            if (meta) {
+              meta.setAttribute("data-assigned-to-id", data.assigned_to_id ? String(data.assigned_to_id) : "");
+            }
+            const assignSelect = document.getElementById("dossier-assign-select");
+            if (assignSelect) {
+              assignSelect.value = data.assigned_to_id ? String(data.assigned_to_id) : "";
+            }
           }
         } catch (err) {
           console.debug("WS message parse error:", err);
@@ -2422,7 +2473,6 @@
       });
     }
 
-    updateSoundButton();
     renderSnippets();
 
     const savedDossier = localStorage.getItem("sparktext_dossier");
@@ -2443,6 +2493,10 @@
     const numId = parseInt(convId, 10);
     explicitlyMarkedUnreadConvId = null;
     currentConvId = numId;
+    window.currentConvId = numId;
+    if (typeof window.markConversationNotificationsRead === "function") {
+      window.markConversationNotificationsRead(numId);
+    }
     clearTimeout(olderMessagesTimer);
     isLoadingOlderMessages = false;
     hasOlderMessages = false;
@@ -2570,33 +2624,6 @@
     initialListHtml = null;
   }
 
-  function markCurrentConversationUnread() {
-    const convId = currentConvId ? parseInt(currentConvId, 10) : null;
-    if (!convId) return;
-    const formData = new FormData();
-    formData.append("csrfmiddlewaretoken", "{{ csrf_token }}");
-
-    fetch(`/inbox/${convId}/unread/`, {
-      method: "POST",
-      headers: { "X-Requested-With": "XMLHttpRequest" },
-      body: formData,
-    })
-    .then(res => res.json().then(data => ({ ok: res.ok, data })))
-    .then(({ ok, data }) => {
-      if (ok && data.status === "success") {
-        explicitlyMarkedUnreadConvId = convId;
-        renderSidebarCardUnreadState(getSidebarCardElement(convId), data.unread_count || 1);
-        if (data.nav_unread_count !== undefined && typeof window.updateSidebarUnreadCount === "function") {
-          window.updateSidebarUnreadCount(data.nav_unread_count);
-        }
-        if (typeof window.showAppToast === "function") {
-          window.showAppToast("Conversation marked as unread.", "info", 2800);
-        }
-      }
-    })
-    .catch(err => console.debug("Mark unread error:", err));
-  }
-
   function navigateConversationStep(delta) {
     const items = Array.from(document.querySelectorAll("#conversations-list-container a.chat-list-item"))
       .filter(el => el.style.display !== "none" && el.offsetParent !== null);
@@ -2692,6 +2719,10 @@
         statusSelect.value = newStatus;
       }
       if (statusSelect) syncChatHeaderSelectPill(statusSelect);
+      const metaEl = document.getElementById("active-conversation-meta");
+      if (metaEl) {
+        metaEl.setAttribute("data-status", newStatus);
+      }
       const banner = document.getElementById("handoff-warning-banner");
       if (banner) {
         if (newStatus === "needs_human") banner.classList.remove("hidden");
@@ -2718,6 +2749,9 @@
   function clearCardUnreadBadge(convId) {
     const numId = parseInt(convId, 10);
     if (!numId) return;
+    if (typeof window.markConversationNotificationsRead === "function") {
+      window.markConversationNotificationsRead(numId);
+    }
     const card = getSidebarCardElement(numId);
     if (!card) return;
 
