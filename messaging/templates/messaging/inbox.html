@@ -1569,10 +1569,7 @@
     .then(res => res.json())
     .then(data => {
       if (data.status === "success") {
-        handleConversationStatusTransition(convId, data.new_status || "open", data.counts);
-        if (!chatSocket || chatSocket.readyState !== WebSocket.OPEN) {
-          selectConversation(convId, window.location.href, false);
-        }
+        selectConversation(convId, window.location.href, false);
       }
     })
     .catch(err => console.error("Error resuming AI:", err));
@@ -2249,6 +2246,10 @@
             const assignSelect = document.getElementById("dossier-assign-select");
             if (assignSelect) {
               assignSelect.value = data.assigned_to_id ? String(data.assigned_to_id) : "";
+            }
+          } else if (data.event === "ai_mode_change") {
+            if (convId === currentConvId) {
+              selectConversation(currentConvId, window.location.href, false);
             }
           }
         } catch (err) {

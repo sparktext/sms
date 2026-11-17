@@ -1,181 +1,736 @@
 {% extends "messaging/base_app.html" %}
 
-{% block title %}Dashboard | SparkText{% endblock %}
+{% block title %}Dashboard · SparkText{% endblock %}
 {% block header_title %}Welcome, {{ request.user.first_name|default:request.user.email }}{% endblock %}
-{% block header_subtitle %}Here is a summary of your messaging activity.{% endblock %}
+{% block header_subtitle %}
+  {% if is_agent %}
+    Live customer inquiries and urgent takeovers.
+  {% else %}
+    Real-time messaging, lead routing, and team performance overview.
+  {% endif %}
+{% endblock %}
+
+{% block header_actions %}
+  {% if is_agent %}
+    <a href="{% url 'messaging:inbox' %}" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-brand-600 hover:bg-brand-700 text-white shadow-2xs transition cursor-pointer">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+      <span>Open Inbox</span>
+    </a>
+    <span class="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 rounded-xl border border-emerald-200/80">
+      <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+      Live
+    </span>
+  {% else %}
+    <!-- Admin & Owner Quick Actions -->
+    <a href="{% url 'messaging:inbox' %}" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 shadow-2xs transition">
+      <svg class="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+      <span>Open Inbox</span>
+    </a>
+    <a href="{% url 'team_members' %}" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-brand-600 hover:bg-brand-700 text-white shadow-2xs transition">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+      <span>Team &amp; Routing</span>
+    </a>
+    <span class="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 rounded-xl border border-emerald-200/80">
+      <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+      Live
+    </span>
+  {% endif %}
+{% endblock %}
 
 {% block content %}
+<div class="space-y-6 pb-12">
 
-<!-- Summary numbers -->
-<section class="grid grid-cols-2 lg:grid-cols-4 gap-4" aria-label="Summary">
-  <a href="{% url 'messaging:inbox' %}" class="bg-white border border-gray-200 hover:border-brand-300 hover:shadow-xs rounded-2xl p-5 transition group block">
-    <div class="flex items-center justify-between gap-2">
-      <p class="text-sm text-gray-600 group-hover:text-gray-900">Texts sent today</p>
-      <svg class="w-4 h-4 text-gray-300 group-hover:text-brand-600 transition shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-      </svg>
-    </div>
-    <p class="text-3xl font-bold text-gray-900 mt-2">{{ stats.sent_today }}</p>
-  </a>
-  <a href="{% url 'messaging:inbox' %}?assigned=replied" class="bg-white border border-gray-200 hover:border-brand-300 hover:shadow-xs rounded-2xl p-5 transition group block">
-    <div class="flex items-center justify-between gap-2">
-      <p class="text-sm text-gray-600 group-hover:text-gray-900">Customer replies</p>
-      <svg class="w-4 h-4 text-gray-300 group-hover:text-brand-600 transition shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-      </svg>
-    </div>
-    <p class="text-3xl font-bold text-gray-900 mt-2">{{ stats.replies }}</p>
-  </a>
-  <a href="{% url 'messaging:inbox' %}?status=needs_human" class="bg-white border {% if stats.needs_human > 0 %}border-amber-200 hover:border-amber-400{% else %}border-gray-200 hover:border-brand-300{% endif %} hover:shadow-xs rounded-2xl p-5 transition group block">
-    <div class="flex items-center justify-between gap-2">
-      <p class="text-sm {% if stats.needs_human > 0 %}text-amber-800 font-medium{% else %}text-gray-600 group-hover:text-gray-900{% endif %}">Needs a human</p>
-      <svg class="w-4 h-4 {% if stats.needs_human > 0 %}text-amber-500{% else %}text-gray-300 group-hover:text-brand-600{% endif %} transition shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-      </svg>
-    </div>
-    <p class="text-3xl font-bold {% if stats.needs_human > 0 %}text-amber-700{% else %}text-gray-900{% endif %} mt-2">{{ stats.needs_human }}</p>
-  </a>
-  <a href="{% url 'contacts:list' %}?status=opted_out" class="bg-white border border-gray-200 hover:border-rose-300 hover:shadow-xs rounded-2xl p-5 transition group block">
-    <div class="flex items-center justify-between gap-2">
-      <p class="text-sm text-gray-600 group-hover:text-gray-900">Opt-outs</p>
-      <svg class="w-4 h-4 text-gray-300 group-hover:text-rose-600 transition shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-      </svg>
-    </div>
-    <p class="text-3xl font-bold text-gray-900 mt-2">{{ stats.opt_outs }}</p>
-  </a>
-</section>
-
-<div class="grid lg:grid-cols-3 gap-6">
-
-  <!-- Setup checklist -->
-  {% if not setup_complete %}
-  <section class="lg:col-span-2 bg-white border border-gray-200 rounded-2xl p-6">
-    <div class="flex items-center justify-between gap-4">
-      <h2 class="text-lg font-semibold text-gray-900">Finish setting up</h2>
-      <p class="text-sm text-gray-600">{{ steps_done }} of {{ steps_total }} done</p>
-    </div>
-    <div class="mt-3 h-2 rounded-full bg-gray-100" role="progressbar" aria-valuenow="{{ percent }}" aria-valuemin="0"
-      aria-valuemax="100">
-      <div class="h-2 rounded-full bg-brand-600" style="width: {{ percent }}%"></div>
-    </div>
-
-    <ul class="mt-5 divide-y divide-gray-100">
-      {% for step in steps %}
-      <li class="flex items-start gap-4 py-4">
-        {% if step.done %}
-        <span
-          class="mt-0.5 w-6 h-6 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0"
-          aria-label="Done">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
-          </svg>
-        </span>
-        {% else %}
-        <span class="mt-0.5 w-6 h-6 rounded-full border-2 border-gray-300 shrink-0" aria-label="Not done"></span>
-        {% endif %}
-        <div class="flex-1 min-w-0">
-          <p class="text-sm font-semibold text-gray-900">{{ step.title }}</p>
-          <p class="text-sm text-gray-600">{{ step.desc }}</p>
+  {% if show_setup %}
+  <!-- Compact Setup Progress Banner (Admins & Owners only) -->
+  <div class="bg-white border border-gray-200/90 rounded-2xl p-4 sm:p-5 shadow-2xs">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div class="flex items-center gap-3.5 min-w-0">
+        <div class="w-10 h-10 rounded-xl bg-brand-50 text-brand-700 font-bold text-sm flex items-center justify-center shrink-0 border border-brand-100">
+          {{ percent }}%
         </div>
-        {% if not step.done and step.url %}
-        <a href="{{ step.url }}" class="text-sm font-medium text-brand-700 hover:text-brand-900 shrink-0">Start</a>
+        <div class="min-w-0">
+          <div class="flex items-center gap-2">
+            <h2 class="text-xs font-bold text-gray-900 uppercase tracking-wider">Finish setting up SparkText</h2>
+            <span class="text-[11px] text-gray-500 font-medium">({{ steps_done }} of {{ steps_total }} completed)</span>
+          </div>
+          {% if next_step %}
+            <p class="text-xs text-gray-600 mt-0.5 truncate">
+              <span class="font-medium text-gray-900">Next:</span> {{ next_step.title }} — <span class="text-gray-500">{{ next_step.desc }}</span>
+            </p>
+          {% endif %}
+        </div>
+      </div>
+      <div class="flex items-center gap-2 shrink-0">
+        {% if next_step.url %}
+          <a href="{{ next_step.url }}" class="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-brand-600 hover:bg-brand-700 text-white transition shadow-2xs">
+            <span>Continue Setup</span>
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+          </a>
         {% endif %}
-      </li>
+        <button
+          type="button"
+          onclick="document.getElementById('setup-checklist-drawer').classList.toggle('hidden')"
+          class="px-3 py-1.5 text-xs font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-xl transition cursor-pointer"
+        >
+          View steps
+        </button>
+      </div>
+    </div>
+    <!-- Progress bar line -->
+    <div class="mt-3.5 h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
+      <div class="h-full bg-brand-600 rounded-full transition-all duration-500" style="width: {{ percent }}%"></div>
+    </div>
+    <!-- Collapsible checklist details -->
+    <div id="setup-checklist-drawer" class="hidden mt-4 pt-3.5 border-t border-gray-100 grid sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+      {% for step in steps %}
+        <div class="flex items-center gap-2.5 p-2 rounded-xl {% if step.done %}bg-gray-50/70 text-gray-500{% else %}bg-brand-50/40 border border-brand-100 text-gray-900{% endif %}">
+          <span class="w-4 h-4 rounded-full flex items-center justify-center shrink-0 {% if step.done %}bg-emerald-500 text-white text-[10px] font-bold{% else %}border border-gray-300 text-[10px]{% endif %}">
+            {% if step.done %}✓{% endif %}
+          </span>
+          <span class="text-xs truncate flex-1 font-medium {% if step.done %}line-through text-gray-400{% endif %}">{{ step.title }}</span>
+          {% if not step.done and step.url %}
+            <a href="{{ step.url }}" class="text-[11px] font-semibold text-brand-600 hover:underline shrink-0">Start</a>
+          {% endif %}
+        </div>
       {% endfor %}
-    </ul>
-  </section>
+    </div>
+  </div>
   {% endif %}
 
-  <!-- Recent conversations -->
-  <section
-    class="{% if setup_complete %}lg:col-span-3{% else %}lg:col-span-1{% endif %} bg-white border border-gray-200 rounded-2xl p-6">
-    <div class="flex items-center justify-between pb-3 border-b border-gray-100">
-      <div>
-        <h2 class="text-lg font-semibold text-gray-900">Recent conversations</h2>
-        <p class="text-xs text-gray-500">Latest active SMS threads and inquiries</p>
+  <!-- ============================================================ -->
+  <!-- 4 MINIMALIST METRIC CARDS                                    -->
+  <!-- ============================================================ -->
+  <section class="grid grid-cols-2 lg:grid-cols-4 gap-4" aria-label="Metrics">
+    {% if is_agent %}
+      <!-- Agent Metric 1: Needs Human -->
+      <a
+        href="{% url 'messaging:inbox' %}?status=needs_human"
+        id="card-needs-human"
+        class="bg-white border rounded-2xl p-4 sm:p-5 transition group block shadow-2xs hover:shadow-xs relative overflow-hidden {% if total_needs_human > 0 %}border-amber-300 ring-2 ring-amber-400/10 bg-amber-50/20{% else %}border-gray-200/90 hover:border-gray-300{% endif %}"
+      >
+        <div class="flex items-center justify-between gap-2">
+          <p class="text-xs font-semibold uppercase tracking-wider {% if total_needs_human > 0 %}text-amber-800{% else %}text-gray-500{% endif %}">
+            Needs Human
+          </p>
+          <span class="w-2 h-2 rounded-full {% if total_needs_human > 0 %}bg-amber-500 animate-pulse{% else %}bg-gray-300{% endif %}"></span>
+        </div>
+        <p class="text-2xl sm:text-3xl font-extrabold {% if total_needs_human > 0 %}text-amber-700{% else %}text-gray-950{% endif %} mt-2" id="kpi-needs-human">
+          {{ total_needs_human }}
+        </p>
+        <p class="text-[11px] text-gray-500 mt-1 truncate" id="kpi-needs-human-sub">
+          <span class="font-medium text-amber-700">{{ my_needs_human_count }} assigned</span> · {{ unassigned_needs_human_count }} unassigned
+        </p>
+      </a>
+
+      <!-- Agent Metric 2: Assigned to Me -->
+      <a
+        href="{% url 'messaging:inbox' %}?assigned=me"
+        id="card-my-leads"
+        class="bg-white border border-gray-200/90 hover:border-gray-300 hover:shadow-xs rounded-2xl p-4 sm:p-5 transition group block shadow-2xs"
+      >
+        <div class="flex items-center justify-between gap-2">
+          <p class="text-xs font-semibold uppercase tracking-wider text-gray-500">
+            Assigned to Me
+          </p>
+          <svg class="w-4 h-4 text-gray-300 group-hover:text-brand-600 transition shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+        </div>
+        <p class="text-2xl sm:text-3xl font-extrabold text-gray-950 mt-2" id="kpi-my-leads">
+          {{ my_active_leads_count }}
+        </p>
+        <p class="text-[11px] text-gray-500 mt-1 truncate">
+          Active conversations{% if max_leads > 0 %} <span class="text-gray-400">({{ my_active_leads_count }}/{{ max_leads }})</span>{% endif %}
+        </p>
+      </a>
+
+      <!-- Agent Metric 3: Claimable Pool -->
+      <a
+        href="{% url 'messaging:inbox' %}?assigned=unassigned"
+        id="card-unassigned"
+        class="bg-white border border-gray-200/90 hover:border-gray-300 hover:shadow-xs rounded-2xl p-4 sm:p-5 transition group block shadow-2xs"
+      >
+        <div class="flex items-center justify-between gap-2">
+          <p class="text-xs font-semibold uppercase tracking-wider text-gray-500">
+            Claimable Pool
+          </p>
+          <svg class="w-4 h-4 text-gray-300 group-hover:text-amber-500 transition shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+        </div>
+        <p class="text-2xl sm:text-3xl font-extrabold text-gray-950 mt-2" id="kpi-unassigned">
+          {{ unassigned_needs_human_count }}
+        </p>
+        <p class="text-[11px] text-gray-500 mt-1 truncate">
+          Ready for takeover
+        </p>
+      </a>
+
+      <!-- Agent Metric 4: Replies Today -->
+      <div class="bg-white border border-gray-200/90 rounded-2xl p-4 sm:p-5 shadow-2xs">
+        <div class="flex items-center justify-between gap-2">
+          <p class="text-xs font-semibold uppercase tracking-wider text-gray-500">
+            Replies Today
+          </p>
+          <svg class="w-4 h-4 text-gray-300 transition shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/></svg>
+        </div>
+        <p class="text-2xl sm:text-3xl font-extrabold text-gray-950 mt-2" id="kpi-replies-today">
+          {{ my_replies_today }}
+        </p>
+        <p class="text-[11px] text-gray-500 mt-1 truncate" id="kpi-sent-today">
+          {{ my_sent_today }} outbound texts sent
+        </p>
       </div>
-      <a href="{% url 'messaging:inbox' %}" class="text-xs font-semibold text-brand-600 hover:text-brand-800 transition flex items-center gap-1">
-        <span>Open Inbox</span>
-        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-        </svg>
-      </a>
-    </div>
 
-    {% if recent_conversations %}
-    <div class="mt-3 divide-y divide-gray-100">
-      {% for conv in recent_conversations %}
-      <a href="{% url 'messaging:conversation_detail' conv.id %}" class="flex items-center justify-between py-3.5 px-2 -mx-2 rounded-xl hover:bg-slate-50 transition group">
-        <div class="flex items-center gap-3 min-w-0 flex-1 pr-3">
-          <div class="w-10 h-10 rounded-xl bg-brand-50 text-brand-700 font-bold text-xs flex items-center justify-center shrink-0 border border-brand-100/60 shadow-2xs">
-            {% if conv.contact.first_name %}{{ conv.contact.first_name|slice:":1"|upper }}{% elif conv.contact.last_name %}{{ conv.contact.last_name|slice:":1"|upper }}{% else %}#FF{% endif %}
-          </div>
-          <div class="min-w-0 flex-1">
-            <div class="flex items-center gap-2">
-              <span class="text-sm font-semibold text-gray-900 truncate group-hover:text-brand-600">
-                {% if conv.contact.first_name or conv.contact.last_name %}
-                  {{ conv.contact.first_name }} {{ conv.contact.last_name }}
-                {% else %}
-                  {{ conv.contact.phone }}
-                {% endif %}
-              </span>
-              {% if conv.unread_count > 0 %}
-              <span class="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-brand-600 text-white">
-                {{ conv.unread_count }}
-              </span>
-              {% endif %}
-            </div>
-            <p class="text-xs text-gray-500 truncate mt-0.5">
-              {% if conv.last_msg %}
-                {% if conv.last_msg.direction == 'outbound' %}<span class="text-gray-400">You:</span> {% endif %}{{ conv.last_msg.body }}
-              {% else %}
-                <span class="italic text-gray-400">No messages yet</span>
-              {% endif %}
-            </p>
-          </div>
-        </div>
-
-        <div class="flex items-center gap-3 shrink-0">
-          {% if conv.status == 'needs_human' %}
-            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-              <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span> Needs Human
-            </span>
-          {% elif conv.status == 'closed' %}
-            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-50 text-gray-600 border border-gray-200">
-              <span class="w-1.5 h-1.5 rounded-full bg-gray-400"></span> Closed
-            </span>
-          {% else %}
-            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Open
-            </span>
-          {% endif %}
-          <span class="text-[11px] text-gray-400 font-medium hidden sm:inline">
-            {{ conv.last_message_at|timesince }} ago
-          </span>
-        </div>
-      </a>
-      {% endfor %}
-    </div>
     {% else %}
-    <div class="mt-6 text-center py-8">
-      <div class="w-12 h-12 rounded-2xl bg-gray-50 text-gray-400 flex items-center justify-center mx-auto mb-2 border border-gray-100">
-        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
-        </svg>
-      </div>
-      <p class="text-sm font-medium text-gray-900">No conversations yet</p>
-      <p class="text-sm text-gray-500 mt-1">Replies from your customers will show up here, with the AI's answers.</p>
-      <a href="{% url 'messaging:inbox' %}" class="inline-flex items-center gap-1.5 mt-4 px-3.5 py-1.5 text-xs font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 rounded-lg border border-brand-200 transition">
-        <span>Go to Inbox</span>
-        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-        </svg>
+      <!-- Admin/Owner Metric 1: Needs Human Attention -->
+      <a
+        href="{% url 'messaging:inbox' %}?status=needs_human"
+        id="card-admin-needs-human"
+        class="bg-white border rounded-2xl p-4 sm:p-5 transition group block shadow-2xs hover:shadow-xs relative overflow-hidden {% if stats.needs_human > 0 %}border-amber-300 ring-2 ring-amber-400/10 bg-amber-50/20{% else %}border-gray-200/90 hover:border-gray-300{% endif %}"
+      >
+        <div class="flex items-center justify-between gap-2">
+          <p class="text-xs font-semibold uppercase tracking-wider {% if stats.needs_human > 0 %}text-amber-800{% else %}text-gray-500{% endif %}">
+            Needs Attention
+          </p>
+          <span class="w-2 h-2 rounded-full {% if stats.needs_human > 0 %}bg-amber-500 animate-pulse{% else %}bg-gray-300{% endif %}"></span>
+        </div>
+        <p class="text-2xl sm:text-3xl font-extrabold {% if stats.needs_human > 0 %}text-amber-700{% else %}text-gray-950{% endif %} mt-2" id="kpi-admin-needs-human">
+          {{ stats.needs_human }}
+        </p>
+        <p class="text-[11px] text-gray-500 mt-1 truncate">
+          Urgent inquiries requiring rep takeover
+        </p>
       </a>
-    </div>
+
+      <!-- Admin/Owner Metric 2: Customer Replies -->
+      <a
+        href="{% url 'messaging:inbox' %}?assigned=replied"
+        class="bg-white border border-gray-200/90 hover:border-gray-300 hover:shadow-xs rounded-2xl p-4 sm:p-5 transition group block shadow-2xs"
+      >
+        <div class="flex items-center justify-between gap-2">
+          <p class="text-xs font-semibold uppercase tracking-wider text-gray-500">
+            Customer Replies
+          </p>
+          <svg class="w-4 h-4 text-gray-300 group-hover:text-brand-600 transition shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/></svg>
+        </div>
+        <p class="text-2xl sm:text-3xl font-extrabold text-gray-950 mt-2" id="kpi-admin-replies">
+          {{ stats.replies }}
+        </p>
+        <p class="text-[11px] text-gray-500 mt-1 truncate">
+          Inbound customer messages today
+        </p>
+      </a>
+
+      <!-- Admin/Owner Metric 3: Texts Sent Today -->
+      <a
+        href="{% url 'messaging:inbox' %}"
+        class="bg-white border border-gray-200/90 hover:border-gray-300 hover:shadow-xs rounded-2xl p-4 sm:p-5 transition group block shadow-2xs"
+      >
+        <div class="flex items-center justify-between gap-2">
+          <p class="text-xs font-semibold uppercase tracking-wider text-gray-500">
+            Texts Sent
+          </p>
+          <svg class="w-4 h-4 text-gray-300 group-hover:text-brand-600 transition shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+        </div>
+        <p class="text-2xl sm:text-3xl font-extrabold text-gray-950 mt-2" id="kpi-admin-sent">
+          {{ stats.sent_today }}
+        </p>
+        <p class="text-[11px] text-gray-500 mt-1 truncate">
+          Outbound messages delivered today
+        </p>
+      </a>
+
+      <!-- Admin/Owner Metric 4: Opt-outs -->
+      <a
+        href="{% url 'contacts:list' %}?status=opted_out"
+        class="bg-white border border-gray-200/90 hover:border-rose-300 hover:shadow-xs rounded-2xl p-4 sm:p-5 transition group block shadow-2xs"
+      >
+        <div class="flex items-center justify-between gap-2">
+          <p class="text-xs font-semibold uppercase tracking-wider text-gray-500">
+            Opt-outs
+          </p>
+          <svg class="w-4 h-4 text-gray-300 group-hover:text-rose-600 transition shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
+        </div>
+        <p class="text-2xl sm:text-3xl font-extrabold text-gray-950 mt-2" id="kpi-admin-optouts">
+          {{ stats.opt_outs }}
+        </p>
+        <p class="text-[11px] text-gray-500 mt-1 truncate">
+          Unsubscribed contacts
+        </p>
+      </a>
     {% endif %}
   </section>
 
+  <!-- ============================================================ -->
+  <!-- MAIN 2-COLUMN SECTION                                        -->
+  <!-- ============================================================ -->
+  <div class="grid lg:grid-cols-3 gap-6 items-start">
+
+    <!-- Column 1 (2 cols): Priority Attention Queue -->
+    <section class="lg:col-span-2 space-y-4">
+      <div class="bg-white border border-gray-200/90 rounded-2xl shadow-2xs overflow-hidden">
+        <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-4">
+          <div class="flex items-center gap-2.5">
+            <h2 class="text-sm font-bold text-gray-900 tracking-tight">Priority Takeover Queue</h2>
+            <span
+              id="badge-queue-count"
+              class="px-2 py-0.5 rounded-full text-xs font-bold {% if is_agent %}{% if total_needs_human > 0 %}bg-amber-100 text-amber-800{% else %}bg-gray-100 text-gray-600{% endif %}{% else %}{% if stats.needs_human > 0 %}bg-amber-100 text-amber-800{% else %}bg-gray-100 text-gray-600{% endif %}{% endif %}"
+            >
+              {% if is_agent %}{{ total_needs_human }}{% else %}{{ stats.needs_human }}{% endif %}
+            </span>
+          </div>
+          <a
+            href="{% url 'messaging:inbox' %}?status=needs_human"
+            class="text-xs font-semibold text-brand-600 hover:text-brand-800 transition"
+          >
+            View in Inbox →
+          </a>
+        </div>
+
+        <!-- Inquiries list -->
+        <div id="urgent-queue-container" class="divide-y divide-gray-100">
+          {% if urgent_conversations %}
+            {% for conv in urgent_conversations %}
+                <div class="p-4 sm:p-5 hover:bg-slate-50/70 transition flex flex-col sm:flex-row sm:items-center justify-between gap-4 group">
+                  <div class="flex items-start gap-3.5 min-w-0 flex-1">
+                    <div class="w-10 h-10 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center shrink-0 border border-slate-200/80">
+                      {% if conv.contact.first_name %}{{ conv.contact.first_name|slice:":1"|upper }}{% elif conv.contact.last_name %}{{ conv.contact.last_name|slice:":1"|upper }}{% else %}#FF{% endif %}
+                    </div>
+                    <div class="min-w-0 flex-1">
+                      <div class="flex items-center gap-2 flex-wrap">
+                        <span class="text-sm font-semibold text-gray-950">
+                          {% if conv.contact.first_name or conv.contact.last_name %}
+                            {{ conv.contact.first_name }} {{ conv.contact.last_name }}
+                          {% else %}
+                            {{ conv.contact.phone }}
+                          {% endif %}
+                        </span>
+                        <span class="text-xs text-gray-400 font-mono">{{ conv.contact.phone }}</span>
+
+                        {% if conv.assigned_to_id == request.user.id %}
+                          <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-brand-50 text-brand-700 border border-brand-200">
+                            Assigned to You
+                          </span>
+                        {% elif conv.assigned_to %}
+                          <span class="px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-700">
+                            {{ conv.assigned_to.first_name|default:conv.assigned_to.email }}
+                          </span>
+                        {% else %}
+                          <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                            ⚡ Unassigned
+                          </span>
+                        {% endif %}
+                      </div>
+
+                      <!-- Clean Handoff reason -->
+                      {% if conv.handoff_reason %}
+                        <p class="text-xs text-amber-800 font-medium mt-1">
+                          🎯 {{ conv.handoff_reason }}
+                        </p>
+                      {% endif %}
+
+                      <!-- Customer message preview -->
+                      <p class="text-xs text-gray-600 mt-1 line-clamp-1">
+                        {% if conv.last_msg %}
+                          "{{ conv.last_msg.body }}"
+                        {% else %}
+                          <span class="italic text-gray-400">Customer awaiting response</span>
+                        {% endif %}
+                      </p>
+                    </div>
+                  </div>
+
+                  <!-- Action button -->
+                  <div class="flex items-center gap-2.5 shrink-0 sm:self-center">
+                    <span class="text-[11px] text-gray-400 font-mono">
+                      {{ conv.last_message_at|timesince }} ago
+                    </span>
+                    {% if conv.assigned_to_id == request.user.id %}
+                      <a
+                        href="{% url 'messaging:conversation_detail' conv.id %}"
+                        class="px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-brand-600 hover:bg-brand-700 text-white transition shadow-2xs"
+                      >
+                        Reply →
+                      </a>
+                    {% elif not conv.assigned_to %}
+                      <button
+                        type="button"
+                        onclick="claimLeadDirect({{ conv.id }}, this)"
+                        class="px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-amber-500 hover:bg-amber-600 text-white transition shadow-2xs cursor-pointer"
+                      >
+                        ⚡ Claim
+                      </button>
+                    {% else %}
+                      <a
+                        href="{% url 'messaging:conversation_detail' conv.id %}"
+                        class="px-3 py-1.5 text-xs font-medium rounded-xl bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 transition"
+                      >
+                        View →
+                      </a>
+                    {% endif %}
+                  </div>
+                </div>
+              {% endfor %}
+            {% else %}
+              <div class="p-8 text-center" id="urgent-queue-empty">
+                <div class="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto text-base">
+                  ✓
+                </div>
+                <h3 class="text-xs font-bold text-gray-900 mt-2 uppercase tracking-wider">All Caught Up</h3>
+                <p class="text-xs text-gray-500 mt-0.5">No inquiries currently require human takeover.</p>
+              </div>
+            {% endif %}
+        </div>
+      </div>
+    </section>
+
+    <!-- Column 2 (1 col): Recent Conversations & Fast Navigation -->
+    <aside class="space-y-5">
+      <!-- Recent Conversations Card -->
+      <div class="bg-white border border-gray-200/90 rounded-2xl p-4 sm:p-5 shadow-2xs">
+        <div class="flex items-center justify-between pb-3 border-b border-gray-100">
+          <div>
+            <h3 class="text-xs font-bold text-gray-900 uppercase tracking-wider">
+              {% if is_agent %}My Recent Chats{% else %}Recent Inbound{% endif %}
+            </h3>
+            <p class="text-[11px] text-gray-500">
+              {% if is_agent %}Assigned conversations{% else %}Latest activity across org{% endif %}
+            </p>
+          </div>
+          <a href="{% url 'messaging:inbox' %}" class="text-xs font-semibold text-brand-600 hover:text-brand-800 transition">
+            Inbox →
+          </a>
+        </div>
+
+          {% if recent_conversations %}
+            <div class="divide-y divide-gray-100 mt-2">
+              {% for conv in recent_conversations|slice:":5" %}
+                <a
+                  href="{% url 'messaging:conversation_detail' conv.id %}"
+                  class="flex items-center justify-between py-2.5 px-2 -mx-2 rounded-xl hover:bg-slate-50 transition group"
+                >
+                  <div class="flex items-center gap-2.5 min-w-0 flex-1 pr-2">
+                    <div class="w-8 h-8 rounded-lg bg-slate-100 text-slate-700 font-bold text-[11px] flex items-center justify-center shrink-0 border border-slate-200/70">
+                      {% if conv.contact.first_name %}{{ conv.contact.first_name|slice:":1"|upper }}{% elif conv.contact.last_name %}{{ conv.contact.last_name|slice:":1"|upper }}{% else %}#FF{% endif %}
+                    </div>
+                    <div class="min-w-0 flex-1">
+                      <p class="text-xs font-semibold text-gray-950 truncate group-hover:text-brand-600">
+                        {% if conv.contact.first_name or conv.contact.last_name %}
+                          {{ conv.contact.first_name }} {{ conv.contact.last_name }}
+                        {% else %}
+                          {{ conv.contact.phone }}
+                        {% endif %}
+                      </p>
+                      <p class="text-[11px] text-gray-500 truncate mt-0.5">
+                        {% if conv.last_msg %}
+                          {% if conv.last_msg.direction == 'outbound' %}<span class="text-gray-400">You:</span> {% endif %}{{ conv.last_msg.body }}
+                        {% else %}
+                          <span class="italic text-gray-400">No messages</span>
+                        {% endif %}
+                      </p>
+                    </div>
+                  </div>
+                  <div class="shrink-0 text-right">
+                    {% if conv.status == 'needs_human' %}
+                      <span class="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-amber-50 text-amber-800 border border-amber-200">Needs Human</span>
+                    {% elif conv.status == 'closed' %}
+                      <span class="px-1.5 py-0.5 rounded-md text-[9px] font-semibold bg-gray-50 text-gray-500 border border-gray-200">Closed</span>
+                    {% else %}
+                      <span class="px-1.5 py-0.5 rounded-md text-[9px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">Open</span>
+                    {% endif %}
+                  </div>
+                </a>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="text-center py-6 text-gray-400 text-xs">
+              No conversations yet.
+            </div>
+          {% endif %}
+      </div>
+
+      {% if not is_agent %}
+        <!-- Admin / Owner Team Lead Routing Snapshot -->
+        <div class="bg-white border border-gray-200/90 rounded-2xl p-4 sm:p-5 shadow-2xs space-y-3">
+          <div class="flex items-center justify-between pb-2 border-b border-gray-100">
+            <div>
+              <h3 class="text-xs font-bold text-gray-900 uppercase tracking-wider">Team Availability</h3>
+              <p class="text-[11px] text-gray-500">Live lead distribution status</p>
+            </div>
+            <a href="{% url 'team_members' %}" class="text-xs font-semibold text-brand-600 hover:text-brand-800 transition">
+              Manage →
+            </a>
+          </div>
+
+          {% if team_members %}
+            <div class="space-y-2 mt-2">
+              {% for m in team_members %}
+                <div class="flex items-center justify-between p-2 rounded-xl bg-gray-50/70 border border-gray-100 text-xs">
+                  <div class="flex items-center gap-2 min-w-0">
+                    <span class="w-2 h-2 rounded-full shrink-0 {% if m.is_available_for_leads %}bg-emerald-500{% else %}bg-gray-400{% endif %}"></span>
+                    <span class="font-medium text-gray-900 truncate">
+                      {{ m.first_name|default:m.email }}
+                    </span>
+                    <span class="text-[10px] text-gray-400 font-mono">({{ m.role|title }})</span>
+                  </div>
+                  <div class="shrink-0 flex items-center gap-1.5">
+                    {% if m.is_available_for_leads %}
+                      <span class="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200/60">
+                        Available
+                      </span>
+                    {% else %}
+                      <span class="text-[10px] font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+                        Away
+                      </span>
+                    {% endif %}
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <p class="text-xs text-gray-400 text-center py-2">No team members found.</p>
+          {% endif %}
+        </div>
+      {% endif %}
+
+      <!-- Fast Navigation Links -->
+      <div class="bg-white border border-gray-200/90 rounded-2xl p-4 shadow-2xs space-y-2">
+        <h4 class="text-xs font-bold text-gray-900 uppercase tracking-wider">Fast Navigation</h4>
+        <div class="grid grid-cols-1 gap-1.5 text-xs">
+          {% if is_agent %}
+            <a
+              href="{% url 'messaging:inbox' %}?assigned=me"
+              class="flex items-center justify-between p-2.5 rounded-xl border border-gray-200 hover:border-brand-300 hover:text-brand-600 transition font-medium text-gray-700"
+            >
+              <span>Assigned to Me</span>
+              <span class="font-bold text-gray-900" id="nav-my-leads">{{ my_active_leads_count }}</span>
+            </a>
+            <a
+              href="{% url 'messaging:inbox' %}?assigned=unassigned"
+              class="flex items-center justify-between p-2.5 rounded-xl border border-gray-200 hover:border-brand-300 hover:text-brand-600 transition font-medium text-gray-700"
+            >
+              <span>Unassigned Pool</span>
+              <span class="font-bold text-gray-900" id="nav-unassigned">{{ unassigned_needs_human_count }}</span>
+            </a>
+          {% else %}
+            <a
+              href="{% url 'messaging:inbox' %}?status=needs_human"
+              class="flex items-center justify-between p-2.5 rounded-xl border border-gray-200 hover:border-brand-300 hover:text-brand-600 transition font-medium text-gray-700"
+            >
+              <span>Needs Attention</span>
+              <span class="font-bold text-amber-800">{{ stats.needs_human }}</span>
+            </a>
+            <a
+              href="{% url 'campaigns:list' %}"
+              class="flex items-center justify-between p-2.5 rounded-xl border border-gray-200 hover:border-brand-300 hover:text-brand-600 transition font-medium text-gray-700"
+            >
+              <span>SMS Campaigns</span>
+              <span>→</span>
+            </a>
+          {% endif %}
+          <a
+            href="{% url 'contacts:list' %}"
+            class="flex items-center justify-between p-2.5 rounded-xl border border-gray-200 hover:border-brand-300 hover:text-brand-600 transition font-medium text-gray-700"
+          >
+            <span>Contacts</span>
+            <span>→</span>
+          </a>
+        </div>
+      </div>
+    </aside>
+
+  </div>
+
 </div>
 
+<!-- ============================================================ -->
+<!-- REAL-TIME WEBSOCKET SYNCHRONIZATION                          -->
+<!-- ============================================================ -->
+<script>
+(function() {
+  const currentUserId = {{ request.user.id|default:"null" }};
+  const isAgent = {% if is_agent %}true{% else %}false{% endif %};
+  const csrfToken = "{{ csrf_token }}";
+
+  function flashElement(el, glowClass = "ring-2 ring-brand-500/50") {
+    if (!el) return;
+    el.classList.add(...glowClass.split(" "));
+    setTimeout(() => {
+      el.classList.remove(...glowClass.split(" "));
+    }, 1200);
+  }
+
+  // Backward compatible duty toggle alias
+  window.toggleDashboardDuty = async function(btn) {
+    if (typeof window.toggleMyGlobalAvailability === "function") {
+      await window.toggleMyGlobalAvailability();
+    }
+  };
+
+  // 1-Click Direct Lead Claim
+  window.claimLeadDirect = async function(convId, btn) {
+    if (!convId || !btn) return;
+    btn.disabled = true;
+    const originalText = btn.textContent;
+    btn.textContent = "Claiming...";
+    try {
+      const resp = await fetch(`/inbox/${convId}/assign/`, {
+        method: "POST",
+        headers: {
+          "X-Requested-With": "XMLHttpRequest",
+          "X-CSRFToken": csrfToken,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({ assigned_to_id: String(currentUserId) }),
+      });
+      const data = await resp.json();
+      if (resp.ok && data.status === "success") {
+        btn.textContent = "Claimed ✓";
+        btn.className = "px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-emerald-600 text-white shadow-2xs";
+        setTimeout(() => syncDashboardLive(), 400);
+      } else {
+        btn.textContent = originalText;
+        btn.disabled = false;
+      }
+    } catch (e) {
+      console.debug("Failed to claim lead:", e);
+      btn.textContent = originalText;
+      btn.disabled = false;
+    }
+  };
+
+  // Live Sync Dashboard Data via JSON
+  async function syncDashboardLive() {
+    try {
+      const resp = await fetch("{% url 'messaging:dashboard' %}?format=json", {
+        headers: { "X-Requested-With": "XMLHttpRequest" }
+      });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      if (data.status !== "success") return;
+
+      // Update Agent Metric elements
+      if (isAgent) {
+        const kpiNeeds = document.getElementById("kpi-needs-human");
+        if (kpiNeeds && kpiNeeds.textContent.trim() !== String(data.total_needs_human)) {
+          kpiNeeds.textContent = data.total_needs_human;
+          flashElement(kpiNeeds);
+        }
+        const kpiNeedsSub = document.getElementById("kpi-needs-human-sub");
+        if (kpiNeedsSub) {
+          kpiNeedsSub.innerHTML = `<span class="font-medium text-amber-700">${data.my_needs_human_count} assigned</span> · ${data.unassigned_needs_human_count} unassigned`;
+        }
+        const kpiMyLeads = document.getElementById("kpi-my-leads");
+        if (kpiMyLeads && kpiMyLeads.textContent.trim() !== String(data.my_active_leads_count)) {
+          kpiMyLeads.textContent = data.my_active_leads_count;
+          flashElement(kpiMyLeads);
+        }
+        const kpiUnassigned = document.getElementById("kpi-unassigned");
+        if (kpiUnassigned && kpiUnassigned.textContent.trim() !== String(data.unassigned_needs_human_count)) {
+          kpiUnassigned.textContent = data.unassigned_needs_human_count;
+          flashElement(kpiUnassigned);
+        }
+        const navMyLeads = document.getElementById("nav-my-leads");
+        if (navMyLeads) navMyLeads.textContent = data.my_active_leads_count;
+        const navUnassigned = document.getElementById("nav-unassigned");
+        if (navUnassigned) navUnassigned.textContent = data.unassigned_needs_human_count;
+      } else {
+        // Update Admin/Owner elements
+        const kpiAdminNeeds = document.getElementById("kpi-admin-needs-human");
+        if (kpiAdminNeeds && kpiAdminNeeds.textContent.trim() !== String(data.stats.needs_human)) {
+          kpiAdminNeeds.textContent = data.stats.needs_human;
+          flashElement(kpiAdminNeeds);
+        }
+        const kpiAdminReplies = document.getElementById("kpi-admin-replies");
+        if (kpiAdminReplies && kpiAdminReplies.textContent.trim() !== String(data.stats.replies)) {
+          kpiAdminReplies.textContent = data.stats.replies;
+          flashElement(kpiAdminReplies);
+        }
+        const kpiAdminSent = document.getElementById("kpi-admin-sent");
+        if (kpiAdminSent && kpiAdminSent.textContent.trim() !== String(data.stats.sent_today)) {
+          kpiAdminSent.textContent = data.stats.sent_today;
+          flashElement(kpiAdminSent);
+        }
+      }
+
+      // Update badge count
+      const badgeQueue = document.getElementById("badge-queue-count");
+      const urgentCount = isAgent ? data.total_needs_human : (data.stats ? data.stats.needs_human : 0);
+      if (badgeQueue) badgeQueue.textContent = urgentCount;
+
+      // Render Urgent Queue List
+      renderUrgentQueue(data.urgent_conversations || []);
+    } catch (e) {
+      console.debug("Dashboard live sync failed:", e);
+    }
+  }
+
+  function renderUrgentQueue(items) {
+    const container = document.getElementById("urgent-queue-container");
+    if (!container) return;
+
+    if (!items || items.length === 0) {
+      container.innerHTML = `
+        <div class="p-8 text-center" id="urgent-queue-empty">
+          <div class="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto text-base">
+            ✓
+          </div>
+          <h3 class="text-xs font-bold text-gray-900 mt-2 uppercase tracking-wider">All Caught Up</h3>
+          <p class="text-xs text-gray-500 mt-0.5">No inquiries currently require human takeover.</p>
+        </div>
+      `;
+      return;
+    }
+
+    let html = "";
+    items.forEach(c => {
+      const initial = (c.contact_name && c.contact_name.length > 0) ? c.contact_name.charAt(0).toUpperCase() : "#";
+      let assignBadge = "";
+      let actionBtn = "";
+
+      if (c.is_assigned_to_me) {
+        assignBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-brand-50 text-brand-700 border border-brand-200">Assigned to You</span>';
+        actionBtn = `<a href="${c.direct_url}" class="px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-brand-600 hover:bg-brand-700 text-white transition shadow-2xs">Reply →</a>`;
+      } else if (c.is_unassigned) {
+        assignBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">⚡ Unassigned</span>';
+        actionBtn = `<button type="button" onclick="claimLeadDirect(${c.id}, this)" class="px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-amber-500 hover:bg-amber-600 text-white transition shadow-2xs cursor-pointer">⚡ Claim</button>`;
+      } else {
+        const repName = c.assigned_to_name || "Rep";
+        assignBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-700">${repName}</span>`;
+        actionBtn = `<a href="${c.direct_url}" class="px-3 py-1.5 text-xs font-medium rounded-xl bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 transition">View →</a>`;
+      }
+
+      html += `
+        <div class="p-4 sm:p-5 hover:bg-slate-50/70 transition flex flex-col sm:flex-row sm:items-center justify-between gap-4 group">
+          <div class="flex items-start gap-3.5 min-w-0 flex-1">
+            <div class="w-10 h-10 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center shrink-0 border border-slate-200/80">
+              ${initial}
+            </div>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-sm font-semibold text-gray-950">${c.contact_name}</span>
+                <span class="text-xs text-gray-400 font-mono">${c.contact_phone || ""}</span>
+                ${assignBadge}
+              </div>
+              <p class="text-xs text-amber-800 font-medium mt-1">🎯 ${c.handoff_reason || "Requires human assistance"}</p>
+              <p class="text-xs text-gray-600 mt-1 line-clamp-1">"${c.last_message || "Awaiting response..."}"</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2.5 shrink-0 sm:self-center">
+            <span class="text-[11px] text-gray-400 font-mono">${c.last_message_time || "just now"}</span>
+            ${actionBtn}
+          </div>
+        </div>
+      `;
+    });
+
+    container.innerHTML = html;
+  }
+
+  // Hook into WebSocket custom events
+  window.addEventListener("inbox_update", function(e) {
+    syncDashboardLive();
+  });
+  window.addEventListener("conversation_assigned", function(e) {
+    syncDashboardLive();
+  });
+})();
+</script>
 {% endblock %}

@@ -137,9 +137,11 @@
           <span id="handoff-warning-reason" class="text-amber-800 ml-1">{{ conversation.handoff_reason|default:"Customer inquiry requires human assistance." }}</span>
         </div>
       </div>
+      {% if conversation.ai_mode == 'off' %}
       <button type="button" onclick="resumeAiAssistant('{{ conversation.id }}')" class="px-2.5 py-1 text-[11px] font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-lg transition shadow-2xs cursor-pointer shrink-0">
         Resume AI Assistant
       </button>
+      {% endif %}
     </div>
 
     <!-- Human Takeover Banner when AI is explicitly stopped or switched to Suggest for this chat -->
@@ -149,8 +151,8 @@
         <span>🛑</span>
         <span><strong>Human Takeover Active:</strong> AI is stopped for this conversation. You can chat freely without AI intervention.</span>
       </div>
-      <button type="button" onclick="updateConversationAiMode('default')" class="px-2.5 py-1 text-[11px] font-semibold text-slate-900 bg-white hover:bg-gray-100 rounded-lg transition shadow-2xs cursor-pointer">
-        Re-enable AI
+      <button type="button" onclick="resumeAiAssistant('{{ conversation.id }}')" class="px-2.5 py-1 text-[11px] font-semibold text-slate-900 bg-white hover:bg-gray-100 rounded-lg transition shadow-2xs cursor-pointer">
+        Resume AI
       </button>
     </div>
     {% elif conversation.ai_mode == 'suggest' %}

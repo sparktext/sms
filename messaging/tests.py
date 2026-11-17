@@ -625,9 +625,10 @@ class MessagingTests(TestCase):
         conv.refresh_from_db()
         self.assertEqual(conv.status, Conversation.Status.CLOSED)
 
-        # 3. AJAX resume AI
+        # 3. AJAX resume AI enables AI without changing conversation status or handoff reason
         conv.status = Conversation.Status.NEEDS_HUMAN
         conv.handoff_reason = "Human needed"
+        conv.ai_mode = Conversation.AIMode.OFF
         conv.save()
 
         resume_res = self.client.post(
@@ -636,9 +637,11 @@ class MessagingTests(TestCase):
         )
         self.assertEqual(resume_res.status_code, 200)
         self.assertEqual(resume_res.json().get("status"), "success")
+        self.assertEqual(resume_res.json().get("ai_mode"), Conversation.AIMode.DEFAULT)
         conv.refresh_from_db()
-        self.assertEqual(conv.status, Conversation.Status.OPEN)
-        self.assertEqual(conv.handoff_reason, "")
+        self.assertEqual(conv.ai_mode, Conversation.AIMode.DEFAULT)
+        self.assertEqual(conv.status, Conversation.Status.NEEDS_HUMAN)
+        self.assertEqual(conv.handoff_reason, "Human needed")
 
     def test_inbox_latest_35_messages_and_before_id_pagination(self):
         """Initial inbox open renders only the latest 35 messages and loads older chunks via ?before_id=."""
@@ -1008,7 +1011,10 @@ class MessagingTests(TestCase):
             },
         )
 
-        # Resume AI moves conv_1 Needs Human -> Open and returns live counts
+        # Resume AI re-enables AI model without altering Needs Human status
+        conv_1.refresh_from_db()
+        conv_1.ai_mode = Conversation.AIMode.OFF
+        conv_1.save(update_fields=["ai_mode"])
         resume_res = self.client.post(
             f"/inbox/{conv_1.id}/resume-ai/",
             HTTP_X_REQUESTED_WITH="XMLHttpRequest",
@@ -1018,10 +1024,15 @@ class MessagingTests(TestCase):
             resume_res.json(),
             {
                 "status": "success",
-                "new_status": "open",
-                "counts": {"open": 2, "needs_human": 0, "closed": 0},
+                "ai_mode": "default",
+                "ai_mode_label": "Default (Use Business Settings)",
+                "new_status": "needs_human",
+                "counts": {"open": 1, "needs_human": 1, "closed": 0},
             },
         )
+        conv_1.refresh_from_db()
+        self.assertEqual(conv_1.ai_mode, Conversation.AIMode.DEFAULT)
+        self.assertEqual(conv_1.status, Conversation.Status.NEEDS_HUMAN)
 
         # Switch conv_2 Open -> Closed returns live counts
         to_closed_res = self.client.post(
@@ -1035,7 +1046,7 @@ class MessagingTests(TestCase):
             {
                 "status": "success",
                 "new_status": "closed",
-                "counts": {"open": 1, "needs_human": 0, "closed": 1},
+                "counts": {"open": 0, "needs_human": 1, "closed": 1},
             },
         )
 
@@ -1341,5 +1352,83 @@ class MessagingTests(TestCase):
         self.assertTrue(len(assigned_events) > 0)
         self.assertEqual(assigned_events[0]["conversation_id"], conv.id)
         self.assertEqual(assigned_events[0]["assigned_to_id"], chosen.id)
+
+    def test_agent_command_center_dashboard(self):
+        """Agents must NOT see the 'Finish setting up' checklist and should see the Agent Command Center."""
+        agent = User.objects.create_user(
+            email="agent_test@example.com",
+            password="password123",
+            organization=self.org_a,
+            role=User.Role.AGENT,
+            is_available_for_leads=True,
+        )
+
+        contact = Contact.objects.create(organization=self.org_a, phone="+16505553322", first_name="Takeover", last_name="Customer")
+        conv = Conversation.objects.create(
+            organization=self.org_a,
+            contact=contact,
+            phone_number=self.phone_a,
+            status=Conversation.Status.NEEDS_HUMAN,
+            handoff_reason="Customer requested quote",
+            assigned_to=agent,
+        )
+        Message.objects.create(
+            organization=self.org_a,
+            conversation=conv,
+            direction=Message.Direction.INBOUND,
+            body="Can I get pricing please?",
+        )
+
+        # 1. Agent visits dashboard: setup is hidden, Agent Command Center is rendered
+        self.client.force_login(agent)
+        resp = self.client.get("/dashboard/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.context["is_agent"])
+        self.assertFalse(resp.context["show_setup"])
+        self.assertNotContains(resp, "Finish setting up")
+        self.assertContains(resp, "Priority Takeover Queue")
+        self.assertContains(resp, "Available for Leads")
+        self.assertContains(resp, "Takeover Customer")
+
+        # 2. Owner visits dashboard: setup IS shown if onboarding incomplete
+        self.client.force_login(self.user_a)
+        owner_resp = self.client.get("/dashboard/")
+        self.assertEqual(owner_resp.status_code, 200)
+        self.assertFalse(owner_resp.context["is_agent"])
+        self.assertTrue(owner_resp.context["show_setup"])
+        self.assertContains(owner_resp, "Finish setting up")
+
+        # 3. Agent requests live JSON sync endpoint
+        self.client.force_login(agent)
+        json_resp = self.client.get("/dashboard/?format=json")
+        self.assertEqual(json_resp.status_code, 200)
+        data = json_resp.json()
+        self.assertEqual(data["status"], "success")
+        self.assertTrue(data["is_agent"])
+        self.assertEqual(data["my_active_leads_count"], 1)
+        self.assertEqual(data["my_needs_human_count"], 1)
+        self.assertEqual(len(data["urgent_conversations"]), 1)
+        self.assertEqual(data["urgent_conversations"][0]["id"], conv.id)
+        self.assertEqual(data["urgent_conversations"][0]["contact_name"], "Takeover Customer")
+
+        # 4. Agent claims an unassigned lead via direct AJAX claim
+        contact2 = Contact.objects.create(organization=self.org_a, phone="+16505553323", first_name="Unassigned", last_name="Lead")
+        unassigned_conv = Conversation.objects.create(
+            organization=self.org_a,
+            contact=contact2,
+            phone_number=self.phone_a,
+            status=Conversation.Status.NEEDS_HUMAN,
+            handoff_reason="Lead waiting for rep",
+            assigned_to=None,
+        )
+        claim_resp = self.client.post(
+            f"/inbox/{unassigned_conv.id}/assign/",
+            {"assigned_to_id": str(agent.id)},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(claim_resp.status_code, 200)
+        unassigned_conv.refresh_from_db()
+        self.assertEqual(unassigned_conv.assigned_to_id, agent.id)
+
 
 

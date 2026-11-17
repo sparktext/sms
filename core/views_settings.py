@@ -453,7 +453,11 @@ def toggle_agent_availability(request, user_id=None):
             return JsonResponse({"status": "error", "message": "Permission denied."}, status=403)
         target_user = get_object_or_404(User, id=user_id, organization=org)
 
-    target_user.is_available_for_leads = not target_user.is_available_for_leads
+    if "is_available" in request.POST:
+        raw_val = request.POST.get("is_available")
+        target_user.is_available_for_leads = str(raw_val).lower() in ("true", "1", "yes")
+    else:
+        target_user.is_available_for_leads = not target_user.is_available_for_leads
     target_user.save(update_fields=["is_available_for_leads"])
 
     new_state = target_user.is_available_for_leads

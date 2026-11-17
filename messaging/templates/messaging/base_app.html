@@ -495,16 +495,107 @@
             </div>
           </div>
 
-          <button
-            type="button"
-            id="nav-availability-btn"
-            onclick="toggleMyGlobalAvailability()"
-            class="inline-flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-full text-xs font-semibold border transition cursor-pointer shadow-2xs whitespace-nowrap shrink-0 {% if request.user.is_available_for_leads %}bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100/80{% else %}bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100{% endif %}"
-            title="{% if request.user.is_available_for_leads %}Available for Leads — click to go Away{% else %}Away / Paused — click to go Available{% endif %}"
-          >
-            <span class="w-2 h-2 rounded-full {% if request.user.is_available_for_leads %}bg-emerald-500 animate-pulse{% else %}bg-gray-400{% endif %}"></span>
-            <span id="nav-availability-text" class="hidden sm:inline">{% if request.user.is_available_for_leads %}Available for Leads{% else %}Away / Paused{% endif %}</span>
-          </button>
+          <!-- Inbound Lead Routing Availability Status & Popover -->
+          <div class="relative inline-block text-left" id="header-availability-container">
+            <button
+              type="button"
+              id="nav-availability-btn"
+              onclick="toggleAvailabilityDropdown(event)"
+              class="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full text-xs font-semibold border transition cursor-pointer shadow-2xs whitespace-nowrap shrink-0 {% if request.user.is_available_for_leads %}bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100/80{% else %}bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100{% endif %}"
+              title="Inbound Lead Routing: Click to view or change your status"
+              aria-haspopup="true"
+              aria-expanded="false"
+            >
+              <span class="w-2 h-2 rounded-full {% if request.user.is_available_for_leads %}bg-emerald-500 animate-pulse{% else %}bg-gray-400{% endif %}"></span>
+              <span id="nav-availability-text" class="hidden sm:inline">{% if request.user.is_available_for_leads %}Available for Leads{% else %}Away / Paused{% endif %}</span>
+              <svg class="w-3 h-3 text-gray-400 transition-transform duration-150" id="nav-availability-chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+
+            <!-- Availability Dropdown Menu -->
+            <div
+              id="nav-availability-dropdown"
+              class="hidden absolute right-0 mt-2 w-80 sm:w-88 rounded-2xl bg-white shadow-2xl border border-gray-200/90 z-50 overflow-hidden transform transition-all duration-150 origin-top-right text-left"
+              role="menu"
+            >
+              <!-- Explanatory Header for First-Time Users -->
+              <div class="p-3.5 sm:p-4 bg-gradient-to-b from-gray-50 to-white border-b border-gray-100">
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-bold text-gray-900 tracking-wide uppercase flex items-center gap-1.5">
+                    <svg class="w-3.5 h-3.5 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    Lead Routing Status
+                  </span>
+                  <span id="nav-availability-badge-status" class="px-2 py-0.5 rounded-full text-[10px] font-bold {% if request.user.is_available_for_leads %}bg-emerald-100 text-emerald-800{% else %}bg-gray-100 text-gray-700{% endif %}">
+                    {% if request.user.is_available_for_leads %}Active on Duty{% else %}Currently Away{% endif %}
+                  </span>
+                </div>
+                <p class="text-[11px] text-gray-500 mt-1.5 leading-relaxed">
+                  Controls whether incoming customer SMS conversations and AI handoffs are automatically assigned to you.
+                </p>
+              </div>
+
+              <!-- Options List -->
+              <div class="p-2 space-y-1.5">
+                <!-- Option 1: Available -->
+                <button
+                  type="button"
+                  onclick="setAvailabilityState(true, event)"
+                  id="avail-opt-true"
+                  class="w-full text-left p-2.5 rounded-xl border transition flex items-start gap-3 cursor-pointer group {% if request.user.is_available_for_leads %}bg-emerald-50/70 border-emerald-200 text-emerald-900 shadow-2xs{% else %}bg-white border-transparent hover:bg-gray-50 text-gray-700{% endif %}"
+                >
+                  <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 mt-1 shrink-0 group-hover:scale-110 transition {% if request.user.is_available_for_leads %}ring-2 ring-emerald-300 animate-pulse{% endif %}" id="avail-opt-dot-true"></span>
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-center justify-between">
+                      <span class="text-xs font-bold text-gray-900 group-hover:text-emerald-700">Available (Accepting Leads)</span>
+                      <svg id="avail-check-true" class="w-4 h-4 text-emerald-600 shrink-0 {% if not request.user.is_available_for_leads %}hidden{% endif %}" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                      </svg>
+                    </div>
+                    <p class="text-[11px] text-gray-500 mt-0.5 leading-snug">
+                      You are actively working. New customer texts and qualified AI handoffs route straight to you.
+                    </p>
+                  </div>
+                </button>
+
+                <!-- Option 2: Away -->
+                <button
+                  type="button"
+                  onclick="setAvailabilityState(false, event)"
+                  id="avail-opt-false"
+                  class="w-full text-left p-2.5 rounded-xl border transition flex items-start gap-3 cursor-pointer group {% if not request.user.is_available_for_leads %}bg-amber-50/60 border-amber-200 text-gray-900 shadow-2xs{% else %}bg-white border-transparent hover:bg-gray-50 text-gray-700{% endif %}"
+                >
+                  <span class="w-2.5 h-2.5 rounded-full bg-gray-400 mt-1 shrink-0 group-hover:scale-110 transition" id="avail-opt-dot-false"></span>
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-center justify-between">
+                      <span class="text-xs font-bold text-gray-900 group-hover:text-amber-800">Away / Paused</span>
+                      <svg id="avail-check-false" class="w-4 h-4 text-amber-600 shrink-0 {% if request.user.is_available_for_leads %}hidden{% endif %}" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                      </svg>
+                    </div>
+                    <p class="text-[11px] text-gray-500 mt-0.5 leading-snug">
+                      Pause new assignments while on break. Existing chats stay with you, but new leads route to teammates.
+                    </p>
+                  </div>
+                </button>
+              </div>
+
+              <!-- Footer with helpful note / admin routing shortcut -->
+              <div class="px-3.5 py-2.5 bg-gray-50/80 border-t border-gray-100 flex items-center justify-between text-[11px] text-gray-500">
+                <span class="flex items-center gap-1 text-[11px] text-gray-400">
+                  <svg class="w-3.5 h-3.5 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                  Automatic fallback ensures zero dropped leads
+                </span>
+                {% if request.user.role in "owner,admin" %}
+                <a href="{% url 'team_members' %}" class="font-semibold text-brand-600 hover:text-brand-800 transition">
+                  Settings →
+                </a>
+                {% endif %}
+              </div>
+            </div>
+          </div>
           {% endif %}
           
         </div>
@@ -599,9 +690,116 @@
         return match ? decodeURIComponent(match[2]) : '';
       }
 
-      async function toggleMyGlobalAvailability() {
+      function updateAvailabilityUI(isAvailable) {
         const btn = document.getElementById("nav-availability-btn");
         const textEl = document.getElementById("nav-availability-text");
+        const statusBadge = document.getElementById("nav-availability-badge-status");
+        const optTrue = document.getElementById("avail-opt-true");
+        const optFalse = document.getElementById("avail-opt-false");
+        const checkTrue = document.getElementById("avail-check-true");
+        const checkFalse = document.getElementById("avail-check-false");
+        const dotTrue = document.getElementById("avail-opt-dot-true");
+
+        if (btn) {
+          const dot = btn.querySelector("span:first-child");
+          if (isAvailable) {
+            btn.className = "inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full text-xs font-semibold border transition cursor-pointer shadow-2xs whitespace-nowrap shrink-0 bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100/80";
+            if (dot) dot.className = "w-2 h-2 rounded-full bg-emerald-500 animate-pulse";
+            if (textEl) textEl.innerText = "Available for Leads";
+          } else {
+            btn.className = "inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full text-xs font-semibold border transition cursor-pointer shadow-2xs whitespace-nowrap shrink-0 bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100";
+            if (dot) dot.className = "w-2 h-2 rounded-full bg-gray-400";
+            if (textEl) textEl.innerText = "Away / Paused";
+          }
+        }
+
+        if (statusBadge) {
+          if (isAvailable) {
+            statusBadge.className = "px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800";
+            statusBadge.innerText = "Active on Duty";
+          } else {
+            statusBadge.className = "px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-100 text-gray-700";
+            statusBadge.innerText = "Currently Away";
+          }
+        }
+
+        if (optTrue) {
+          optTrue.className = isAvailable
+            ? "w-full text-left p-2.5 rounded-xl border transition flex items-start gap-3 cursor-pointer group bg-emerald-50/70 border-emerald-200 text-emerald-900 shadow-2xs"
+            : "w-full text-left p-2.5 rounded-xl border transition flex items-start gap-3 cursor-pointer group bg-white border-transparent hover:bg-gray-50 text-gray-700";
+        }
+        if (optFalse) {
+          optFalse.className = !isAvailable
+            ? "w-full text-left p-2.5 rounded-xl border transition flex items-start gap-3 cursor-pointer group bg-amber-50/60 border-amber-200 text-gray-900 shadow-2xs"
+            : "w-full text-left p-2.5 rounded-xl border transition flex items-start gap-3 cursor-pointer group bg-white border-transparent hover:bg-gray-50 text-gray-700";
+        }
+        if (checkTrue) checkTrue.classList.toggle("hidden", !isAvailable);
+        if (checkFalse) checkFalse.classList.toggle("hidden", isAvailable);
+        if (dotTrue) dotTrue.className = isAvailable ? "w-2.5 h-2.5 rounded-full bg-emerald-500 mt-1 shrink-0 group-hover:scale-110 transition ring-2 ring-emerald-300 animate-pulse" : "w-2.5 h-2.5 rounded-full bg-emerald-500 mt-1 shrink-0 group-hover:scale-110 transition";
+      }
+
+      window.toggleAvailabilityDropdown = function(e) {
+        if (e) { e.preventDefault(); e.stopPropagation(); }
+        const dropdown = document.getElementById("nav-availability-dropdown");
+        const btn = document.getElementById("nav-availability-btn");
+        const chevron = document.getElementById("nav-availability-chevron");
+        if (!dropdown) return;
+        const isHidden = dropdown.classList.contains("hidden");
+        // Close notification dropdown if open
+        const notifDropdown = document.getElementById("header-notif-dropdown");
+        if (notifDropdown && !notifDropdown.classList.contains("hidden")) {
+          notifDropdown.classList.add("hidden");
+        }
+        if (isHidden) {
+          dropdown.classList.remove("hidden");
+          if (btn) btn.setAttribute("aria-expanded", "true");
+          if (chevron) chevron.classList.add("rotate-180");
+        } else {
+          dropdown.classList.add("hidden");
+          if (btn) btn.setAttribute("aria-expanded", "false");
+          if (chevron) chevron.classList.remove("rotate-180");
+        }
+      };
+
+      window.setAvailabilityState = async function(isAvailable, e) {
+        if (e) { e.preventDefault(); e.stopPropagation(); }
+        const csrf = getCsrfToken();
+        const formData = new FormData();
+        formData.append("is_available", isAvailable ? "true" : "false");
+
+        try {
+          const resp = await fetch("{% url 'toggle_my_availability' %}", {
+            method: "POST",
+            headers: {
+              "X-CSRFToken": csrf,
+              "X-Requested-With": "XMLHttpRequest",
+            },
+            body: formData,
+          });
+          const data = await resp.json();
+          if (data.status === "success") {
+            updateAvailabilityUI(data.is_available);
+            const dropdown = document.getElementById("nav-availability-dropdown");
+            const btn = document.getElementById("nav-availability-btn");
+            const chevron = document.getElementById("nav-availability-chevron");
+            if (dropdown) dropdown.classList.add("hidden");
+            if (btn) btn.setAttribute("aria-expanded", "false");
+            if (chevron) chevron.classList.remove("rotate-180");
+
+            if (typeof window.showAppToast === "function") {
+              const msg = data.is_available
+                ? "You are now Available. Inbound customer leads will route to you."
+                : "You are now Away. Inbound leads will route to other teammates.";
+              window.showAppToast(msg, "info", 3500);
+            }
+          }
+        } catch (err) {
+          console.error("Failed to update availability:", err);
+        }
+      };
+
+      async function toggleMyGlobalAvailability() {
+        const btn = document.getElementById("nav-availability-btn");
         if (!btn) return;
         try {
           const csrf = getCsrfToken();
@@ -614,21 +812,26 @@
           });
           const data = await resp.json();
           if (data.status === "success") {
-            const dot = btn.querySelector("span:first-child");
-            if (data.is_available) {
-              btn.className = "inline-flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-full text-xs font-semibold border transition cursor-pointer shadow-2xs whitespace-nowrap shrink-0 bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100/80";
-              if (dot) dot.className = "w-2 h-2 rounded-full bg-emerald-500 animate-pulse";
-              if (textEl) textEl.innerText = "Available for Leads";
-            } else {
-              btn.className = "inline-flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-full text-xs font-semibold border transition cursor-pointer shadow-2xs whitespace-nowrap shrink-0 bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100";
-              if (dot) dot.className = "w-2 h-2 rounded-full bg-gray-400";
-              if (textEl) textEl.innerText = "Away / Paused";
-            }
+            updateAvailabilityUI(data.is_available);
           }
         } catch (e) {
           console.error("Failed to toggle availability:", e);
         }
       }
+
+      document.addEventListener("click", function(e) {
+        const container = document.getElementById("header-availability-container");
+        const dropdown = document.getElementById("nav-availability-dropdown");
+        const btn = document.getElementById("nav-availability-btn");
+        const chevron = document.getElementById("nav-availability-chevron");
+        if (dropdown && !dropdown.classList.contains("hidden")) {
+          if (container && !container.contains(e.target)) {
+            dropdown.classList.add("hidden");
+            if (btn) btn.setAttribute("aria-expanded", "false");
+            if (chevron) chevron.classList.remove("rotate-180");
+          }
+        }
+      });
 
       // ─────────────────────────────────────────────────────────────
       // SHARED IN-APP TOASTS & CONFIRMATION MODAL
@@ -1848,6 +2051,7 @@
                     saveStoredNotifications(currentNotifications);
                     renderNotificationsUI();
                   }
+                  window.dispatchEvent(new CustomEvent("conversation_assigned", { detail: data }));
                   return;
                 }
 
@@ -1937,6 +2141,9 @@
                   if (typeof updateSidebarCard === "function" && data.conversation) {
                     updateSidebarCard(data.conversation, data);
                   }
+
+                  // Forward real-time inbox update to any active view listeners (e.g. Dashboard)
+                  window.dispatchEvent(new CustomEvent("inbox_update", { detail: data }));
                 } else if (data.event === "campaign_list_update") {
                   // Forward campaign creation/status events to any active view listeners
                   window.dispatchEvent(new CustomEvent("campaign_list_update", { detail: data }));

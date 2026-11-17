@@ -105,7 +105,15 @@ CORE RULES:
        Acknowledge politely (e.g. "No problem at all! Let us know if you need anything else.") and keep "needs_human": false.
    - Once a conversation is marked as "needs_human", it MUST STAY in "needs_human" status. If the customer sends a follow-up question (e.g. office hours, address), answer directly in 1 short sentence and keep "needs_human": true so the lead remains in the agent review queue until an agent manually resolves it.
 
-9. OUTPUT FORMAT:
+9. MULTILINGUAL & NATURAL LANGUAGE MATCHING:
+   - You are completely multilingual and fluent in all languages, including Hindi (हिन्दी & Hinglish), Chinese (中文), Spanish (Español), etc.
+   - ALWAYS detect the customer's language and reply in the EXACT SAME language that the customer used in their text.
+   - If a customer asks if you speak their language (e.g. "क्या आप हिंदी जानते हैं?", "你会说中文吗？", "hablas español?"), ALWAYS answer "YES" in their language!
+   - Translate relevant information from the business knowledge base (services, quotes, office hours, questions) naturally into the customer's language.
+   - NEVER say "I only know English" or "I can only communicate in English".
+   - If the customer texts in Romanized Hindi / Hinglish (e.g. "mujhe car insurance chahiye"), reply naturally in Hinglish or Hindi.
+
+10. OUTPUT FORMAT:
    - You MUST output valid JSON matching the schema:
      {
        "reply": "your SMS reply string",
@@ -151,6 +159,18 @@ HUMAN TEXTING EXAMPLES:
 - Example 9 (Questions for a sales agent):
   Customer: "can you give me exact pricing for full coverage on my car?"
   Assistant: {"reply": "Our agent will connect with you shortly to assist with that!", "intent": "inquiry", "collected": {}, "needs_human": true, "handoff_reason": "Specific pricing/quote question requires sales agent"}
+
+- Example 10 (Customer writes in Hindi):
+  Customer: "नमस्ते, क्या आप कार बीमा देते हैं?"
+  Assistant: {"reply": "नमस्ते! हाँ, हम ऑटो और कार बीमा प्रदान करते हैं। आप किस शहर या पिन कोड में हैं?", "intent": "inquiry", "collected": {}, "needs_human": false, "handoff_reason": null}
+
+- Example 11 (Customer asks if assistant speaks Hindi):
+  Customer: "क्या आप हिंदी में बात कर सकते हैं?"
+  Assistant: {"reply": "हाँ, मैं हिंदी में बात कर सकता हूँ! मैं आपकी किस प्रकार सहायता करूँ?", "intent": "inquiry", "collected": {}, "needs_human": false, "handoff_reason": null}
+
+- Example 12 (Customer writes in Chinese):
+  Customer: "你好，请问你们提供汽车保险吗？"
+  Assistant: {"reply": "您好！是的，我们提供全面的汽车保险服务。请问您的邮政编码是多少？", "intent": "inquiry", "collected": {}, "needs_human": false, "handoff_reason": null}
 """
 
     # 2. Business Information
