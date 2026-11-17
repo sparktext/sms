@@ -88,7 +88,8 @@ def send_welcome_email(user) -> None:
     """
     Send a one-time welcome email after the user's first login/signup.
     Idempotent: will not send if welcome_email_sent_at is already set.
-    Dispatched non-blocking so SMTP/Celery latency never blocks the HTTP response.
+    Dispatched via a daemon background thread so HTTP response returns instantly
+    and Brevo sends immediately without Celery/Redis connection delays.
     """
     if user.welcome_email_sent_at:
         return  # Already sent
@@ -97,24 +98,26 @@ def send_welcome_email(user) -> None:
 
     def _dispatch():
         try:
-            from accounts.tasks import task_send_welcome_email
-            task_send_welcome_email.delay(user.pk)
-        except Exception:
-            try:
-                _send_welcome_email_sync(user)
-            except Exception as exc:
-                logger.warning("Could not send welcome email: %s", exc)
+            _send_welcome_email_sync(user)
+        except Exception as exc:
+            logger.warning("Could not send welcome email: %s", exc)
 
     threading.Thread(target=_dispatch, daemon=True).start()
 
 
 def _send_welcome_email_sync(user) -> None:
-    """Synchronous welcome email (used when Celery is unavailable)."""
+    """Synchronous welcome email dispatched via background thread."""
     full_name = ""
     try:
         full_name = user.profile.full_name or ""
     except Exception:
         pass
+
+    base_url = getattr(settings, "PUBLIC_BASE_URL", "").rstrip("/")
+    if not base_url:
+        base_url = "http://127.0.0.1:8000" if settings.DEBUG else "https://sparktext.si"
+
+    app_url = f"{base_url}/app/{user.public_id}/" if getattr(user, "public_id", None) else f"{base_url}/app/"
 
     _send_email_now(
         email_type="welcome",
@@ -125,6 +128,8 @@ def _send_welcome_email_sync(user) -> None:
         context={
             "user": user,
             "full_name": full_name or user.email.split("@")[0],
+            "app_url": app_url,
+            "base_url": base_url,
         },
         user=user,
     )
@@ -143,25 +148,25 @@ def send_password_changed_email(user) -> None:
 
     def _dispatch():
         try:
-            from accounts.tasks import task_send_password_changed_email
-            task_send_password_changed_email.delay(user.pk)
-        except Exception:
-            try:
-                _send_password_changed_email_sync(user)
-            except Exception as exc:
-                logger.warning("Could not send password changed email: %s", exc)
+            _send_password_changed_email_sync(user)
+        except Exception as exc:
+            logger.warning("Could not send password changed email: %s", exc)
 
     threading.Thread(target=_dispatch, daemon=True).start()
 
 
 def _send_password_changed_email_sync(user) -> None:
+    base_url = getattr(settings, "PUBLIC_BASE_URL", "").rstrip("/")
+    if not base_url:
+        base_url = "http://127.0.0.1:8000" if settings.DEBUG else "https://sparktext.si"
+
     _send_email_now(
         email_type="password_changed",
         to_address=user.email,
         subject="Your SparkText password was changed",
         html_template="accounts/emails/password_changed_email.html",
         txt_template="accounts/emails/password_changed_email.txt",
-        context={"user": user},
+        context={"user": user, "base_url": base_url},
         user=user,
     )
 

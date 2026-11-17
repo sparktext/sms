@@ -56,6 +56,7 @@ env = environ.Env(
     EMAIL_HOST=(str, "smtp.hostinger.com"),
     EMAIL_PORT=(int, 465),
     EMAIL_USE_SSL=(bool, True),
+    EMAIL_USE_TLS=(bool, False),
     EMAIL_HOST_USER=(str, "info@sparktext.si"),
     EMAIL_HOST_PASSWORD=(str, ""),
     DEFAULT_FROM_EMAIL=(str, "info@sparktext.si"),
@@ -113,8 +114,8 @@ INSTALLED_APPS = [
 SITE_ID = 1
 
 # PUBLIC_BASE_URL is used by allauth to build email verification links.
-# Set this in .env — e.g. http://localhost:8000 for dev, https://sparktext.si for prod.
-PUBLIC_BASE_URL = env("PUBLIC_BASE_URL", default="")
+# Set this in .env — e.g. http://127.0.0.1:8000 for dev, https://sparktext.si for prod.
+PUBLIC_BASE_URL = env("PUBLIC_BASE_URL", default="http://127.0.0.1:8000" if DEBUG else "https://sparktext.si")
 
 AUTH_USER_MODEL = "core.User"      # must be set BEFORE the first migrate
 # allauth handles login/logout; keep these for Django built-ins compatibility
@@ -242,21 +243,19 @@ STATICFILES_DIRS = [BASE_DIR / 'static']
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 
-# Email (Hostinger SMTP — kept as fallback; Anymail/Brevo is preferred when key is set)
+# Email configuration (Brevo API preferred; Hostinger SMTP fallback)
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 
-DEFAULT_FROM_EMAIL = 'SparkText <sparktext_auth@sparktext.si>'
-SERVER_EMAIL = 'sparktext_auth@sparktext.si'
-CONTACT_EMAIL = 'info@sparktext.si'
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="SparkText <sparktext_auth@sparktext.si>")
+SERVER_EMAIL = env("SERVER_EMAIL", default="sparktext_auth@sparktext.si")
+CONTACT_EMAIL = env("CONTACT_EMAIL", default="info@sparktext.si")
 
-# ---- Email Configuration ----
 BREVO_API_KEY = env('BREVO_API_KEY', default='')
 EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
-DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="info@sparktext.si")
-CONTACT_EMAIL = env("CONTACT_EMAIL", default="info@sparktext.si")
 EMAIL_HOST = env("EMAIL_HOST", default="smtp.hostinger.com")
 EMAIL_PORT = env.int("EMAIL_PORT", default=465)
 EMAIL_USE_SSL = env.bool("EMAIL_USE_SSL", default=True)
+EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=False)
 EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="info@sparktext.si")
 
 if BREVO_API_KEY:
@@ -275,7 +274,6 @@ else:
 TWILIO_ACCOUNT_SID = env("TWILIO_ACCOUNT_SID", default="")
 TWILIO_AUTH_TOKEN = env("TWILIO_AUTH_TOKEN", default="")
 TWILIO_PHONE_NUMBER = env("TWILIO_PHONE_NUMBER", default="")
-PUBLIC_BASE_URL = env("PUBLIC_BASE_URL", default="")
 TWILIO_VALIDATE_WEBHOOKS = env("TWILIO_VALIDATE_WEBHOOKS", default=True)
 
 # Telnyx Settings
@@ -317,6 +315,7 @@ ACCOUNT_SESSION_REMEMBER = None      # let user choose "remember me"
 ACCOUNT_SIGNUP_REDIRECT_URL = '/accounts/check-email/'
 ACCOUNT_EMAIL_CONFIRMATION_EXPIRE_DAYS = 1
 ACCOUNT_ADAPTER = 'accounts.adapters.AccountAdapter'
+ACCOUNT_FORMS = {'login': 'accounts.forms.CustomLoginForm'}
 ACCOUNT_PREVENT_ENUMERATION = True
 # Login-by-code (magic OTP) conflicts with Google OAuth social login flow — keep disabled
 ACCOUNT_LOGIN_BY_CODE_ENABLED = False

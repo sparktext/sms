@@ -1,12 +1,88 @@
 {% extends "accounts/base_auth.html" %}
-{% load i18n account socialaccount %}
+{% load socialaccount %}
 
 {% block title %}Sign In – SparkText{% endblock %}
+
+{% block extra_css %}
+<style>
+  /* User chip when email is confirmed */
+  .user-chip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    background: var(--slate-50);
+    border: 1.5px solid var(--slate-200);
+    border-radius: var(--radius-sm);
+    margin-bottom: 1.25rem;
+  }
+  .chip-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    overflow: hidden;
+  }
+  .chip-avatar {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #6366f1, #4f46e5);
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.82rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .chip-avatar.google {
+    background: #fff;
+    border: 1px solid var(--slate-200);
+  }
+  .chip-email {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--slate-800);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 230px;
+  }
+  .chip-change-btn {
+    background: none;
+    border: none;
+    color: var(--brand);
+    font-weight: 600;
+    font-size: 0.8rem;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: background 0.15s;
+  }
+  .chip-change-btn:hover {
+    background: var(--brand-50);
+    text-decoration: underline;
+  }
+  .btn-google-primary {
+    background: #ffffff;
+    color: #1e293b;
+    border: 1.5px solid #cbd5e1;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.06);
+    font-size: 0.95rem;
+    padding: 12px 20px;
+  }
+  .btn-google-primary:hover {
+    border-color: #94a3b8;
+    background: #f8fafc;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.09);
+  }
+</style>
+{% endblock %}
 
 {% block content %}
 
 <h1 class="page-title">Welcome back</h1>
-<p class="page-subtitle">Sign in to your SparkText workspace.</p>
+<p class="page-subtitle" id="login-subtitle">Sign in to your SparkText workspace.</p>
 
 {% if request.GET.reason == "inactivity" %}
 <div class="alerts">
@@ -17,70 +93,122 @@
 </div>
 {% endif %}
 
-{% if form.errors %}
-<div class="alerts">
-  {% for field, errors in form.errors.items %}{% for error in errors %}
-  <div class="alert alert-error">
-    <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="2"/><path stroke-linecap="round" stroke-width="2" d="M15 9l-6 6M9 9l6 6"/></svg>
-    <span>{{ error }}</span>
-  </div>
-  {% endfor %}{% endfor %}
+<!-- Dynamic / Server-side alerts -->
+<div class="alerts" id="login-alerts">
+  {% if form.errors %}
+    {% for field, errors in form.errors.items %}{% for error in errors %}
+    <div class="alert alert-error">
+      <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="2"/><path stroke-linecap="round" stroke-width="2" d="M15 9l-6 6M9 9l6 6"/></svg>
+      <span>{{ error }}</span>
+    </div>
+    {% endfor %}{% endfor %}
+  {% endif %}
 </div>
-{% endif %}
 
-<form method="post" action="{% url 'account_login' %}" novalidate>
+<!-- Active User Chip (shown in Step 2 or Google Prompt) -->
+<div id="user-chip-container" style="display:none;">
+  <div class="user-chip">
+    <div class="chip-left">
+      <div class="chip-avatar" id="chip-avatar">U</div>
+      <span class="chip-email" id="chip-email-text">user@example.com</span>
+    </div>
+    <button type="button" class="chip-change-btn" onclick="resetToEmailStep()">Change</button>
+  </div>
+</div>
+
+<!-- Google Prompt Section (shown if user signed up with Google) -->
+<div id="google-prompt-section" style="display:none;">
+  <div class="alert alert-info mb-4" style="background:#eef2ff;border-color:#c7d2fe;color:#3730a3;margin-bottom:1rem;">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+    <span><strong>Google Account:</strong> You registered with Google. Click below to sign in directly.</span>
+  </div>
+
+  <form method="post" action="{% provider_login_url 'google' %}" novalidate id="google-primary-form">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-google btn-google-primary">
+      <svg width="18" height="18" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+        <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+        <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+        <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+        <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+        <path fill="none" d="M0 0h48v48H0z"/>
+      </svg>
+      <span class="btn-label">Sign in with Google →</span>
+    </button>
+  </form>
+</div>
+
+<!-- Main Password Login Form -->
+<form method="post" action="{% url 'account_login' %}" novalidate id="login-form">
   {% csrf_token %}
   {% if redirect_field_value %}
   <input type="hidden" name="{{ redirect_field_name }}" value="{{ redirect_field_value }}">
   {% endif %}
 
-  <div class="form-group">
+  <!-- Step 1: Email Input Container -->
+  <div class="form-group" id="email-group">
     <label for="id_login">Email address</label>
     <input type="email" name="login" id="id_login"
            value="{{ form.login.value|default:'' }}"
            placeholder="you@company.com"
            autocomplete="email" autofocus required
-           class="auth-input {% if form.login.errors %}error{% endif %}">
+           class="auth-input">
   </div>
 
-  <div class="form-group">
-    <div class="label-row">
-      <label for="id_password" style="margin-bottom:0;">Password</label>
-      <a href="{% url 'account_reset_password' %}" class="link-sm">Forgot password?</a>
-    </div>
-    <div class="pw-wrap">
-      <input type="password" name="password" id="id_password"
-             autocomplete="current-password" required
-             class="auth-input {% if form.password.errors %}error{% endif %}">
-      <button type="button" class="pw-toggle" onclick="togglePw('id_password', this)" aria-label="Toggle password">
-        <svg class="eye-off" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
-        <svg class="eye-on" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display:none"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>
-      </button>
-    </div>
-  </div>
-
-  <div class="form-group checkbox-row">
-    <input type="checkbox" name="remember" id="id_remember">
-    <label for="id_remember">Remember me for 30 days</label>
-  </div>
-
-  <button type="submit" class="btn btn-primary" style="margin-top:8px;">
-    <span class="spinner"></span>
-    <span class="btn-label">Sign in →</span>
+  <!-- Step 1 Action: Continue Button -->
+  <button type="button" class="btn btn-primary" id="btn-continue" onclick="handleEmailContinue()" style="margin-top:8px;">
+    <span class="spinner" id="continue-spinner"></span>
+    <span class="btn-label" id="continue-label">Continue →</span>
   </button>
+
+  <!-- Step 2: Password & Extra Fields (revealed when account is password-based) -->
+  <div id="password-section" style="display:none;">
+    <div class="form-group">
+      <div class="label-row">
+        <label for="id_password" style="margin-bottom:0;">Password</label>
+        <a href="{% url 'account_reset_password' %}" class="link-sm">Forgot password?</a>
+      </div>
+      <div class="pw-wrap">
+        <input type="password" name="password" id="id_password"
+               autocomplete="current-password"
+               class="auth-input">
+        <button type="button" class="pw-toggle" onclick="togglePw('id_password', this)" aria-label="Toggle password">
+          <svg class="eye-off" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+          <svg class="eye-on" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display:none"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="form-group checkbox-row">
+      <input type="checkbox" name="remember" id="id_remember" checked>
+      <label for="id_remember">Remember me for 30 days</label>
+    </div>
+
+    <button type="submit" class="btn btn-primary" id="btn-submit-login" style="margin-top:8px;">
+      <span class="spinner"></span>
+      <span class="btn-label">Sign in →</span>
+    </button>
+  </div>
 </form>
 
-<div class="divider">or continue with</div>
+<!-- Bottom Divider & Google Fallback / Quick Action -->
+<div id="google-quick-section">
+  <div class="divider">or continue with</div>
 
-<form method="post" action="{% provider_login_url 'google' %}" novalidate>
-  {% csrf_token %}
-  <button type="submit" class="btn btn-google">
-    <svg width="18" height="18" viewBox="0 0 48 48">
-      <path fill="#4285F4" d="M44.5 20H24v8.5h11.7C34.1 33.6 29.5 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3 0 5.8 1.1 7.9 3L37 11C33.8 8.1 29.1 6 24 6 12.9 6 4 14.9 4 24s8.9 18 20 18c10 0 19-7.2 19-18 0-1.3-.2-2.7-.5-4z"/>
-    </svg>
-    <span class="btn-label">Continue with Google</span>
-  </button>
-</form>
+  <form method="post" action="{% provider_login_url 'google' %}" novalidate>
+    {% csrf_token %}
+    <button type="submit" class="btn btn-google">
+      <svg width="18" height="18" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+        <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+        <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+        <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+        <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+        <path fill="none" d="M0 0h48v48H0z"/>
+      </svg>
+      <span class="btn-label">Continue with Google</span>
+    </button>
+  </form>
+</div>
 
 {% endblock %}
 
@@ -88,4 +216,154 @@
 <div class="card-footer">
   New to SparkText? <a href="{% url 'account_signup' %}" class="link">Create a free account</a>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+var currentLoginStep = 1;
+
+function clearCustomAlerts() {
+  var alerts = document.getElementById('login-alerts');
+  if (alerts) alerts.innerHTML = '';
+}
+
+function showCustomAlert(type, message) {
+  var alerts = document.getElementById('login-alerts');
+  if (!alerts) return;
+  var alertClass = type === 'error' ? 'alert-error' : (type === 'warning' ? 'alert-warning' : 'alert-info');
+  alerts.innerHTML = '<div class="alert ' + alertClass + '"><span>' + message + '</span></div>';
+}
+
+function handleEmailContinue() {
+  var emailInput = document.getElementById('id_login');
+  var email = (emailInput.value || '').trim();
+  if (!email || !emailInput.checkValidity()) {
+    emailInput.reportValidity();
+    return;
+  }
+
+  var btn = document.getElementById('btn-continue');
+  var spinner = document.getElementById('continue-spinner');
+  var label = document.getElementById('continue-label');
+
+  btn.disabled = true;
+  if (spinner) spinner.style.display = 'block';
+  if (label) label.textContent = 'Checking…';
+  clearCustomAlerts();
+
+  fetch("{% url 'accounts:check_auth_method' %}", {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRFToken': '{{ csrf_token }}'
+    },
+    body: JSON.stringify({ email: email })
+  })
+  .then(function(res) { return res.json(); })
+  .then(function(data) {
+    btn.disabled = false;
+    if (spinner) spinner.style.display = 'none';
+    if (label) label.textContent = 'Continue →';
+
+    if (data.status === 'google') {
+      // User registered with Google -> Show Google prompt
+      showGooglePrompt(email);
+    } else if (data.status === 'password' || data.status === 'both') {
+      // Password or hybrid account -> Reveal password field
+      showPasswordStep(email, data.status === 'both');
+    } else if (data.status === 'not_found') {
+      // Account not found -> Provide clear message and signup link
+      showCustomAlert('warning', 'No account found for <strong>' + email + '</strong>. <a href="{% url "account_signup" %}?email=' + encodeURIComponent(email) + '" class="link">Create an account →</a>');
+    } else {
+      // Default fallback
+      showPasswordStep(email, true);
+    }
+  })
+  .catch(function(err) {
+    btn.disabled = false;
+    if (spinner) spinner.style.display = 'none';
+    if (label) label.textContent = 'Continue →';
+    // Fallback: reveal password step so login is never blocked
+    showPasswordStep(email, true);
+  });
+}
+
+function showGooglePrompt(email) {
+  currentLoginStep = 2;
+  document.getElementById('email-group').style.display = 'none';
+  document.getElementById('btn-continue').style.display = 'none';
+  document.getElementById('password-section').style.display = 'none';
+  document.getElementById('google-quick-section').style.display = 'none';
+
+  // Set user chip
+  document.getElementById('chip-email-text').textContent = email;
+  document.getElementById('chip-avatar').textContent = email.charAt(0).toUpperCase();
+  document.getElementById('user-chip-container').style.display = 'block';
+
+  // Show Google prompt
+  document.getElementById('google-prompt-section').style.display = 'block';
+  document.getElementById('login-subtitle').textContent = 'Confirm your account with Google.';
+}
+
+function showPasswordStep(email, showGoogleFallback) {
+  currentLoginStep = 2;
+  document.getElementById('email-group').style.display = 'none';
+  document.getElementById('btn-continue').style.display = 'none';
+  document.getElementById('google-prompt-section').style.display = 'none';
+
+  // Set user chip
+  document.getElementById('chip-email-text').textContent = email;
+  document.getElementById('chip-avatar').textContent = email.charAt(0).toUpperCase();
+  document.getElementById('user-chip-container').style.display = 'block';
+
+  // Show password section
+  document.getElementById('password-section').style.display = 'block';
+  document.getElementById('google-quick-section').style.display = showGoogleFallback ? 'block' : 'none';
+
+  var pwInput = document.getElementById('id_password');
+  if (pwInput) {
+    pwInput.required = true;
+    pwInput.focus();
+  }
+}
+
+function resetToEmailStep() {
+  currentLoginStep = 1;
+  document.getElementById('user-chip-container').style.display = 'none';
+  document.getElementById('google-prompt-section').style.display = 'none';
+  document.getElementById('password-section').style.display = 'none';
+  document.getElementById('google-quick-section').style.display = 'block';
+
+  document.getElementById('email-group').style.display = 'block';
+  document.getElementById('btn-continue').style.display = 'flex';
+  document.getElementById('login-subtitle').textContent = 'Sign in to your SparkText workspace.';
+
+  var pwInput = document.getElementById('id_password');
+  if (pwInput) {
+    pwInput.required = false;
+    pwInput.value = '';
+  }
+
+  var emailInput = document.getElementById('id_login');
+  if (emailInput) emailInput.focus();
+}
+
+// Enter key on email triggers Continue
+document.addEventListener('DOMContentLoaded', function() {
+  var emailInput = document.getElementById('id_login');
+  if (emailInput) {
+    emailInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && currentLoginStep === 1) {
+        e.preventDefault();
+        handleEmailContinue();
+      }
+    });
+  }
+
+  // If there are server-side errors on load (e.g. invalid password submitted), stay on password step
+  {% if form.errors and form.login.value %}
+    showPasswordStep("{{ form.login.value|escapejs }}", true);
+  {% endif %}
+});
+</script>
 {% endblock %}

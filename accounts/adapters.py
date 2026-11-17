@@ -19,32 +19,63 @@ class AccountAdapter(DefaultAccountAdapter):
     def get_login_redirect_url(self, request) -> str:
         """
         Post-login redirect priority:
-        1. No usable password → set-password page
-        2. No onboarding profile → onboarding page
+        1. Non-social user without usable password → set-password page
+        2. Incomplete onboarding profile or missing organization → onboarding page
         3. Otherwise → user's dashboard shell
         """
-        user = request.user
-        # Google-only accounts might not have a password yet
-        if not user.has_usable_password():
+        user = getattr(request, "user", None)
+        if not user or not user.is_authenticated:
+            return reverse("account_login")
+
+        # Social (Google) users do not need a password
+        if getattr(user, "signup_method", "") != "google" and not user.has_usable_password():
             return reverse("accounts:set_password")
+
         # Drive incomplete onboarding
         try:
             if not user.profile.onboarding_completed_at:
                 return reverse("accounts:onboarding")
         except Exception:
             return reverse("accounts:onboarding")
+
+        # If user has no organization yet, send to onboarding to complete setup
+        if not getattr(user, "organization", None):
+            return reverse("accounts:onboarding")
+
         # Fallback if public_id not yet set
         if not getattr(user, "public_id", None):
             return reverse("accounts:onboarding")
+
         return f"/app/{user.public_id}/"
 
     def get_signup_redirect_url(self, request) -> str:
-        """After email signup, go to the check-email interstitial."""
+        """
+        After signup:
+        - If user signed up via Google or is already authenticated with a verified email,
+          send them directly to onboarding (or dashboard) via get_login_redirect_url(request).
+        - If email verification is mandatory/pending (standard email+password signup),
+          send them to the check-email interstitial.
+        """
+        user = getattr(request, "user", None)
+        if user and user.is_authenticated:
+            # Google / social signups or any verified user should NEVER see "check-email"
+            if getattr(user, "signup_method", "") == "google" or getattr(user, "email_verified_at", None):
+                return self.get_login_redirect_url(request)
         return reverse("accounts:check_email")
 
-    def get_email_confirmation_redirect_url(self, request) -> str:
-        """After clicking the verification link, go to set-password."""
-        return reverse("accounts:set_password")
+    def get_email_verification_redirect_url(self, email_address) -> str:
+        """After clicking the verification link, proceed to onboarding or dashboard."""
+        user = getattr(email_address, "user", None)
+        if not user:
+            return reverse("account_login")
+        try:
+            if not user.profile.onboarding_completed_at:
+                return reverse("accounts:onboarding")
+        except Exception:
+            return reverse("accounts:onboarding")
+        if not getattr(user, "organization", None):
+            return reverse("accounts:onboarding")
+        return f"/app/{user.public_id}/" if getattr(user, "public_id", None) else reverse("accounts:onboarding")
 
     def is_open_for_signup(self, request) -> bool:
         return True
@@ -73,16 +104,17 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
         return self._post_login_redirect(request)
 
     def _post_login_redirect(self, request):
-        user = request.user
-        if not user.is_authenticated:
+        user = getattr(request, "user", None)
+        if not user or not user.is_authenticated:
             return reverse("account_login")
-        # Google accounts may not have a password set
-        if not user.has_usable_password():
-            return reverse("accounts:set_password")
         try:
             if not user.profile.onboarding_completed_at:
                 return reverse("accounts:onboarding")
         except Exception:
+            return reverse("accounts:onboarding")
+        if not getattr(user, "organization", None):
+            return reverse("accounts:onboarding")
+        if not getattr(user, "public_id", None):
             return reverse("accounts:onboarding")
         return f"/app/{user.public_id}/"
 

@@ -369,6 +369,18 @@
 </head>
 <body>
 
+  <!-- OAuth loading overlay -->
+  <div id="oauth-overlay" style="
+    position:fixed;inset:0;z-index:9999;
+    background:rgba(15,23,42,0.85);
+    backdrop-filter:blur(6px);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:16px;opacity:0;pointer-events:none;transition:opacity 0.3s ease;
+  ">
+    <div style="width:40px;height:40px;border:3px solid rgba(99,102,241,0.3);border-top-color:#6366f1;border-radius:50%;animation:spin 0.7s linear infinite;"></div>
+    <p style="color:#e2e8f0;font-size:0.9rem;font-weight:500;letter-spacing:0.01em;">Redirecting to Google…</p>
+  </div>
+
   <!-- Background orbs -->
   <div class="orb orb-1"></div>
   <div class="orb orb-2"></div>
@@ -417,9 +429,18 @@
   </div>
 
   <script>
+  /* ── Page-level OAuth loading overlay ── */
+  function showOAuthOverlay() {
+    var overlay = document.getElementById('oauth-overlay');
+    if (overlay) overlay.style.opacity = '1';
+  }
+
   /* Anti double-submit + spinner (shared across all auth forms) */
   document.addEventListener('DOMContentLoaded', function () {
     document.querySelectorAll('form').forEach(function (form) {
+      /* Detect Google OAuth forms (action contains 'google') */
+      var isOAuth = form.action && form.action.indexOf('google') !== -1;
+
       form.addEventListener('submit', function (e) {
         if (!form.checkValidity()) return;
         var btn = form.querySelector('button[type="submit"]');
@@ -429,15 +450,27 @@
         btn.disabled = true;
         var spinner = btn.querySelector('.spinner');
         var label   = btn.querySelector('.btn-label');
-        if (spinner) spinner.style.display = 'block';
-        if (label)  { label.dataset.orig = label.textContent; label.textContent = 'Please wait…'; }
-        /* Safety reset after 10s */
+
+        if (isOAuth) {
+          /* Show full-page overlay for OAuth redirect */
+          if (spinner) spinner.style.display = 'block';
+          if (label) label.textContent = 'Redirecting to Google…';
+          showOAuthOverlay();
+        } else {
+          if (spinner) spinner.style.display = 'block';
+          if (label)  { label.dataset.orig = label.textContent; label.textContent = 'Please wait…'; }
+        }
+
+        /* Safety reset after 15s */
         setTimeout(function () {
           btn.disabled = false;
           btn.dataset.submitting = '';
           if (spinner) spinner.style.display = 'none';
           if (label && label.dataset.orig) label.textContent = label.dataset.orig;
-        }, 10000);
+          else if (label && isOAuth) label.textContent = 'Continue with Google';
+          var overlay = document.getElementById('oauth-overlay');
+          if (overlay) overlay.style.opacity = '0';
+        }, 15000);
       });
     });
   });

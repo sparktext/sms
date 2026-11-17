@@ -12,6 +12,7 @@ from django.contrib.auth import get_user_model, login, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
@@ -31,11 +32,94 @@ def check_email(request):
     Shown after signup to prompt the user to verify their email.
     Includes a Resend button with a 60-second client-side cooldown.
     """
-    # allauth stores the pending email in the session
-    email = request.session.get("account_verified_email") or (
-        request.user.email if request.user.is_authenticated else ""
+    # If already authenticated via Google or with verified email, skip straight to onboarding/dashboard
+    if request.user.is_authenticated:
+        if getattr(request.user, "signup_method", "") == "google" or getattr(request.user, "email_verified_at", None):
+            from accounts.adapters import AccountAdapter
+            return redirect(AccountAdapter().get_login_redirect_url(request))
+
+    # Try multiple session keys that allauth uses to store the pending email
+    email = (
+        request.session.get("account_verified_email")  # post-verification key
+        or _get_stashed_login_email(request)            # pre-verification stashed login
+        or (request.user.email if request.user.is_authenticated else "")
     )
     return render(request, "accounts/check_email.html", {"email": email})
+
+
+def _get_stashed_login_email(request) -> str:
+    """Extract the email from the allauth stashed login (pre-verification stage)."""
+    try:
+        from allauth.account.internal.stagekit import unstash_login
+        login_obj = unstash_login(request, peek=True)
+        if login_obj and login_obj.email:
+            return login_obj.email
+        if login_obj and login_obj.user:
+            return login_obj.user.email or ""
+    except Exception:
+        pass
+    return ""
+
+
+# ---------------------------------------------------------------------------
+# Check Auth Method API (Email-first login)
+# ---------------------------------------------------------------------------
+
+def check_auth_method(request):
+    """
+    Email-first login pre-check endpoint:
+    Checks whether the email has an account and whether it is Google or password-based.
+    Returns:
+    - {'status': 'google', 'email': email, 'message': 'This account is linked with Google.'}
+    - {'status': 'password', 'email': email}
+    - {'status': 'both', 'email': email}
+    - {'status': 'not_found', 'email': email, 'message': 'No account found with this email.'}
+    """
+    if request.method != "POST":
+        return JsonResponse({"error": "Method not allowed"}, status=405)
+
+    try:
+        import json
+        body = json.loads(request.body.decode("utf-8") if request.body else "{}")
+        raw_email = body.get("email", "")
+    except Exception:
+        raw_email = request.POST.get("email", "")
+
+    email = (raw_email or "").strip().lower()
+    if not email or "@" not in email:
+        return JsonResponse({"error": "Please enter a valid email address."}, status=400)
+
+    user = User.objects.filter(email__iexact=email).first()
+    if not user:
+        return JsonResponse({
+            "status": "not_found",
+            "email": email,
+            "message": "No account found with this email."
+        })
+
+    is_google = (
+        getattr(user, "signup_method", "") == "google"
+        or user.socialaccount_set.filter(provider="google").exists()
+    )
+    has_password = user.has_usable_password()
+
+    if is_google and not has_password:
+        return JsonResponse({
+            "status": "google",
+            "email": email,
+            "message": "This account was registered using Google Sign-In."
+        })
+    elif is_google and has_password:
+        return JsonResponse({
+            "status": "both",
+            "email": email,
+            "message": "You can sign in with your password or Google."
+        })
+    else:
+        return JsonResponse({
+            "status": "password",
+            "email": email
+        })
 
 
 # ---------------------------------------------------------------------------
@@ -49,6 +133,12 @@ def set_password(request):
     setting it for the first time) chooses their password.
     """
     user = request.user
+
+    # Google users and users who already have a password and finished onboarding should not be stuck here
+    if getattr(user, "signup_method", "") == "google" or (user.has_usable_password() and getattr(getattr(user, "profile", None), "onboarding_completed_at", None)):
+        if getattr(getattr(user, "profile", None), "onboarding_completed_at", None):
+            return redirect(f"/app/{user.public_id}/")
+        return redirect("accounts:onboarding")
 
     if request.method == "POST":
         form = SetPasswordForm(request.POST)
@@ -108,8 +198,35 @@ def onboarding(request):
             profile.onboarding_completed_at = timezone.now()
             profile.save()
 
-            user.marketing_opt_in = cd.get("marketing_opt_in", False)
-            user.save(update_fields=["marketing_opt_in"])
+            # Ensure an Organization workspace is created and assigned to the user
+            if not user.organization:
+                from core.models import Organization
+                from django.utils.text import slugify
+                from campaigns.services import ensure_default_campaign_templates
+
+                company_name = (profile.company or "").strip()
+                org_name = company_name or (f"{profile.full_name}'s Workspace" if profile.full_name else "My Workspace")
+                base_slug = slugify(org_name) or "workspace"
+                slug = base_slug
+                counter = 1
+                while Organization.objects.filter(slug=slug).exists():
+                    slug = f"{base_slug}-{counter}"
+                    counter += 1
+
+                org = Organization.objects.create(
+                    name=org_name,
+                    slug=slug,
+                    timezone=profile.timezone or "America/Los_Angeles",
+                    notification_email=user.email,
+                )
+                ensure_default_campaign_templates(org)
+                user.organization = org
+                user.role = "admin"
+                user.marketing_opt_in = cd.get("marketing_opt_in", False)
+                user.save(update_fields=["organization", "role", "marketing_opt_in"])
+            else:
+                user.marketing_opt_in = cd.get("marketing_opt_in", False)
+                user.save(update_fields=["marketing_opt_in"])
 
             # Audit log
             from accounts.signals import log_event
@@ -131,8 +248,21 @@ def onboarding(request):
 
 
 # ---------------------------------------------------------------------------
-# /app/me/  — LOGIN_REDIRECT_URL shortcut → resolves to user's own public_id URL
+# /app/ and /app/me/ helpers
 # ---------------------------------------------------------------------------
+
+def app_root_redirect(request):
+    """
+    Handles /app/ root path:
+    - If user is logged in: redirects to their dashboard shell /app/<public_id>/ (which checks onboarding)
+    - If not logged in: redirects to login
+    """
+    if not request.user.is_authenticated:
+        return redirect("account_login")
+    if not getattr(request.user, "public_id", None):
+        return redirect("accounts:onboarding")
+    return redirect(f"/app/{request.user.public_id}/")
+
 
 @login_required
 def me_redirect(request):
@@ -165,6 +295,10 @@ def dashboard_shell(request, public_id):
         if not profile.onboarding_completed_at:
             return redirect("accounts:onboarding")
     except Exception:
+        return redirect("accounts:onboarding")
+
+    # If user has no organization yet, send to onboarding to complete setup
+    if not request.user.organization:
         return redirect("accounts:onboarding")
 
     return redirect("messaging:dashboard")
