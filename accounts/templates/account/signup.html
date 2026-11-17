@@ -1,0 +1,14 @@
+{% extends "accounts/base_auth.html" %}
+{% load i18n %}
+
+{% block title %}Create Account – SparkText{% endblock %}
+
+{% block content %}
+{% include "accounts/signup_partial.html" %}
+{% endblock %}
+
+{% block card_footer %}
+<div class="card-footer">
+  Already have an account? <a href="{% url 'account_login' %}" class="link">Sign in</a>
+</div>
+{% endblock %}
