@@ -1,0 +1,41 @@
+{% extends "accounts/base_auth.html" %}
+
+{% block title %}Delete account – SparkText{% endblock %}
+
+{% block content %}
+<div style="text-align:center;margin-bottom:1.5rem;">
+  <div style="width:56px;height:56px;background:#fef2f2;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 1rem;">
+    <svg width="28" height="28" fill="none" stroke="#ef4444" stroke-width="2" viewBox="0 0 24 24">
+      <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+    </svg>
+  </div>
+  <h1 class="card-title" style="color:#ef4444;">Delete account</h1>
+  <p class="card-subtitle">
+    This will deactivate your account for <strong>30 days</strong>, then permanently delete it.
+    You can contact support to recover it within that window.
+  </p>
+</div>
+
+<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:1rem;font-size:0.875rem;color:#991b1b;margin-bottom:1.5rem;">
+  ⚠️ This action cannot be easily undone. All your data will be permanently removed after 30 days.
+</div>
+
+<form method="post">
+  {% csrf_token %}
+  <div class="form-group">
+    <label for="id_confirm">Type <strong>CONFIRM</strong> to proceed</label>
+    <input type="text" name="confirm" id="id_confirm" placeholder="CONFIRM" autocomplete="off" required>
+    {% if form.confirm.errors %}
+      <span class="field-error">{{ form.confirm.errors|join:", " }}</span>
+    {% endif %}
+  </div>
+  <button type="submit" class="btn btn-primary" style="background:#ef4444;margin-bottom:0.75rem;">
+    Delete my account
+  </button>
+</form>
+
+<div class="card-footer">
+  <a href="{% url 'accounts:account_settings' %}" class="link">← Cancel</a>
+</div>
+{% endblock %}
+

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Welcome to SparkText</title>
+</head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:'Inter',system-ui,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:40px 16px;">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;max-width:560px;width:100%;">
+        <!-- Header -->
+        <tr>
+          <td style="background:#0D1117;padding:32px 40px;text-align:center;">
+            <table cellpadding="0" cellspacing="0" align="center">
+              <tr>
+                <td style="padding-right:10px;">
+                  <svg width="32" height="32" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M6 26 Q10 10 24 8 Q32 7 30 18 Q28 26 18 28" stroke="#00D1A0" stroke-width="3.5" stroke-linecap="round" fill="none"/>
+                    <path d="M12 32 Q14 24 22 22" stroke="#00D1A0" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.6"/>
+                  </svg>
+                </td>
+                <td><span style="color:#ffffff;font-size:22px;font-weight:700;letter-spacing:-0.02em;">sparktext</span></td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <!-- Body -->
+        <tr>
+          <td style="padding:40px;">
+            <h1 style="font-size:24px;font-weight:700;color:#0D1117;margin:0 0 12px;">
+              Welcome to SparkText, {{ full_name }}! 🎉
+            </h1>
+            <p style="font-size:15px;color:#4b5563;line-height:1.6;margin:0 0 24px;">
+              Your account is set up and ready to go. SparkText helps your team respond to leads
+              faster with AI-powered SMS conversations.
+            </p>
+            <table cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="background:#00D1A0;border-radius:8px;">
+                  <a href="{{ app_url }}" style="display:inline-block;padding:14px 28px;color:#ffffff;font-weight:600;font-size:15px;text-decoration:none;">
+                    Open SparkText →
+                  </a>
+                </td>
+              </tr>
+            </table>
+            <p style="font-size:14px;color:#9ca3af;line-height:1.6;margin:24px 0 0;">
+              If you didn't create this account, you can safely ignore this email.
+            </p>
+          </td>
+        </tr>
+        <!-- Footer -->
+        <tr>
+          <td style="background:#f9fafb;padding:20px 40px;border-top:1px solid #e5e7eb;">
+            <p style="font-size:12px;color:#9ca3af;margin:0;text-align:center;">
+              SparkText · <a href="https://sparktext.si/privacy/" style="color:#9ca3af;">Privacy</a> ·
+              <a href="https://sparktext.si/unsubscribe/" style="color:#9ca3af;">Unsubscribe</a>
+            </p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
+

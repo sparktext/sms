@@ -1,0 +1,89 @@
+{% extends "accounts/base_auth.html" %}
+
+{% block title %}Complete Your Profile – SparkText{% endblock %}
+
+{% block content %}
+
+<div class="step-bar">
+  <div class="step active"></div>
+  <div class="step active"></div>
+  <div class="step active"></div>
+  <div class="step active"></div>
+</div>
+
+<p style="font-size:0.75rem;font-weight:600;color:#06d6a0;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">Almost done!</p>
+<h1 class="page-title">Complete your profile</h1>
+<p class="page-subtitle">Just a few details to personalize your workspace.</p>
+
+{% if form.errors %}
+<div class="alerts">
+  {% for field, errors in form.errors.items %}{% for e in errors %}
+  <div class="alert alert-error">
+    <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="2"/><path stroke-linecap="round" stroke-width="2" d="M15 9l-6 6M9 9l6 6"/></svg>
+    <span>{{ e }}</span>
+  </div>
+  {% endfor %}{% endfor %}
+</div>
+{% endif %}
+
+<form method="post" novalidate>
+  {% csrf_token %}
+
+  <div class="form-group">
+    <label for="id_full_name">
+      Full name <span style="color:#ef4444;">*</span>
+    </label>
+    <input type="text" name="full_name" id="id_full_name"
+           value="{{ form.full_name.value|default:'' }}"
+           placeholder="Jane Smith" autocomplete="name" autofocus required
+           class="auth-input {% if form.full_name.errors %}error{% endif %}">
+    {% if form.full_name.errors %}<span class="field-error">{{ form.full_name.errors|join:", " }}</span>{% endif %}
+  </div>
+
+  <div class="form-group">
+    <label for="id_company">
+      Company <span class="label-hint">(optional)</span>
+    </label>
+    <input type="text" name="company" id="id_company"
+           value="{{ form.company.value|default:'' }}"
+           placeholder="Acme Corp" autocomplete="organization"
+           class="auth-input">
+  </div>
+
+  <div class="form-group">
+    <label for="id_phone">
+      Phone <span class="label-hint">(optional)</span>
+    </label>
+    <input type="tel" name="phone" id="id_phone"
+           value="{{ form.phone.value|default:'' }}"
+           placeholder="+1 (555) 000-0000" autocomplete="tel"
+           class="auth-input">
+  </div>
+
+  <div class="form-group">
+    <label for="id_timezone">
+      Timezone <span class="label-hint">(optional)</span>
+    </label>
+    <div style="position:relative;">
+      <select name="timezone" id="id_timezone" class="auth-input" style="padding-right:36px;cursor:pointer;">
+        {% for value, label in form.timezone.field.choices %}
+        <option value="{{ value }}" {% if form.timezone.value == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <svg style="position:absolute;right:12px;top:50%;transform:translateY(-50%);pointer-events:none;color:#94a3b8;" width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9" stroke-width="2" stroke-linecap="round"/></svg>
+    </div>
+  </div>
+
+  <div class="form-group checkbox-row">
+    <input type="checkbox" name="marketing_opt_in" id="id_marketing_opt_in"
+           {% if form.marketing_opt_in.value %}checked{% endif %}>
+    <label for="id_marketing_opt_in">Send me product updates and tips from SparkText</label>
+  </div>
+
+  <button type="submit" class="btn btn-primary" style="margin-top:8px;">
+    <span class="spinner"></span>
+    <span class="btn-label">Go to my dashboard ⚡</span>
+  </button>
+</form>
+
+{% endblock %}

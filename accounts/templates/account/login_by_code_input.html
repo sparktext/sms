@@ -1,0 +1,64 @@
+{% extends "accounts/base_auth.html" %}
+{% load i18n %}
+
+{% block title %}Enter Login Code – SparkText{% endblock %}
+
+{% block content %}
+
+<div class="text-center">
+  <div class="icon-circle">
+    <svg width="26" height="26" fill="none" stroke="#4f46e5" stroke-width="1.75" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+    </svg>
+  </div>
+  <h1 class="page-title">Check your email</h1>
+  <p class="page-subtitle">
+    We sent a 6-digit code to<br>
+    <strong style="color:#1e293b;">{{ email|default:"your email address" }}</strong>.<br>
+    It expires in <strong>10 minutes</strong>.
+  </p>
+</div>
+
+{% if form.errors %}
+<div class="alerts">
+  {% for field, errors in form.errors.items %}{% for error in errors %}
+  <div class="alert alert-error">
+    <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="2"/><path stroke-linecap="round" stroke-width="2" d="M15 9l-6 6M9 9l6 6"/></svg>
+    <span>{{ error }}</span>
+  </div>
+  {% endfor %}{% endfor %}
+</div>
+{% endif %}
+
+<form method="post" novalidate>
+  {% csrf_token %}
+  <div class="form-group">
+    <label for="id_code">6-digit code</label>
+    <input type="text" name="code" id="id_code"
+           inputmode="numeric" pattern="[0-9]{6}" maxlength="6"
+           autocomplete="one-time-code" autofocus required
+           placeholder="000000"
+           style="text-align:center;font-size:1.5rem;letter-spacing:0.3em;font-weight:700;"
+           class="auth-input {% if form.code.errors %}error{% endif %}">
+    {% if form.code.errors %}<span class="field-error">{{ form.code.errors|join:", " }}</span>{% endif %}
+  </div>
+
+  <button type="submit" class="btn btn-primary">
+    <span class="spinner"></span>
+    <span class="btn-label">Verify code →</span>
+  </button>
+</form>
+
+<p style="font-size:0.875rem;color:#64748b;text-align:center;margin-top:1rem;">
+  Didn't get it? Check your spam folder or
+  <a href="{% url 'account_login' %}" class="link">try a different method</a>.
+</p>
+
+{% endblock %}
+
+{% block card_footer %}
+<div class="card-footer">
+  <a href="{% url 'account_login' %}" class="link">Back to sign in</a>
+</div>
+{% endblock %}
+
