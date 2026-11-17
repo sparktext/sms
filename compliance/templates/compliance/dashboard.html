@@ -1,0 +1,540 @@
+{% extends "messaging/base_app.html" %}
+
+{% block title %}Compliance & Consent Ledger · SparkText{% endblock %}
+
+{% block header_title %}Compliance & Audit Ledger{% endblock %}
+{% block header_subtitle %}Immutable TCPA/CTIA consent event log, keyword enforcement, and subscriber opt-in records{% endblock %}
+
+{% block header_actions %}
+<a href="{% url 'compliance:export_ledger' %}" class="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 hover:text-gray-900 transition shadow-xs whitespace-nowrap shrink-0">
+  <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+  </svg>
+  Export Audit Log (CSV)
+</a>
+<button type="button" onclick="openRecordConsentModal()" class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-sm shadow-brand-600/30 cursor-pointer whitespace-nowrap shrink-0">
+  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+  </svg>
+  Record Consent
+</button>
+{% endblock %}
+
+{% block content %}
+{% csrf_token %}
+
+<!-- Metrics & Compliance Status -->
+<div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+  <div class="p-4 bg-white border border-gray-200 rounded-2xl shadow-xs">
+    <div class="text-xs font-medium text-gray-500 mb-1">Total Ledger Events</div>
+    <div class="flex items-baseline gap-2">
+      <span class="text-2xl font-black text-gray-900">{{ total_events }}</span>
+      <span class="text-xs font-medium text-gray-400">audit records</span>
+    </div>
+  </div>
+
+  <div class="p-4 bg-white border border-emerald-100 rounded-2xl shadow-xs">
+    <div class="flex items-center gap-1.5 text-xs font-medium text-emerald-700 mb-1">
+      <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+      Active Opted-In Audience
+    </div>
+    <div class="flex items-baseline gap-2">
+      <span class="text-2xl font-black text-gray-900">{{ active_opted_in }}</span>
+      <span class="text-xs font-medium text-emerald-600">subscribers</span>
+    </div>
+  </div>
+
+  <div class="p-4 bg-white border border-rose-100 rounded-2xl shadow-xs">
+    <div class="flex items-center gap-1.5 text-xs font-medium text-rose-700 mb-1">
+      <span class="w-2 h-2 rounded-full bg-rose-500"></span>
+      Opted-Out (Do Not Contact)
+    </div>
+    <div class="flex items-baseline gap-2">
+      <span class="text-2xl font-black text-gray-900">{{ active_opted_out }}</span>
+      <span class="text-xs font-medium text-rose-600">blocked</span>
+    </div>
+  </div>
+
+  <div class="p-4 bg-white border border-slate-200 rounded-2xl shadow-xs">
+    <div class="text-xs font-medium text-slate-500 mb-1">TCPA Audit Status</div>
+    <div class="flex items-center gap-1.5 mt-1">
+      <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+        <svg class="w-3 h-3 text-emerald-600" fill="currentColor" viewBox="0 0 20 20">
+          <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+        </svg>
+        Ledger Active (Append-Only)
+      </span>
+    </div>
+  </div>
+</div>
+
+<!-- Keyword Classification & CTIA Simulator Card -->
+<div class="bg-gradient-to-r from-slate-900 to-slate-800 text-white rounded-2xl p-6 shadow-sm border border-slate-700">
+  <div class="flex flex-col md:flex-row md:items-center justify-between gap-6">
+    <div class="max-w-md">
+      <div class="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-brand-300 mb-2">
+        <span>⚡</span> CTIA / TCPA Keyword Classifier
+      </div>
+      <h3 class="text-lg font-bold text-white mb-1">Interactive Keyword Sandbox</h3>
+      <p class="text-xs text-slate-300 leading-relaxed">
+        Test any message text to verify how incoming SMS will be handled. The classifier automatically identifies mandatory carrier keywords (STOP, START, HELP) while preventing accidental opt-ins from generic replies.
+      </p>
+    </div>
+
+    <div class="flex-1 max-w-lg bg-slate-800/80 rounded-xl p-4 border border-slate-700">
+      <label class="block text-xs font-semibold text-slate-300 mb-1.5">Test Message Content:</label>
+      <div class="flex items-center gap-2">
+        <input
+          type="text"
+          id="keywordTestInput"
+          placeholder="e.g. STOP, Unsubscribe, START, help, yes"
+          class="flex-1 px-3 py-2 text-sm bg-slate-900 border border-slate-600 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-brand-400"
+          onkeydown="if(event.key==='Enter'){ testKeywordClassification(); }"
+        />
+        <button
+          type="button"
+          onclick="testKeywordClassification()"
+          class="px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-500 rounded-xl transition cursor-pointer"
+        >
+          Classify
+        </button>
+      </div>
+
+      <!-- Quick sample test pills -->
+      <div class="flex flex-wrap items-center gap-1.5 mt-2.5">
+        <span class="text-[10px] text-slate-400 mr-1">Quick test:</span>
+        <button type="button" onclick="setKeywordSample('STOP')" class="px-2 py-0.5 rounded text-[10px] font-mono bg-slate-700 hover:bg-slate-600 text-slate-200 transition cursor-pointer">STOP</button>
+        <button type="button" onclick="setKeywordSample('UNSUBSCRIBE')" class="px-2 py-0.5 rounded text-[10px] font-mono bg-slate-700 hover:bg-slate-600 text-slate-200 transition cursor-pointer">UNSUBSCRIBE</button>
+        <button type="button" onclick="setKeywordSample('START')" class="px-2 py-0.5 rounded text-[10px] font-mono bg-slate-700 hover:bg-slate-600 text-slate-200 transition cursor-pointer">START</button>
+        <button type="button" onclick="setKeywordSample('HELP')" class="px-2 py-0.5 rounded text-[10px] font-mono bg-slate-700 hover:bg-slate-600 text-slate-200 transition cursor-pointer">HELP</button>
+        <button type="button" onclick="setKeywordSample('YES')" class="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-900/60 border border-amber-600/40 text-amber-200 hover:bg-amber-800/80 transition cursor-pointer" title="'yes' is purposely ignored as START">YES</button>
+      </div>
+
+      <!-- Live Result Display -->
+      <div id="keywordResultBox" class="hidden mt-3 pt-3 border-t border-slate-700 text-xs">
+        <div class="flex items-center gap-2 mb-1">
+          <span class="text-slate-400">Classification:</span>
+          <span id="keywordBadge" class="font-bold px-2 py-0.5 rounded text-[11px]"></span>
+        </div>
+        <p id="keywordExplanation" class="text-slate-300 text-[11px]"></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Filters & Search Toolbar -->
+<div class="bg-white border border-gray-200 rounded-2xl p-4 shadow-xs">
+  <form method="get" class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+    <div class="flex-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+      <!-- Search input -->
+      <div class="relative flex-1">
+        <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+        </div>
+        <input
+          type="text"
+          name="q"
+          value="{{ q }}"
+          placeholder="Search by phone (+1...), contact name, or proof evidence..."
+          class="w-full pl-10 pr-4 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition"
+        />
+        {% if q %}
+        <a href="?{% if event_type %}event_type={{ event_type }}&{% endif %}{% if source %}source={{ source }}{% endif %}" class="absolute inset-y-0 right-0 pr-3 flex items-center text-xs text-gray-400 hover:text-gray-600">
+          ✕ Clear
+        </a>
+        {% endif %}
+      </div>
+
+      <!-- Event Type Filter -->
+      <div class="sm:w-44">
+        <select
+          name="event_type"
+          onchange="this.form.submit()"
+          class="w-full px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-700"
+        >
+          <option value="">All Event Types</option>
+          {% for val, label in event_types %}
+          <option value="{{ val }}" {% if event_type == val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Source Filter -->
+      <div class="sm:w-44">
+        <select
+          name="source"
+          onchange="this.form.submit()"
+          class="w-full px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-700"
+        >
+          <option value="">All Sources</option>
+          {% for val, label in sources %}
+          <option value="{{ val }}" {% if source == val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <button type="submit" class="px-4 py-2 text-sm font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition cursor-pointer">
+        Filter
+      </button>
+    </div>
+
+    {% if q or event_type or source %}
+    <div class="flex items-center justify-end">
+      <a href="{% url 'compliance:dashboard' %}" class="text-xs font-medium text-gray-500 hover:text-brand-600 transition underline underline-offset-2">
+        Reset filters
+      </a>
+    </div>
+    {% endif %}
+  </form>
+</div>
+
+<!-- Consent Events Audit Ledger Table -->
+<div class="bg-white border border-gray-200 rounded-2xl shadow-xs overflow-hidden">
+  {% if page_obj.object_list %}
+  <div class="overflow-x-auto">
+    <table class="w-full text-left text-sm border-collapse">
+      <thead>
+        <tr class="bg-gray-50/80 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+          <th class="py-3.5 px-4 sm:px-6">Timestamp (UTC)</th>
+          <th class="py-3.5 px-4">Contact</th>
+          <th class="py-3.5 px-4">Action</th>
+          <th class="py-3.5 px-4">Source</th>
+          <th class="py-3.5 px-4">Proof / Evidence</th>
+          <th class="py-3.5 px-4 sm:px-6 text-right">Integrity</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100 font-normal">
+        {% for ev in page_obj %}
+        <tr class="hover:bg-slate-50/60 transition">
+          <!-- Timestamp -->
+          <td class="py-4 px-4 sm:px-6 whitespace-nowrap text-xs text-gray-500 font-mono">
+            {{ ev.created_at|date:"Y-m-d H:i:s" }}
+          </td>
+
+          <!-- Contact Phone & Name -->
+          <td class="py-4 px-4">
+            <div class="font-semibold text-gray-900 text-xs">
+              {{ ev.contact.phone }}
+            </div>
+            {% if ev.contact.first_name or ev.contact.last_name %}
+            <div class="text-[11px] text-gray-500 truncate">{{ ev.contact.first_name }} {{ ev.contact.last_name }}</div>
+            {% endif %}
+          </td>
+
+          <!-- Event Type (Opt In / Opt Out) -->
+          <td class="py-4 px-4 whitespace-nowrap">
+            {% if ev.event_type == "opt_in" %}
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+              <svg class="w-3 h-3 text-emerald-600" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+              </svg>
+              OPT IN
+            </span>
+            {% else %}
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+              <svg class="w-3 h-3 text-rose-600" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M13.477 14.89A6 6 0 015.11 6.524l8.367 8.368zm1.414-1.414L6.524 5.11a6 6 0 018.367 8.367zM18 10a8 8 0 11-16 0 8 8 0 0116 0z" clip-rule="evenodd" />
+              </svg>
+              OPT OUT
+            </span>
+            {% endif %}
+          </td>
+
+          <!-- Source -->
+          <td class="py-4 px-4 whitespace-nowrap">
+            <span class="inline-block text-[11px] uppercase tracking-wider font-semibold text-slate-700 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded">
+              {{ ev.get_source_display }}
+            </span>
+          </td>
+
+          <!-- Proof Text -->
+          <td class="py-4 px-4 text-xs text-gray-700 max-w-xs break-words font-mono bg-gray-50/50 rounded-lg p-2 border border-gray-100">
+            {{ ev.proof_text }}
+          </td>
+
+          <!-- Integrity badge -->
+          <td class="py-4 px-4 sm:px-6 text-right whitespace-nowrap">
+            <span class="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-500 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded" title="This record is immutable and cannot be updated or deleted">
+              🔒 Immutable #{{ ev.id }}
+            </span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination Bar -->
+  <div class="px-6 py-4 bg-gray-50/60 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-4">
+    <div class="text-xs text-gray-500">
+      Showing <strong class="font-semibold text-gray-800">{{ page_obj.start_index }}</strong> to <strong class="font-semibold text-gray-800">{{ page_obj.end_index }}</strong> of <strong class="font-semibold text-gray-800">{{ page_obj.paginator.count }}</strong> audit entries
+    </div>
+
+    <div class="flex items-center gap-1.5">
+      {% if page_obj.has_previous %}
+      <a href="?page={{ page_obj.previous_page_number }}{% if q %}&q={{ q }}{% endif %}{% if event_type %}&event_type={{ event_type }}{% endif %}{% if source %}&source={{ source }}{% endif %}"
+         class="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition">
+        ← Previous
+      </a>
+      {% else %}
+      <span class="px-3 py-1.5 text-xs font-medium text-gray-300 bg-gray-50 border border-gray-200 rounded-lg cursor-not-allowed">
+        ← Previous
+      </span>
+      {% endif %}
+
+      <span class="px-3 py-1.5 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-lg">
+        Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+      </span>
+
+      {% if page_obj.has_next %}
+      <a href="?page={{ page_obj.next_page_number }}{% if q %}&q={{ q }}{% endif %}{% if event_type %}&event_type={{ event_type }}{% endif %}{% if source %}&source={{ source }}{% endif %}"
+         class="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition">
+        Next →
+      </a>
+      {% else %}
+      <span class="px-3 py-1.5 text-xs font-medium text-gray-300 bg-gray-50 border border-gray-200 rounded-lg cursor-not-allowed">
+        Next →
+      </span>
+      {% endif %}
+    </div>
+  </div>
+
+  {% else %}
+  <!-- Empty State -->
+  <div class="text-center py-16 px-6">
+    <div class="w-16 h-16 rounded-2xl bg-slate-50 text-slate-600 flex items-center justify-center mx-auto mb-4 border border-slate-200">
+      <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+      </svg>
+    </div>
+    {% if q or event_type or source %}
+    <h3 class="text-base font-bold text-gray-900 mb-1">No consent events found</h3>
+    <p class="text-xs text-gray-500 max-w-sm mx-auto mb-6">No audit records match your active search and filter criteria.</p>
+    <a href="{% url 'compliance:dashboard' %}" class="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 transition">
+      Clear all filters
+    </a>
+    {% else %}
+    <h3 class="text-base font-bold text-gray-900 mb-1">No consent events logged yet</h3>
+    <p class="text-xs text-gray-500 max-w-md mx-auto mb-6">
+      Every inbound START, STOP, web-form opt-in, or manual consent confirmation will automatically append an immutable ledger entry here.
+    </p>
+    <button type="button" onclick="openRecordConsentModal()" class="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs cursor-pointer">
+      + Record Manual Consent Event
+    </button>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+
+
+<!-- ========================================================================= -->
+<!-- MODAL: RECORD CONSENT MODAL                                               -->
+<!-- ========================================================================= -->
+<div id="recordConsentModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="rc-modal-title" role="dialog" aria-modal="true">
+  <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity" onclick="closeRecordConsentModal()"></div>
+
+  <div class="flex min-h-full items-center justify-center p-4 text-center sm:p-0">
+    <div class="relative transform overflow-hidden rounded-2xl bg-white text-left shadow-2xl transition-all sm:my-8 sm:w-full sm:max-w-lg border border-gray-100">
+      
+      <!-- Modal Header -->
+      <div class="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+        <div>
+          <h3 class="text-lg font-bold text-gray-900" id="rc-modal-title">Record Consent Event</h3>
+          <p class="text-xs text-gray-500 mt-0.5">Logs an immutable TCPA audit trail entry and updates the contact's SMS status.</p>
+        </div>
+        <button type="button" onclick="closeRecordConsentModal()" class="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition cursor-pointer">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <!-- Modal Form -->
+      <form id="recordConsentForm" onsubmit="submitRecordConsent(event)" class="p-6 space-y-4">
+        <div id="rcErrorBox" class="hidden p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 font-medium"></div>
+
+        <div>
+          <label class="block text-xs font-semibold text-gray-700 mb-1">
+            Target Contact <span class="text-rose-500">*</span>
+          </label>
+          <select
+            name="contact_id"
+            id="rc_contact_id"
+            class="w-full px-3.5 py-2.5 text-xs bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition text-gray-800"
+          >
+            <option value="">— Select an existing contact —</option>
+            {% for c in recent_contacts %}
+            <option value="{{ c.id }}">{{ c.phone }} {% if c.first_name or c.last_name %}({{ c.first_name }} {{ c.last_name }}){% endif %} - Current: {{ c.get_sms_status_display }}</option>
+            {% endfor %}
+          </select>
+          <div class="mt-2 text-center text-[11px] text-gray-400">or enter phone number directly</div>
+          <input
+            type="tel"
+            name="phone"
+            id="rc_phone"
+            placeholder="+16502530000 or (650) 253-0000"
+            class="mt-1 w-full px-3.5 py-2 text-xs bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono"
+          />
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-gray-700 mb-1">Event Action <span class="text-rose-500">*</span></label>
+            <select
+              name="event_type"
+              required
+              class="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-200 rounded-xl focus:bg-white text-gray-800 font-semibold"
+            >
+              <option value="opt_in">Opt In (Grant Consent)</option>
+              <option value="opt_out">Opt Out (Revoke / STOP)</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-gray-700 mb-1">Event Source <span class="text-rose-500">*</span></label>
+            <select
+              name="source"
+              required
+              class="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-200 rounded-xl focus:bg-white text-gray-800"
+            >
+              <option value="manual">Manual Entry / Verbal</option>
+              <option value="web_form">Web Form / Checkout</option>
+              <option value="keyword">Keyword (Inbound SMS)</option>
+              <option value="api">API / Integration</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-gray-700 mb-1">
+            Proof Evidence / Legal Rationale <span class="text-rose-500">*</span>
+          </label>
+          <textarea
+            name="proof_text"
+            id="rc_proof_text"
+            rows="3"
+            required
+            placeholder="e.g. Verbal consent obtained during service appointment booking on Oct 29, 2026."
+            class="w-full px-3.5 py-2.5 text-xs bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition"
+          ></textarea>
+          <p class="text-[11px] text-gray-400 mt-1">This entry will be permanently appended to the ledger and cannot be altered.</p>
+        </div>
+
+        <!-- Modal Footer -->
+        <div class="pt-4 border-t border-gray-100 flex items-center justify-end gap-3">
+          <button type="button" onclick="closeRecordConsentModal()" class="px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-xl transition cursor-pointer">
+            Cancel
+          </button>
+          <button type="submit" id="rc_submit_btn" class="inline-flex items-center gap-2 px-5 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs cursor-pointer">
+            <span>Commit to Ledger</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  function getCsrfToken() {
+    const el = document.querySelector('[name=csrfmiddlewaretoken]');
+    return el ? el.value : '';
+  }
+
+  // --- RECORD CONSENT MODAL ---
+  function openRecordConsentModal() {
+    document.getElementById('rcErrorBox').classList.add('hidden');
+    document.getElementById('recordConsentModal').classList.remove('hidden');
+  }
+
+  function closeRecordConsentModal() {
+    document.getElementById('recordConsentModal').classList.add('hidden');
+    document.getElementById('recordConsentForm').reset();
+  }
+
+  async function submitRecordConsent(e) {
+    e.preventDefault();
+    const form = document.getElementById('recordConsentForm');
+    const errBox = document.getElementById('rcErrorBox');
+    const btn = document.getElementById('rc_submit_btn');
+
+    errBox.classList.add('hidden');
+    errBox.innerText = '';
+    btn.disabled = true;
+    btn.innerHTML = '<span>Saving...</span>';
+
+    const formData = new FormData(form);
+
+    try {
+      const resp = await fetch("{% url 'compliance:record_consent' %}", {
+        method: "POST",
+        body: formData,
+        headers: {
+          "X-CSRFToken": getCsrfToken(),
+          "X-Requested-With": "XMLHttpRequest",
+        }
+      });
+      const data = await resp.json();
+
+      if (!resp.ok || data.status === 'error') {
+        errBox.innerText = data.message || "Failed to commit record.";
+        errBox.classList.remove('hidden');
+      } else {
+        window.location.reload();
+      }
+    } catch (err) {
+      errBox.innerText = "Network error: " + err.message;
+      errBox.classList.remove('hidden');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<span>Commit to Ledger</span>';
+    }
+  }
+
+  // --- KEYWORD SIMULATOR ---
+  function setKeywordSample(kw) {
+    document.getElementById('keywordTestInput').value = kw;
+    testKeywordClassification();
+  }
+
+  async function testKeywordClassification() {
+    const input = document.getElementById('keywordTestInput');
+    const text = input.value.trim();
+    if (!text) return;
+
+    try {
+      const resp = await fetch(`{% url 'compliance:test_keyword' %}?text=${encodeURIComponent(text)}`, {
+        headers: { "X-Requested-With": "XMLHttpRequest" }
+      });
+      const data = await resp.json();
+
+      const resBox = document.getElementById('keywordResultBox');
+      const badge = document.getElementById('keywordBadge');
+      const exp = document.getElementById('keywordExplanation');
+
+      resBox.classList.remove('hidden');
+      exp.innerText = data.explanation;
+
+      if (data.classification === 'STOP') {
+        badge.className = 'font-bold px-2 py-0.5 rounded text-[11px] bg-rose-500/20 text-rose-300 border border-rose-500/40';
+        badge.innerText = 'STOP (Mandatory Opt-Out)';
+      } else if (data.classification === 'START') {
+        badge.className = 'font-bold px-2 py-0.5 rounded text-[11px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
+        badge.innerText = 'START (Opt-In Granted)';
+      } else if (data.classification === 'HELP') {
+        badge.className = 'font-bold px-2 py-0.5 rounded text-[11px] bg-blue-500/20 text-blue-300 border border-blue-500/40';
+        badge.innerText = 'HELP (Support Auto-Reply)';
+      } else {
+        badge.className = 'font-bold px-2 py-0.5 rounded text-[11px] bg-slate-700 text-slate-300 border border-slate-600';
+        badge.innerText = 'None (Standard Conversational Text)';
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+</script>
+{% endblock %}
+

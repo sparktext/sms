@@ -1,0 +1,187 @@
+{% extends "website/base.html" %}
+
+{% block title %}About SparkText — Who We Are{% endblock %}
+{% block meta_description %}Learn about SparkText, our mission to make business texting simple and compliant, and the team behind the platform. SparkText Inc, Gilroy, CA.{% endblock %}
+
+{% block nav_about %}nav-active{% endblock %}
+
+{% block content %}
+
+<!-- ═══════════════════════════ HERO ═══════════════════════════ -->
+<section class="relative bg-white pt-24 pb-28 sm:pt-32 sm:pb-36 subtle-dots overflow-hidden" aria-label="About hero">
+  <div class="relative max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+    <span class="fade-in inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-gray-200 bg-gray-50/80 text-xs font-medium tracking-wide text-gray-600 mb-8">
+      Our story
+    </span>
+    <h1 class="fade-in-2 text-4xl sm:text-5xl lg:text-6xl font-light tracking-tight text-gray-950 leading-tight mb-6">
+      We built the texting platform<br><span class="font-medium text-gray-950">we always wished existed</span>
+    </h1>
+    <p class="fade-in-3 text-lg font-light text-gray-600 max-w-2xl mx-auto leading-relaxed">
+      Simple, compliant, and designed for real business conversations — not just blasting messages into the void.
+    </p>
+  </div>
+</section>
+
+
+<!-- ═══════════════════════════ MISSION & COMPANY ═══════════════════════════ -->
+<section class="py-24 sm:py-32 bg-white border-t border-gray-100" aria-label="Mission">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-16 lg:gap-12 items-start">
+
+      <!-- Text / Narrative (7 cols) -->
+      <div class="lg:col-span-7">
+        <p class="text-xs font-medium uppercase tracking-[0.2em] text-blue-600 mb-4">Why we built this</p>
+        <h2 class="text-3xl sm:text-4xl font-light tracking-tight text-gray-950 mb-8 leading-tight">
+          Texting should be simple.<br>Compliance shouldn't be an afterthought.
+        </h2>
+        <div class="space-y-5 text-base font-light text-gray-600 leading-relaxed">
+          <p>
+            We started SparkText after watching businesses struggle with two problems at once: clunky
+            bulk-SMS tools that treated every contact as a number, and compliance nightmares that got
+            accounts shut down overnight. Something had to give.
+          </p>
+          <p>
+            In 2024 we set out to build a platform where two-way conversations were first-class,
+            opt-out handling was fully automatic, and 10DLC registration was handled for you —
+            not bolted on as an afterthought.
+          </p>
+          <p>
+            Today we serve small businesses, marketing agencies, and operations teams across the
+            United States who need reliable, carrier-compliant SMS without a full-time compliance team.
+          </p>
+        </div>
+      </div>
+
+      <!-- Company card (5 cols) -->
+      <div class="lg:col-span-5">
+        <div class="bg-white border border-gray-200 rounded-2xl p-8 sm:p-9 shadow-xs">
+          <h3 class="text-xs font-medium uppercase tracking-[0.2em] text-gray-400 mb-6">Company details</h3>
+          <dl class="space-y-4">
+            <div class="flex justify-between py-2 border-b border-gray-100 text-sm">
+              <dt class="font-normal text-gray-400">Legal name</dt>
+              <dd class="font-medium text-gray-900">SparkText Inc</dd>
+            </div>
+            <div class="flex justify-between py-2 border-b border-gray-100 text-sm">
+              <dt class="font-normal text-gray-400">State</dt>
+              <dd class="font-medium text-gray-900">California (USA)</dd>
+            </div>
+            <div class="flex justify-between py-2 border-b border-gray-100 text-sm">
+              <dt class="font-normal text-gray-400">Address</dt>
+              <dd class="font-medium text-gray-900 text-right">9675 Moreno Ln<br>Gilroy, CA 95020</dd>
+            </div>
+            <div class="flex justify-between py-2 border-b border-gray-100 text-sm">
+              <dt class="font-normal text-gray-400">Phone</dt>
+              <dd><a href="tel:6612031738" class="font-medium text-blue-600 hover:underline">(661) 203-1738</a></dd>
+            </div>
+            <div class="flex justify-between py-2 border-b border-gray-100 text-sm">
+              <dt class="font-normal text-gray-400">Email</dt>
+              <dd><a href="mailto:info@sparktext.si" class="font-medium text-blue-600 hover:underline">info@sparktext.si</a></dd>
+            </div>
+            <div class="flex justify-between py-2 text-sm">
+              <dt class="font-normal text-gray-400">Founded</dt>
+              <dd class="font-medium text-gray-900">2024</dd>
+            </div>
+          </dl>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══════════════════════════ VALUES ═══════════════════════════ -->
+<section class="py-32 sm:py-40 bg-gray-50 border-y border-gray-100" aria-label="Values">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="text-center max-w-2xl mx-auto mb-20">
+      <p class="text-xs font-medium uppercase tracking-[0.2em] text-blue-600 mb-3">What we stand for</p>
+      <h2 class="text-3xl sm:text-4xl lg:text-5xl font-light tracking-tight text-gray-950">Our values</h2>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+
+      <div id="value-simplicity"
+        class="bg-white border border-gray-200/80 rounded-2xl p-8 shadow-xs card-hover flex flex-col justify-between">
+        <div>
+          <div class="w-10 h-10 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-800 mb-6">
+            <svg class="w-5 h-5 text-gray-800" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+            </svg>
+          </div>
+          <h3 class="text-base font-medium text-gray-950 mb-2">Simplicity first</h3>
+          <p class="text-sm font-light text-gray-600 leading-relaxed">
+            Every feature starts with: &ldquo;Can a non-technical user do this in under two minutes?&rdquo;
+          </p>
+        </div>
+      </div>
+
+      <div id="value-compliance"
+        class="bg-white border border-gray-200/80 rounded-2xl p-8 shadow-xs card-hover flex flex-col justify-between">
+        <div>
+          <div class="w-10 h-10 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-800 mb-6">
+            <svg class="w-5 h-5 text-gray-800" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              <path d="m9 12 2 2 4-4" />
+            </svg>
+          </div>
+          <h3 class="text-base font-medium text-gray-950 mb-2">Compliance by default</h3>
+          <p class="text-sm font-light text-gray-600 leading-relaxed">
+            Opt-out handling, consent logging, and carrier rules are built in — not optional add-ons.
+          </p>
+        </div>
+      </div>
+
+      <div id="value-transparency"
+        class="bg-white border border-gray-200/80 rounded-2xl p-8 shadow-xs card-hover flex flex-col justify-between">
+        <div>
+          <div class="w-10 h-10 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-800 mb-6">
+            <svg class="w-5 h-5 text-gray-800" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8" />
+              <path d="m21 21-4.3-4.3" />
+            </svg>
+          </div>
+          <h3 class="text-base font-medium text-gray-950 mb-2">Full transparency</h3>
+          <p class="text-sm font-light text-gray-600 leading-relaxed">
+            We show you exactly what your messages cost, how they performed, and why a carrier rejected them.
+          </p>
+        </div>
+      </div>
+
+      <div id="value-privacy"
+        class="bg-white border border-gray-200/80 rounded-2xl p-8 shadow-xs card-hover flex flex-col justify-between">
+        <div>
+          <div class="w-10 h-10 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-800 mb-6">
+            <svg class="w-5 h-5 text-gray-800" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+              <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
+              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+            </svg>
+          </div>
+          <h3 class="text-base font-medium text-gray-950 mb-2">Privacy respected</h3>
+          <p class="text-sm font-light text-gray-600 leading-relaxed">
+            We never sell your contacts&rsquo; data. Your list is yours — we&rsquo;re just the delivery layer.
+          </p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══════════════════════════ CONTACT CTA ═══════════════════════════ -->
+<section class="py-32 sm:py-40 bg-white text-center" aria-label="Contact CTA">
+  <div class="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8">
+    <h2 class="text-3xl sm:text-4xl font-light tracking-tight text-gray-950 mb-4">
+      Questions? We&rsquo;re reachable.
+    </h2>
+    <p class="text-base sm:text-lg font-light text-gray-500 mb-8">
+      A small team means you talk to someone who actually knows the product.
+    </p>
+    <a href="/contact/" id="about-contact-btn"
+      class="inline-flex items-center px-6 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm shadow-xs transition-colors">
+      Get in touch &rarr;
+    </a>
+  </div>
+</section>
+
+{% endblock %}

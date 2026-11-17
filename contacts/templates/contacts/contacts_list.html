@@ -1,0 +1,1704 @@
+{% extends "messaging/base_app.html" %}
+
+{% block title %}Contacts · SparkText{% endblock %}
+
+{% block header_title %}Contacts{% endblock %}
+{% block header_subtitle %}Manage subscriber phone numbers, opt-in consent status, and customer properties{% endblock %}
+
+{% block header_actions %}
+<button type="button" onclick="openApiModal()" class="inline-flex items-center gap-2 px-3 py-2 text-xs sm:text-sm font-semibold text-brand-700 bg-brand-50 border border-brand-200 rounded-xl hover:bg-brand-100 hover:text-brand-900 transition shadow-xs cursor-pointer whitespace-nowrap shrink-0">
+  <svg class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+  </svg>
+  <span class="hidden sm:inline">API / Webhook</span>
+  <span class="sm:hidden">API</span>
+</button>
+<button type="button" onclick="openCsvModal()" class="inline-flex items-center gap-2 px-3 py-2 text-xs sm:text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 hover:text-gray-900 transition shadow-xs cursor-pointer whitespace-nowrap shrink-0">
+  <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+  </svg>
+  <span class="hidden sm:inline">Import CSV</span>
+  <span class="sm:hidden">Import</span>
+</button>
+<a id="exportContactsLink" href="{% url 'contacts:export_contacts' %}{% if request.GET.urlencode %}?{{ request.GET.urlencode }}{% endif %}" class="inline-flex items-center gap-2 px-3 py-2 text-xs sm:text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 hover:text-gray-900 transition shadow-xs cursor-pointer whitespace-nowrap shrink-0 hidden sm:inline-flex" title="Export current list to CSV">
+  <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+  </svg>
+  Export CSV
+</a>
+<button type="button" onclick="openAddContactModal()" class="inline-flex items-center gap-2 px-3 py-2 text-xs sm:text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-sm shadow-brand-600/30 cursor-pointer whitespace-nowrap shrink-0">
+  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+  </svg>
+  <span class="hidden sm:inline">Add Contact</span>
+  <span class="sm:hidden">Add</span>
+</button>
+{% endblock %}
+
+{% block content %}
+{% csrf_token %}
+
+<!-- Sub-navigation Tabs -->
+<div class="flex items-center gap-2 border-b border-gray-200 pb-3 mb-6 overflow-x-auto">
+  <a href="{% url 'contacts:list' %}" class="px-3.5 py-1.5 text-xs font-semibold text-brand-700 bg-brand-50 rounded-lg border border-brand-200 whitespace-nowrap shrink-0">
+    All Contacts ({{ status_counts.all }})
+  </a>
+  <a href="{% url 'contacts:lists' %}" class="px-3.5 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-900 rounded-lg hover:bg-gray-100 transition whitespace-nowrap shrink-0">
+    Contact Lists ({{ contact_lists|length }})
+  </a>
+  <a href="{% url 'contacts:fields' %}" class="px-3.5 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-900 rounded-lg hover:bg-gray-100 transition whitespace-nowrap shrink-0">
+    Custom Fields ({{ contact_fields|length }})
+  </a>
+  <button type="button" onclick="openApiModal()" class="px-3.5 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-900 rounded-lg hover:bg-gray-100 transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0">
+    <svg class="w-3.5 h-3.5 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+    </svg>
+    API & Webhooks
+  </button>
+</div>
+
+<!-- KPI / Status Pills -->
+<div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+  <a href="?{% if q %}q={{ q|urlencode }}&{% endif %}{% if selected_list %}list={{ selected_list.id }}&{% endif %}"
+     data-status-pill=""
+     class="p-4 rounded-2xl border transition {% if not status %}bg-white border-brand-500 ring-2 ring-brand-500/20 shadow-sm{% else %}bg-white border-gray-200 hover:border-gray-300 shadow-xs{% endif %}">
+    <div class="text-xs font-medium text-gray-500 mb-1">Total Audience</div>
+    <div class="flex items-baseline gap-2">
+      <span class="text-2xl font-black text-gray-900">{{ status_counts.all }}</span>
+      <span class="text-xs font-medium text-gray-400">contacts</span>
+    </div>
+  </a>
+
+  <a href="?status=opted_in{% if q %}&q={{ q|urlencode }}{% endif %}{% if selected_list %}&list={{ selected_list.id }}{% endif %}"
+     data-status-pill="opted_in"
+     class="p-4 rounded-2xl border transition {% if status == 'opted_in' %}bg-white border-emerald-500 ring-2 ring-emerald-500/20 shadow-sm{% else %}bg-white border-gray-200 hover:border-gray-300 shadow-xs{% endif %}">
+    <div class="flex items-center gap-1.5 text-xs font-medium text-emerald-700 mb-1">
+      <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+      Opted In
+    </div>
+    <div class="flex items-baseline gap-2">
+      <span class="text-2xl font-black text-gray-900">{{ status_counts.opted_in }}</span>
+      <span class="text-xs font-medium text-emerald-600">active consent</span>
+    </div>
+  </a>
+
+  <a href="?status=unknown{% if q %}&q={{ q|urlencode }}{% endif %}{% if selected_list %}&list={{ selected_list.id }}{% endif %}"
+     data-status-pill="unknown"
+     class="p-4 rounded-2xl border transition {% if status == 'unknown' %}bg-white border-amber-500 ring-2 ring-amber-500/20 shadow-sm{% else %}bg-white border-gray-200 hover:border-gray-300 shadow-xs{% endif %}">
+    <div class="flex items-center gap-1.5 text-xs font-medium text-amber-700 mb-1">
+      <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+      No consent
+    </div>
+    <div class="flex items-baseline gap-2">
+      <span class="text-2xl font-black text-gray-900">{{ status_counts.unknown }}</span>
+      <span class="text-xs font-medium text-amber-600">no active consent</span>
+    </div>
+  </a>
+
+  <a href="?status=opted_out{% if q %}&q={{ q|urlencode }}{% endif %}{% if selected_list %}&list={{ selected_list.id }}{% endif %}"
+     data-status-pill="opted_out"
+     class="p-4 rounded-2xl border transition {% if status == 'opted_out' %}bg-white border-rose-500 ring-2 ring-rose-500/20 shadow-sm{% else %}bg-white border-gray-200 hover:border-gray-300 shadow-xs{% endif %}">
+    <div class="flex items-center gap-1.5 text-xs font-medium text-rose-700 mb-1">
+      <span class="w-2 h-2 rounded-full bg-rose-500"></span>
+      Opted Out (STOP)
+    </div>
+    <div class="flex items-baseline gap-2">
+      <span class="text-2xl font-black text-gray-900">{{ status_counts.opted_out }}</span>
+      <span class="text-xs font-medium text-rose-600">do not contact</span>
+    </div>
+  </a>
+</div>
+
+<!-- Filters & Search Toolbar -->
+<div class="bg-white border border-gray-200 rounded-2xl p-4 shadow-xs">
+  <form id="contactsFilterForm" method="get" onsubmit="event.preventDefault(); runContactsSearch(true);" class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+    <input type="hidden" id="contactsStatusFilter" name="status" value="{{ status|default:'' }}">
+
+    <div class="flex-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+      <!-- Search input -->
+      <div class="relative flex-1">
+        <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+        </div>
+        <input
+          type="text"
+          id="contactsSearchInput"
+          name="q"
+          value="{{ q }}"
+          autocomplete="off"
+          oninput="scheduleContactsSearch()"
+          placeholder="Search by phone (+1650...), name, or email..."
+          class="w-full pl-10 pr-20 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition"
+        />
+        <div class="absolute inset-y-0 right-0 pr-3 flex items-center gap-2">
+          <svg id="contactsSearchSpinner" class="hidden animate-spin w-3.5 h-3.5 text-brand-600" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <button
+            type="button"
+            id="contactsSearchClear"
+            onclick="clearContactsSearch()"
+            class="{% if not q %}hidden {% endif %}text-xs text-gray-400 hover:text-gray-700 font-medium cursor-pointer"
+          >
+            ✕ Clear
+          </button>
+        </div>
+      </div>
+
+      <!-- List filter -->
+      <div class="sm:w-56">
+        <select
+          id="contactsListFilter"
+          name="list"
+          onchange="runContactsSearch(true)"
+          class="w-full px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-700"
+        >
+          <option value="">All Contact Lists</option>
+          {% for cl in contact_lists %}
+          <option value="{{ cl.id }}" {% if selected_list and selected_list.id == cl.id %}selected{% endif %}>
+            {{ cl.name }} ({{ cl.contact_count }})
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <button type="submit" class="px-4 py-2 text-sm font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition cursor-pointer">
+        Filter
+      </button>
+    </div>
+
+    <div id="contactsResetFilters" class="{% if not q and not status and not selected_list %}hidden {% endif %}flex items-center justify-end">
+      <a href="{% url 'contacts:list' %}" class="text-xs font-medium text-gray-500 hover:text-brand-600 transition underline underline-offset-2 whitespace-nowrap">
+        Reset all filters
+      </a>
+    </div>
+  </form>
+</div>
+
+<!-- Contacts Table -->
+<div id="contacts-table-container" class="bg-white border border-gray-200 rounded-2xl shadow-xs overflow-hidden">
+  {% include "contacts/partials/contacts_table.html" %}
+</div>
+
+<!-- ========================================================================= -->
+<!-- STICKY BULK ACTION BAR                                                    -->
+<!-- ========================================================================= -->
+<div id="bulkActionBar" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 hidden bg-slate-900 text-white rounded-2xl px-5 py-3 shadow-2xl border border-slate-700 flex items-center gap-4 transition-all">
+  <span class="text-xs font-medium"><span id="selectedCount" class="font-bold text-brand-400">0</span> contacts selected</span>
+  <div class="h-4 w-px bg-slate-700"></div>
+  <div class="flex items-center gap-2">
+    <select id="bulkListSelect" class="bg-slate-800 text-white text-xs px-2.5 py-1.5 rounded-lg border border-slate-600 focus:outline-none">
+      <option value="">— Add to List —</option>
+      {% for cl in contact_lists %}
+      <option value="{{ cl.id }}">{{ cl.name }}</option>
+      {% endfor %}
+    </select>
+    <button type="button" onclick="executeBulkAction('add_to_list')" class="px-3 py-1.5 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-500 rounded-lg cursor-pointer transition">
+      Assign List
+    </button>
+  </div>
+  <div class="h-4 w-px bg-slate-700"></div>
+  <button type="button" onclick="executeBulkAction('delete')" class="px-3 py-1.5 text-xs font-semibold text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 rounded-lg cursor-pointer transition">
+    Delete Selected
+  </button>
+  <button type="button" onclick="deselectAll()" class="text-xs text-slate-400 hover:text-white cursor-pointer ml-1" title="Deselect all">
+    ✕
+  </button>
+</div>
+
+<!-- Hidden delete form for single row delete -->
+<form id="singleDeleteForm" method="post" action="" class="hidden">
+  {% csrf_token %}
+</form>
+
+
+<!-- ========================================================================= -->
+<!-- MODAL 1: ADD CONTACT MODAL                                                -->
+<!-- ========================================================================= -->
+<div id="addContactModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+  <!-- Backdrop -->
+  <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity" onclick="closeAddContactModal()"></div>
+
+  <div class="flex min-h-full items-center justify-center p-4 text-center sm:p-0">
+    <div class="relative transform overflow-hidden rounded-2xl bg-white text-left shadow-2xl transition-all sm:my-8 sm:w-full sm:max-w-lg border border-gray-100">
+      
+      <!-- Modal Header -->
+      <div class="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+        <div>
+          <h3 class="text-lg font-bold text-gray-900" id="modal-title">Add Contact</h3>
+          <p class="text-xs text-gray-500 mt-0.5">Phone numbers are automatically normalized to standard E.164</p>
+        </div>
+        <button type="button" onclick="closeAddContactModal()" class="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition cursor-pointer">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <!-- Modal Body Form -->
+      <form id="addContactForm" onsubmit="submitAddContact(event)" class="p-6 space-y-4">
+        <!-- Error notification box -->
+        <div id="addContactError" class="hidden p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 font-medium"></div>
+
+        <div>
+          <label class="block text-xs font-semibold text-gray-700 mb-1">
+            Phone Number <span class="text-rose-500">*</span>
+          </label>
+          <input
+            type="tel"
+            name="phone"
+            id="ac_phone"
+            required
+            placeholder="(650) 253-0000 or +16502530000"
+            class="w-full px-3.5 py-2.5 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition font-mono"
+          />
+          <p class="text-[11px] text-gray-400 mt-1">Accepts national formats, dashes, dots, or international E.164.</p>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-semibold text-gray-700 mb-1">First Name</label>
+            <input
+              type="text"
+              name="first_name"
+              id="ac_first_name"
+              placeholder="e.g. Antonio"
+              class="w-full px-3.5 py-2.5 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition"
+            />
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-gray-700 mb-1">Last Name</label>
+            <input
+              type="text"
+              name="last_name"
+              id="ac_last_name"
+              placeholder="e.g. Schjang"
+              class="w-full px-3.5 py-2.5 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition"
+            />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-semibold text-gray-700 mb-1">Email Address</label>
+            <input
+              type="email"
+              name="email"
+              id="ac_email"
+              placeholder="alex@example.com"
+              class="w-full px-3.5 py-2.5 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition"
+            />
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-gray-700 mb-1">Timezone</label>
+            <input
+              type="text"
+              name="timezone"
+              id="ac_timezone"
+              placeholder="e.g. America/New_York"
+              class="w-full px-3.5 py-2.5 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition text-xs"
+            />
+          </div>
+        </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-gray-700 mb-1">Add to Contact List</label>
+            <select
+              name="contact_list_id"
+              id="ac_list_id"
+              class="w-full px-3.5 py-2.5 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition text-gray-700 text-xs"
+            >
+              <option value="">None (General)</option>
+              {% for cl in contact_lists %}
+              <option value="{{ cl.id }}">{{ cl.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+
+        {% if contact_fields %}
+        <div class="pt-3 border-t border-gray-100">
+          <label class="block text-xs font-semibold text-gray-700 mb-2">Approved Custom Fields</label>
+          <div class="space-y-2.5 bg-gray-50/70 p-3 rounded-xl border border-gray-200">
+            {% for cf in contact_fields %}
+            <div>
+              <label class="block text-[11px] font-medium text-gray-600 mb-1">
+                {{ cf.label }} <span class="text-gray-400 font-mono font-normal">({{ cf.key }})</span>
+              </label>
+              <input
+                type="text"
+                name="custom_field_{{ cf.key }}"
+                placeholder="Value for {{ cf.label }}"
+                class="w-full px-3 py-1.5 text-xs bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition"
+              />
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
+        <!-- Modal Footer -->
+        <div class="pt-4 border-t border-gray-100 flex items-center justify-end gap-3">
+          <button type="button" onclick="closeAddContactModal()" class="px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-xl transition cursor-pointer">
+            Cancel
+          </button>
+          <button type="submit" id="ac_submit_btn" class="inline-flex items-center gap-2 px-5 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs cursor-pointer">
+            <span>Save Contact</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+
+<!-- ========================================================================= -->
+<!-- MODAL 2: 3-STEP CSV IMPORT WIZARD                                         -->
+<!-- ========================================================================= -->
+<div id="csvImportModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="csv-modal-title" role="dialog" aria-modal="true">
+  <!-- Backdrop -->
+  <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity" onclick="closeCsvModal()"></div>
+
+  <div class="flex min-h-full items-center justify-center p-4 text-center sm:p-0">
+    <div class="relative transform overflow-hidden rounded-2xl bg-white text-left shadow-2xl transition-all sm:my-8 sm:w-full sm:max-w-2xl border border-gray-100">
+      
+      <!-- Modal Header -->
+      <div class="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+        <div>
+          <h3 class="text-lg font-bold text-gray-900" id="csv-modal-title">Import Contacts from CSV</h3>
+          <p class="text-xs text-gray-500 mt-0.5">Upload a customer list, map column data, and import into your audience.</p>
+        </div>
+        <button type="button" onclick="closeCsvModal()" class="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition cursor-pointer">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <!-- Stepper Indicator -->
+      <div class="px-6 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between text-xs font-medium">
+        <div id="step-ind-1" class="flex items-center gap-2 text-brand-600 font-bold">
+          <span class="w-5 h-5 rounded-full bg-brand-600 text-white flex items-center justify-center text-[10px]">1</span>
+          Upload File
+        </div>
+        <div class="w-8 h-px bg-gray-200"></div>
+        <div id="step-ind-2" class="flex items-center gap-2 text-gray-400">
+          <span class="w-5 h-5 rounded-full bg-gray-200 text-gray-600 flex items-center justify-center text-[10px]">2</span>
+          Map Columns
+        </div>
+        <div class="w-8 h-px bg-gray-200"></div>
+        <div id="step-ind-3" class="flex items-center gap-2 text-gray-400">
+          <span class="w-5 h-5 rounded-full bg-gray-200 text-gray-600 flex items-center justify-center text-[10px]">3</span>
+          Review & Complete
+        </div>
+      </div>
+
+      <div class="p-6">
+        <!-- Error box -->
+        <div id="csvErrorBox" class="hidden mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 font-medium"></div>
+
+        <!-- ================= STEP 1: UPLOAD ================= -->
+        <div id="csvStep1" class="space-y-4">
+          <div
+            id="csvDropZone"
+            onclick="document.getElementById('csvFileInput').click()"
+            class="border-2 border-dashed border-gray-200 hover:border-brand-400 rounded-2xl p-8 text-center cursor-pointer transition bg-gray-50/50 hover:bg-brand-50/20"
+          >
+            <input type="file" id="csvFileInput" accept=".csv,text/csv" class="hidden" onchange="handleFileSelected(event)" />
+            <div class="w-12 h-12 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center mx-auto mb-3">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+              </svg>
+            </div>
+            <div class="text-sm font-semibold text-gray-800" id="csvFileLabel">Click or drag a CSV file here</div>
+            <div class="text-xs text-gray-400 mt-1">UTF-8 or Windows-1252 supported. Maximum 50,000 rows.</div>
+          </div>
+
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-600 flex items-start gap-2.5">
+            <svg class="w-4 h-4 text-slate-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div>
+              <strong>Compliance Notice:</strong> Importing a CSV will not grant SMS consent. Uploaded contacts will be marked with status <em>No consent</em> until explicit consent is registered.
+            </div>
+          </div>
+
+          <div class="flex items-center justify-end gap-3 pt-4 border-t border-gray-100">
+            <button type="button" onclick="closeCsvModal()" class="px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-xl transition cursor-pointer">
+              Cancel
+            </button>
+            <button
+              type="button"
+              id="csvUploadNextBtn"
+              disabled
+              onclick="uploadAndPreviewCsv()"
+              class="inline-flex items-center gap-2 px-5 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            >
+              <span>Continue to Mapping →</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- ================= STEP 2: MAPPING ================= -->
+        <div id="csvStep2" class="hidden space-y-5">
+          <div id="csvWarningBanner" class="hidden p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 font-medium"></div>
+
+          <div>
+            <h4 class="text-xs font-bold uppercase tracking-wider text-gray-600 mb-2">Column Mapping</h4>
+            <p class="text-xs text-gray-500 mb-3">Map each column from your CSV file to a contact field. Exactly one <strong>Phone</strong> column is required.</p>
+            
+            <div class="max-h-64 overflow-y-auto border border-gray-200 rounded-xl">
+              <table class="w-full text-left text-xs border-collapse">
+                <thead class="bg-gray-50 sticky top-0 border-b border-gray-200">
+                  <tr>
+                    <th class="py-2.5 px-3 font-semibold text-gray-600">CSV Header</th>
+                    <th class="py-2.5 px-3 font-semibold text-gray-600">Sample Row 1</th>
+                    <th class="py-2.5 px-3 font-semibold text-gray-600">Destination Field</th>
+                  </tr>
+                </thead>
+                <tbody id="csvMappingRows" class="divide-y divide-gray-100">
+                  <!-- Dynamically populated -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Target list and attestation -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+            <div>
+              <label class="block text-xs font-semibold text-gray-700 mb-1">Add to Contact List (Optional)</label>
+              <select id="csvTargetList" class="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-200 rounded-xl focus:bg-white text-gray-700">
+                <option value="">Do not assign to a list</option>
+                {% for cl in contact_lists %}
+                <option value="{{ cl.id }}">{{ cl.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="flex items-start gap-2.5 pt-4">
+              <input type="checkbox" id="csvConsentAttestation" class="mt-1 h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+              <label for="csvConsentAttestation" class="text-xs text-gray-600 leading-snug">
+                I attest that these subscribers have given express written consent to receive SMS communications from this business.
+              </label>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between gap-3 pt-4 border-t border-gray-100">
+            <button type="button" onclick="goToCsvStep(1)" class="px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-xl transition cursor-pointer">
+              ← Back to Upload
+            </button>
+            <button
+              type="button"
+              id="csvProcessBtn"
+              onclick="processCsvImport()"
+              class="inline-flex items-center gap-2 px-5 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs cursor-pointer"
+            >
+              <span>Start Import</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- ================= STEP 3: REPORT ================= -->
+        <div id="csvStep3" class="hidden space-y-5">
+          <div class="text-center py-4">
+            <div id="csvSuccessIcon" class="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-2 border border-emerald-100">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <h4 class="text-base font-bold text-gray-900" id="csvReportHeading">Import Complete</h4>
+            <p class="text-xs text-gray-500" id="csvReportSubheading">The contacts have been processed.</p>
+          </div>
+
+          <!-- Report Metric Badges -->
+          <div class="grid grid-cols-4 gap-2 text-center">
+            <div class="p-3 bg-gray-50 rounded-xl border border-gray-200">
+              <div class="text-[10px] uppercase font-semibold text-gray-400">Total</div>
+              <div class="text-lg font-black text-gray-900" id="repTotal">0</div>
+            </div>
+            <div class="p-3 bg-emerald-50 rounded-xl border border-emerald-100">
+              <div class="text-[10px] uppercase font-semibold text-emerald-700">Created</div>
+              <div class="text-lg font-black text-emerald-700" id="repCreated">0</div>
+            </div>
+            <div class="p-3 bg-brand-50 rounded-xl border border-brand-100">
+              <div class="text-[10px] uppercase font-semibold text-brand-700">Updated</div>
+              <div class="text-lg font-black text-brand-700" id="repUpdated">0</div>
+            </div>
+            <div class="p-3 bg-rose-50 rounded-xl border border-rose-100">
+              <div class="text-[10px] uppercase font-semibold text-rose-700">Errors</div>
+              <div class="text-lg font-black text-rose-700" id="repErrors">0</div>
+            </div>
+          </div>
+
+          <!-- Errors List (if any) -->
+          <div id="csvErrorsSection" class="hidden">
+            <h5 class="text-xs font-bold text-gray-700 mb-2">Errors Encountered</h5>
+            <div class="max-h-40 overflow-y-auto border border-rose-200 rounded-xl bg-rose-50/50 p-2 text-xs">
+              <table class="w-full text-left">
+                <thead>
+                  <tr class="text-rose-800 font-semibold border-b border-rose-200/60 pb-1">
+                    <th class="p-1">Row</th>
+                    <th class="p-1">Phone / Input</th>
+                    <th class="p-1">Reason</th>
+                  </tr>
+                </thead>
+                <tbody id="csvErrorsTableBody" class="divide-y divide-rose-200/40 text-rose-900">
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="pt-4 border-t border-gray-100 flex items-center justify-end">
+            <button
+              type="button"
+              onclick="window.location.reload()"
+              class="px-5 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition cursor-pointer"
+            >
+              Done & View Contacts
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- MODAL 3: LEAD API & WEBHOOK MODAL                                         -->
+<!-- ========================================================================= -->
+<div id="apiLeadModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="api-modal-title" role="dialog" aria-modal="true">
+  <!-- Backdrop -->
+  <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity" onclick="closeApiModal()"></div>
+
+  <div class="flex min-h-full items-center justify-center p-4 text-center sm:p-0">
+    <div class="relative transform overflow-hidden rounded-2xl bg-white text-left shadow-2xl transition-all sm:my-8 sm:w-full sm:max-w-3xl border border-gray-100">
+      
+      <!-- Modal Header -->
+      <div class="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center border border-brand-100">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+            </svg>
+          </div>
+          <div>
+            <h3 class="text-lg font-bold text-gray-900" id="api-modal-title">Lead Ingestion API & Webhooks</h3>
+            <p class="text-xs text-gray-500 mt-0.5">Upload leads in real-time via API URL or import directly from external endpoints</p>
+          </div>
+        </div>
+        <button type="button" onclick="closeApiModal()" class="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition cursor-pointer">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <!-- Mode Tabs: [Inbound API URL / Webhook] vs [Pull from Remote API URL] -->
+      <div class="px-6 pt-4 bg-gray-50/60 border-b border-gray-100 flex items-center gap-4">
+        <button type="button" id="tabPushBtn" onclick="switchApiTab('push')" class="pb-3 text-xs font-bold border-b-2 border-brand-600 text-brand-700 flex items-center gap-2 cursor-pointer">
+          <svg class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+          </svg>
+          Inbound Webhook & API URL (Push to SparkText)
+        </button>
+        <button type="button" id="tabPullBtn" onclick="switchApiTab('pull')" class="pb-3 text-xs font-semibold text-gray-500 hover:text-gray-900 border-b-2 border-transparent flex items-center gap-2 cursor-pointer transition">
+          <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+          Pull from External API URL (Direct Import)
+        </button>
+      </div>
+
+      <!-- TAB 1: PUSH VIA API / WEBHOOK -->
+      <div id="apiTabPush" class="p-6 space-y-6">
+        <!-- Inbound Webhook URL Card -->
+        <div class="bg-brand-50/40 rounded-2xl p-4 border border-brand-100 space-y-3">
+          <div class="flex items-center justify-between">
+            <label class="text-xs font-bold text-gray-900 uppercase tracking-wider flex items-center gap-1.5">
+              <span>Your Inbound Webhook / API URL</span>
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800">Ready</span>
+            </label>
+            <span class="text-[11px] text-gray-500">Method: <strong class="text-brand-700">POST</strong></span>
+          </div>
+
+          <!-- URL box with 1-click copy -->
+          <div class="flex items-stretch gap-2">
+            <div class="relative flex-1">
+              <input
+                type="text"
+                readonly
+                id="apiFullEndpointUrl"
+                value="{% if 'ngrok' in request.get_host %}https{% else %}{{ request.scheme }}{% endif %}://{{ request.get_host }}/api/v1/leads/?api_key={{ org.api_key }}"
+                class="w-full bg-white px-3.5 py-2.5 text-xs font-mono font-medium text-gray-800 border border-gray-300 rounded-xl focus:outline-none"
+              >
+            </div>
+            <button
+              type="button"
+              onclick="copyToClipboard('apiFullEndpointUrl', this)"
+              class="px-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold rounded-xl transition flex items-center gap-1.5 shadow-xs cursor-pointer flex-shrink-0"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+              </svg>
+              <span>Copy URL</span>
+            </button>
+          </div>
+
+          <!-- Path-based Webhook format (great for Zapier/Make) -->
+          <div class="pt-2 border-t border-brand-100/60 flex items-center justify-between text-[11px] text-gray-600">
+            <span>Clean Webhook URL format (Zapier/Make/Webflow):</span>
+            <code id="apiCleanWebhookUrl" class="font-mono text-[10px] bg-white px-2 py-0.5 rounded border border-gray-200 text-gray-700 select-all">
+              {% if 'ngrok' in request.get_host %}https{% else %}{{ request.scheme }}{% endif %}://{{ request.get_host }}/api/v1/leads/{{ org.api_key }}/
+            </code>
+          </div>
+        </div>
+
+        <!-- Organization API Key Details -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div class="border border-gray-200 rounded-xl p-3.5 bg-white">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-xs font-semibold text-gray-700">Organization API Key</span>
+              <button type="button" onclick="regenerateOrgApiKey()" class="text-[11px] text-rose-600 hover:text-rose-800 font-semibold cursor-pointer">
+                ↻ Regenerate
+              </button>
+            </div>
+            <div class="flex items-center gap-2">
+              <input
+                type="password"
+                id="apiOrgKeyValue"
+                readonly
+                value="{{ org.api_key }}"
+                class="flex-1 text-xs font-mono bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-700"
+              >
+              <button
+                type="button"
+                onclick="toggleApiKeyVisibility()"
+                class="px-2 py-1.5 text-xs text-gray-600 hover:text-gray-900 border border-gray-200 rounded-lg bg-gray-50 cursor-pointer"
+                title="Show / Hide Key"
+              >
+                👁
+              </button>
+              <button
+                type="button"
+                onclick="copyToClipboard('apiOrgKeyValue', this)"
+                class="px-2.5 py-1.5 text-xs font-medium text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-lg cursor-pointer"
+              >
+                Copy
+              </button>
+            </div>
+          </div>
+
+          <div class="border border-gray-200 rounded-xl p-3.5 bg-white">
+            <span class="text-xs font-semibold text-gray-700 block mb-1">HTTP Auth Header Format</span>
+            <code class="block text-xs font-mono text-gray-700 bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5 select-all">
+              Authorization: Bearer {{ org.api_key }}
+            </code>
+          </div>
+        </div>
+
+        <!-- Code Snippet Switcher & Interactive Simulator -->
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-bold text-gray-900 uppercase tracking-wider">Example Request Code</span>
+            <div class="flex items-center gap-1 bg-gray-100 p-0.5 rounded-lg text-[11px]">
+              <button type="button" onclick="switchCodeLang('curl')" id="btnLangCurl" class="px-2.5 py-1 rounded-md font-semibold bg-white text-gray-900 shadow-xs cursor-pointer">cURL</button>
+              <button type="button" onclick="switchCodeLang('js')" id="btnLangJs" class="px-2.5 py-1 rounded-md font-semibold text-gray-600 hover:text-gray-900 cursor-pointer">JavaScript</button>
+              <button type="button" onclick="switchCodeLang('python')" id="btnLangPy" class="px-2.5 py-1 rounded-md font-semibold text-gray-600 hover:text-gray-900 cursor-pointer">Python</button>
+            </div>
+          </div>
+
+          <!-- Code Snippet Area -->
+          <div id="codeSnippetBox" class="bg-slate-900 text-slate-100 rounded-xl p-3 text-[11px] font-mono overflow-x-auto relative group">
+            <button
+              type="button"
+              onclick="copySnippetCode(this)"
+              class="absolute top-2 right-2 px-2 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-[10px] rounded cursor-pointer"
+            >
+              Copy
+            </button>
+            <pre id="codePre" class="whitespace-pre"></pre>
+          </div>
+        </div>
+
+        <!-- Live Ingestion Test Box -->
+        <div class="border border-gray-200 rounded-2xl p-4 bg-gray-50/50 space-y-3">
+          <div class="flex items-center justify-between">
+            <div class="text-xs font-bold text-gray-900 flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span>Test Ingestion In Real-Time</span>
+            </div>
+            <span class="text-[11px] text-gray-500">Sends directly to your Inbound API URL</span>
+          </div>
+
+          <textarea
+            id="apiSimulatorJson"
+            rows="5"
+            class="w-full font-mono text-xs bg-white border border-gray-300 rounded-xl p-3 text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
+          >{
+  "phone": "+16505550199",
+  "first_name": "Alex",
+  "last_name": "Morgan",
+  "email": "alex.morgan@example.com",
+  "list": "Web Leads",
+  "stage": "Intake",
+  "form": "Quote Request Page",
+  "consent": true
+}</textarea>
+
+          <div class="flex items-center justify-between">
+            <button
+              type="button"
+              id="apiSimulateBtn"
+              onclick="executeApiSimulation()"
+              class="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-xl transition cursor-pointer flex items-center gap-1.5"
+            >
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+              </svg>
+              <span>Send Test Lead</span>
+            </button>
+          </div>
+
+          <!-- Simulator Response Box -->
+          <div id="apiSimResultBox" class="hidden bg-white border border-gray-200 rounded-xl p-3 text-xs font-mono space-y-1">
+            <div class="flex items-center justify-between text-[11px] text-gray-500 pb-1 border-b border-gray-100">
+              <span>Server Response:</span>
+              <span id="simStatusCode" class="font-bold text-emerald-600">201 Created</span>
+            </div>
+            <pre id="simResponseBody" class="text-slate-800 text-[11px] overflow-x-auto max-h-32 pt-1"></pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 2: PULL FROM EXTERNAL API URL -->
+      <div id="apiTabPull" class="p-6 space-y-5 hidden">
+        <div class="bg-blue-50/50 rounded-2xl p-4 border border-blue-100 text-xs text-blue-900 space-y-1">
+          <p class="font-bold text-blue-950 flex items-center gap-1.5">
+            <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Import Leads from External API / Webhook Endpoint
+          </p>
+          <p class="text-blue-800 text-[11px]">
+            Provide an external JSON feed or lead provider export URL. SparkText will fetch subscriber records and import them automatically.
+          </p>
+        </div>
+
+        <form id="remoteApiPullForm" onsubmit="submitRemoteApiPull(event)" class="space-y-4">
+          <div id="pullErrorBox" class="hidden p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 font-medium"></div>
+          <div id="pullSuccessBox" class="hidden p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-700 font-medium"></div>
+
+          <div>
+            <label class="block text-xs font-semibold text-gray-700 mb-1">
+              External API URL <span class="text-rose-500">*</span>
+            </label>
+            <input
+              type="url"
+              name="remote_url"
+              id="remote_url"
+              required
+              placeholder="https://api.leadvendor.com/v1/leads.json"
+              class="w-full px-3.5 py-2 text-xs bg-gray-50 border border-gray-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-800 font-mono"
+            >
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-semibold text-gray-700 mb-1">HTTP Method</label>
+              <select
+                name="remote_method"
+                id="remote_method"
+                class="w-full px-3.5 py-2 text-xs bg-gray-50 border border-gray-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-700"
+              >
+                <option value="GET">GET (Standard JSON feed)</option>
+                <option value="POST">POST (Webhook request)</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold text-gray-700 mb-1">
+                Authorization Header <span class="text-gray-400 font-normal">(Optional)</span>
+              </label>
+              <input
+                type="text"
+                name="remote_auth"
+                id="remote_auth"
+                placeholder="Bearer your_secret_token"
+                class="w-full px-3.5 py-2 text-xs bg-gray-50 border border-gray-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-800 font-mono"
+              >
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-gray-700 mb-1">
+              Assign to Contact List <span class="text-gray-400 font-normal">(Optional)</span>
+            </label>
+            <select
+              name="remote_list_id"
+              id="remote_list_id"
+              class="w-full px-3.5 py-2 text-xs bg-gray-50 border border-gray-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-700"
+            >
+              <option value="">Do not assign to list</option>
+              {% for cl in contact_lists %}
+              <option value="{{ cl.id }}">{{ cl.name }} ({{ cl.contacts.count }} contacts)</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <!-- TCPA Checkbox -->
+          <div class="p-3.5 bg-amber-50/70 border border-amber-200/80 rounded-xl flex items-start gap-2.5">
+            <input
+              type="checkbox"
+              id="remote_consent"
+              name="remote_consent"
+              checked
+              class="mt-0.5 rounded border-amber-300 text-brand-600 focus:ring-brand-500 cursor-pointer"
+            >
+            <label for="remote_consent" class="text-xs text-amber-900 cursor-pointer">
+              <strong>TCPA Opt-In Attestation:</strong> I certify that all imported subscribers from this API endpoint have given express written consent to receive automated SMS communications.
+            </label>
+          </div>
+
+          <div class="pt-3 border-t border-gray-100 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onclick="closeApiModal()"
+              class="px-4 py-2 text-xs font-semibold text-gray-600 hover:text-gray-900 transition cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              id="remotePullSubmitBtn"
+              class="px-5 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs cursor-pointer flex items-center gap-2"
+            >
+              <span>Fetch & Import Leads</span>
+            </button>
+          </div>
+        </form>
+      </div>
+
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  // CSRF helper
+  function getCsrfToken() {
+    const el = document.querySelector('[name=csrfmiddlewaretoken]');
+    return el ? el.value : '';
+  }
+
+  // --- INSTANT LIVE SEARCH & FILTER ---
+  let contactsSearchTimer = null;
+  let contactsSearchController = null;
+
+  function scheduleContactsSearch() {
+    const input = document.getElementById('contactsSearchInput');
+    const clearBtn = document.getElementById('contactsSearchClear');
+    if (clearBtn && input) {
+      clearBtn.classList.toggle('hidden', !input.value);
+    }
+    clearTimeout(contactsSearchTimer);
+    contactsSearchTimer = setTimeout(() => runContactsSearch(false), 220);
+  }
+
+  function clearContactsSearch() {
+    const input = document.getElementById('contactsSearchInput');
+    if (!input) return;
+    input.value = '';
+    input.focus();
+    runContactsSearch(true);
+  }
+
+  async function runContactsSearch(immediate = false) {
+    if (immediate) clearTimeout(contactsSearchTimer);
+    const input = document.getElementById('contactsSearchInput');
+    const listSelect = document.getElementById('contactsListFilter');
+    const statusInput = document.getElementById('contactsStatusFilter');
+    const clearBtn = document.getElementById('contactsSearchClear');
+    const resetEl = document.getElementById('contactsResetFilters');
+    const spinner = document.getElementById('contactsSearchSpinner');
+    const tableContainer = document.getElementById('contacts-table-container');
+    if (!tableContainer) return;
+
+    const qVal = (input ? input.value : '').trim();
+    const statusVal = (statusInput ? statusInput.value : '').trim();
+    const listVal = (listSelect ? listSelect.value : '').trim();
+
+    if (clearBtn && input) {
+      clearBtn.classList.toggle('hidden', !input.value);
+    }
+    if (resetEl) {
+      resetEl.classList.toggle('hidden', !(qVal || statusVal || listVal));
+    }
+
+    const params = new URLSearchParams();
+    if (qVal) params.set('q', qVal);
+    if (statusVal) params.set('status', statusVal);
+    if (listVal) params.set('list', listVal);
+
+    const fetchParams = new URLSearchParams(params.toString());
+    fetchParams.set('partial', '1');
+
+    if (contactsSearchController) {
+      contactsSearchController.abort();
+    }
+    contactsSearchController = new AbortController();
+
+    if (spinner) spinner.classList.remove('hidden');
+    tableContainer.style.opacity = '0.65';
+
+    try {
+      const resp = await fetch("{% url 'contacts:list' %}?" + fetchParams.toString(), {
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        signal: contactsSearchController.signal,
+      });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const html = await resp.text();
+      tableContainer.innerHTML = html;
+      deselectAll();
+
+      const queryStr = params.toString();
+      window.history.replaceState({}, '', "{% url 'contacts:list' %}" + (queryStr ? '?' + queryStr : ''));
+
+      const exportLink = document.getElementById('exportContactsLink');
+      if (exportLink) {
+        exportLink.setAttribute('href', "{% url 'contacts:export_contacts' %}" + (queryStr ? '?' + queryStr : ''));
+      }
+
+      document.querySelectorAll('[data-status-pill]').forEach(pill => {
+        const pillStatus = pill.getAttribute('data-status-pill') || '';
+        const pillParams = new URLSearchParams();
+        if (pillStatus) pillParams.set('status', pillStatus);
+        if (qVal) pillParams.set('q', qVal);
+        if (listVal) pillParams.set('list', listVal);
+        const pillQuery = pillParams.toString();
+        pill.setAttribute('href', pillQuery ? '?' + pillQuery : '?');
+      });
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        console.error('Live contact search failed:', err);
+      }
+    } finally {
+      if (spinner) spinner.classList.add('hidden');
+      tableContainer.style.opacity = '1';
+    }
+  }
+
+  // --- SELECTION & BULK ACTIONS ---
+  function getSelectedContactIds() {
+    return Array.from(document.querySelectorAll('.contact-checkbox:checked')).map(cb => cb.value);
+  }
+
+  function toggleSelectAll(masterCb) {
+    const checkboxes = document.querySelectorAll('.contact-checkbox');
+    checkboxes.forEach(cb => { cb.checked = masterCb.checked; });
+    updateBulkBar();
+  }
+
+  function deselectAll() {
+    const master = document.getElementById('selectAllCheckbox');
+    if (master) master.checked = false;
+    document.querySelectorAll('.contact-checkbox').forEach(cb => { cb.checked = false; });
+    updateBulkBar();
+  }
+
+  function updateBulkBar() {
+    const selected = getSelectedContactIds();
+    const bar = document.getElementById('bulkActionBar');
+    const counter = document.getElementById('selectedCount');
+    if (counter) counter.innerText = selected.length;
+
+    if (selected.length > 0) {
+      bar.classList.remove('hidden');
+    } else {
+      bar.classList.add('hidden');
+    }
+  }
+
+  async function executeBulkAction(action) {
+    const selected = getSelectedContactIds();
+    if (selected.length === 0) return;
+
+    const listSelect = document.getElementById('bulkListSelect');
+    const listId = listSelect ? listSelect.value : '';
+
+    if (action === 'add_to_list' && !listId) {
+      window.showAppToast("Please select a target list from the dropdown.", "warning");
+      return;
+    }
+
+    if (action === 'delete') {
+      const confirmed = await window.showAppConfirm({
+        title: "Delete Selected Contacts",
+        message: `Are you sure you want to permanently delete these ${selected.length} contact(s)? This cannot be undone.`,
+        confirmText: "Delete Contacts",
+      });
+      if (!confirmed) return;
+    }
+
+    const formData = new FormData();
+    formData.append('action', action);
+    formData.append('list_id', listId);
+    selected.forEach(id => formData.append('contact_ids', id));
+
+    try {
+      const resp = await fetch("{% url 'contacts:bulk_action' %}", {
+        method: "POST",
+        body: formData,
+        headers: {
+          "X-CSRFToken": getCsrfToken(),
+          "X-Requested-With": "XMLHttpRequest",
+        }
+      });
+      const data = await resp.json();
+      if (resp.ok && data.status === 'success') {
+        window.location.reload();
+      } else {
+        window.showAppToast(data.message || "Bulk action failed.", "error");
+      }
+    } catch (err) {
+      window.showAppToast("Network error: " + err.message, "error");
+    }
+  }
+
+  async function deleteContactRow(contactId, phone) {
+    const confirmed = await window.showAppConfirm({
+      title: "Delete Contact",
+      message: `Are you sure you want to permanently delete contact ${phone}? This cannot be undone.`,
+      confirmText: "Delete Contact",
+    });
+    if (confirmed) {
+      const form = document.getElementById('singleDeleteForm');
+      form.action = `/contacts/${contactId}/delete/`;
+      form.submit();
+    }
+  }
+
+  // --- ADD CONTACT MODAL LOGIC ---
+  function openAddContactModal() {
+    document.getElementById('addContactError').classList.add('hidden');
+    document.getElementById('addContactModal').classList.remove('hidden');
+    setTimeout(() => document.getElementById('ac_phone').focus(), 50);
+  }
+
+  function closeAddContactModal() {
+    document.getElementById('addContactModal').classList.add('hidden');
+    document.getElementById('addContactForm').reset();
+  }
+
+  async function submitAddContact(e) {
+    e.preventDefault();
+    const form = document.getElementById('addContactForm');
+    const errBox = document.getElementById('addContactError');
+    const submitBtn = document.getElementById('ac_submit_btn');
+
+    errBox.classList.add('hidden');
+    errBox.innerText = '';
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span>Saving...</span>';
+
+    const formData = new FormData(form);
+
+    try {
+      const resp = await fetch("{% url 'contacts:add' %}", {
+        method: "POST",
+        body: formData,
+        headers: {
+          "X-CSRFToken": getCsrfToken(),
+          "X-Requested-With": "XMLHttpRequest",
+        }
+      });
+
+      const data = await resp.json();
+      if (!resp.ok || data.status === 'error') {
+        errBox.innerText = data.message || "Failed to save contact.";
+        errBox.classList.remove('hidden');
+      } else {
+        // Success: reload to display in contacts table
+        window.location.reload();
+      }
+    } catch (err) {
+      errBox.innerText = "Network error while saving contact: " + err.message;
+      errBox.classList.remove('hidden');
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = '<span>Save Contact</span>';
+    }
+  }
+
+  // --- CSV IMPORT WIZARD LOGIC ---
+  let selectedCsvFile = null;
+  let csvPreviewData = null;
+
+  function openCsvModal() {
+    goToCsvStep(1);
+    document.getElementById('csvErrorBox').classList.add('hidden');
+    document.getElementById('csvImportModal').classList.remove('hidden');
+  }
+
+  function closeCsvModal() {
+    document.getElementById('csvImportModal').classList.add('hidden');
+    selectedCsvFile = null;
+    csvPreviewData = null;
+    document.getElementById('csvFileInput').value = '';
+    document.getElementById('csvFileLabel').innerText = 'Click or drag a CSV file here';
+    document.getElementById('csvUploadNextBtn').disabled = true;
+  }
+
+  function handleFileSelected(e) {
+    const file = e.target.files[0];
+    if (file) {
+      selectedCsvFile = file;
+      document.getElementById('csvFileLabel').innerText = `${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+      document.getElementById('csvUploadNextBtn').disabled = false;
+    }
+  }
+
+  function goToCsvStep(step) {
+    document.getElementById('csvStep1').classList.toggle('hidden', step !== 1);
+    document.getElementById('csvStep2').classList.toggle('hidden', step !== 2);
+    document.getElementById('csvStep3').classList.toggle('hidden', step !== 3);
+
+    // Indicator highlights
+    const ind1 = document.getElementById('step-ind-1');
+    const ind2 = document.getElementById('step-ind-2');
+    const ind3 = document.getElementById('step-ind-3');
+
+    ind1.className = step >= 1 ? 'flex items-center gap-2 text-brand-600 font-bold' : 'flex items-center gap-2 text-gray-400';
+    ind2.className = step >= 2 ? 'flex items-center gap-2 text-brand-600 font-bold' : 'flex items-center gap-2 text-gray-400';
+    ind3.className = step === 3 ? 'flex items-center gap-2 text-brand-600 font-bold' : 'flex items-center gap-2 text-gray-400';
+  }
+
+  async function uploadAndPreviewCsv() {
+    if (!selectedCsvFile) return;
+
+    const errBox = document.getElementById('csvErrorBox');
+    const nextBtn = document.getElementById('csvUploadNextBtn');
+    errBox.classList.add('hidden');
+    nextBtn.disabled = true;
+    nextBtn.innerHTML = '<span>Scanning CSV...</span>';
+
+    const formData = new FormData();
+    formData.append('file', selectedCsvFile);
+
+    try {
+      const resp = await fetch("{% url 'contacts:import_preview' %}", {
+        method: "POST",
+        body: formData,
+        headers: {
+          "X-CSRFToken": getCsrfToken(),
+          "X-Requested-With": "XMLHttpRequest",
+        }
+      });
+      const data = await resp.json();
+
+      if (!resp.ok || data.status === 'error') {
+        errBox.innerText = data.message || "Failed to scan CSV file.";
+        errBox.classList.remove('hidden');
+      } else {
+        csvPreviewData = data;
+        buildMappingTable(data);
+        goToCsvStep(2);
+      }
+    } catch (err) {
+      errBox.innerText = "Error uploading file: " + err.message;
+      errBox.classList.remove('hidden');
+    } finally {
+      nextBtn.disabled = false;
+      nextBtn.innerHTML = '<span>Continue to Mapping →</span>';
+    }
+  }
+
+  function buildMappingTable(data) {
+    const tbody = document.getElementById('csvMappingRows');
+    tbody.innerHTML = '';
+
+    const warningBanner = document.getElementById('csvWarningBanner');
+    if (data.warning || (data.duplicate_headers && data.duplicate_headers.length > 0)) {
+      let warnText = data.warning || '';
+      if (data.duplicate_headers && data.duplicate_headers.length > 0) {
+        warnText += ` Note: Duplicate headers detected: ${data.duplicate_headers.join(', ')}.`;
+      }
+      warningBanner.innerText = warnText;
+      warningBanner.classList.remove('hidden');
+    } else {
+      warningBanner.classList.add('hidden');
+    }
+
+    const headers = data.headers || [];
+    const sampleRow = (data.rows && data.rows[0]) ? data.rows[0] : [];
+    const suggestions = data.suggestions || {};
+    const approvedFields = data.approved_fields || [];
+
+    headers.forEach((hdr, idx) => {
+      const sampleVal = sampleRow[idx] !== undefined ? sampleRow[idx] : '';
+      const suggested = suggestions[hdr] || { decision: "skip" };
+
+      const tr = document.createElement('tr');
+      tr.className = "hover:bg-gray-50/60";
+
+      let optionsHtml = `
+        <option value="skip" ${suggested.decision === 'skip' ? 'selected' : ''}>— Skip this column —</option>
+        <optgroup label="Standard Fields">
+          <option value="phone" ${suggested.decision === 'phone' || (suggested.decision === 'map' && suggested.target === 'phone') ? 'selected' : ''}>Phone (Required)</option>
+          <option value="first_name" ${suggested.decision === 'first_name' || (suggested.decision === 'map' && suggested.target === 'first_name') ? 'selected' : ''}>First Name</option>
+          <option value="last_name" ${suggested.decision === 'last_name' || (suggested.decision === 'map' && suggested.target === 'last_name') ? 'selected' : ''}>Last Name</option>
+          <option value="name" ${suggested.decision === 'name' || (suggested.decision === 'map' && suggested.target === 'name') ? 'selected' : ''}>Full Name (Splits to First & Last)</option>
+          <option value="email" ${suggested.decision === 'email' || (suggested.decision === 'map' && suggested.target === 'email') ? 'selected' : ''}>Email</option>
+          <option value="timezone" ${suggested.decision === 'timezone' || (suggested.decision === 'map' && suggested.target === 'timezone') ? 'selected' : ''}>Timezone</option>
+        </optgroup>
+      `;
+
+      if (approvedFields.length > 0) {
+        optionsHtml += `<optgroup label="Approved Custom Fields">`;
+        approvedFields.forEach(f => {
+          const isSelected = suggested.decision === 'map' && suggested.target_field === f.key;
+          optionsHtml += `<option value="map:${f.key}" ${isSelected ? 'selected' : ''}>${f.label} (${f.key})</option>`;
+        });
+        optionsHtml += `</optgroup>`;
+      }
+
+      optionsHtml += `
+        <optgroup label="Create New Field">
+          <option value="add">➕ Create new custom field</option>
+        </optgroup>
+      `;
+
+      tr.innerHTML = `
+        <td class="py-2.5 px-3 font-semibold text-gray-800">
+          ${hdr || '<span class="italic text-gray-400">Blank Header</span>'}
+        </td>
+        <td class="py-2.5 px-3 text-gray-500 font-mono text-[11px] max-w-[150px] truncate" title="${sampleVal}">
+          ${sampleVal || '<span class="text-gray-300 italic">Empty</span>'}
+        </td>
+        <td class="py-2.5 px-3">
+          <select data-header="${hdr}" class="col-mapper w-full py-1.5 px-2 bg-white border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-brand-500">
+            ${optionsHtml}
+          </select>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  async function processCsvImport() {
+    const errBox = document.getElementById('csvErrorBox');
+    const processBtn = document.getElementById('csvProcessBtn');
+    errBox.classList.add('hidden');
+
+    // Collect mapping
+    const selectors = document.querySelectorAll('.col-mapper');
+    const mapping = {};
+    let phoneColumnCount = 0;
+
+    selectors.forEach(sel => {
+      const hdr = sel.getAttribute('data-header');
+      const val = sel.value;
+
+      if (val === 'skip') {
+        mapping[hdr] = { decision: "skip" };
+      } else if (val === 'phone') {
+        mapping[hdr] = { decision: "map", target: "phone" };
+        phoneColumnCount++;
+      } else if (val === 'first_name') {
+        mapping[hdr] = { decision: "map", target: "first_name" };
+      } else if (val === 'last_name') {
+        mapping[hdr] = { decision: "map", target: "last_name" };
+      } else if (val === 'name') {
+        mapping[hdr] = { decision: "map", target: "name" };
+      } else if (val === 'email') {
+        mapping[hdr] = { decision: "map", target: "email" };
+      } else if (val === 'timezone') {
+        mapping[hdr] = { decision: "map", target: "timezone" };
+      } else if (val.startsWith('map:')) {
+        const target = val.replace('map:', '');
+        mapping[hdr] = { decision: "map", target: target };
+      } else if (val === 'add') {
+        // Automatically use normalized header for key
+        let safeKey = hdr.toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/^_+/, '');
+        if (!safeKey || !/^[a-z]/.test(safeKey)) {
+          safeKey = 'field_' + safeKey;
+        }
+        mapping[hdr] = { decision: "add", target: safeKey, label: hdr };
+      }
+    });
+
+    if (phoneColumnCount !== 1) {
+      errBox.innerText = "Please map exactly one column to Phone.";
+      errBox.classList.remove('hidden');
+      return;
+    }
+
+    const consentChecked = document.getElementById('csvConsentAttestation').checked;
+    const targetListId = document.getElementById('csvTargetList').value;
+
+    const formData = new FormData();
+    formData.append('file', selectedCsvFile);
+    formData.append('mapping', JSON.stringify(mapping));
+    formData.append('contact_list_id', targetListId);
+    formData.append('consent_attested', consentChecked ? '1' : '0');
+    formData.append('attestation_text', consentChecked ? 'Attested via web CSV import' : '');
+
+    processBtn.disabled = true;
+    processBtn.innerHTML = '<span>Processing Import...</span>';
+
+    try {
+      const resp = await fetch("{% url 'contacts:import_process' %}", {
+        method: "POST",
+        body: formData,
+        headers: {
+          "X-CSRFToken": getCsrfToken(),
+          "X-Requested-With": "XMLHttpRequest",
+        }
+      });
+      const data = await resp.json();
+
+      if (!resp.ok || data.status === 'error') {
+        errBox.innerText = data.message || "Failed to process import.";
+        errBox.classList.remove('hidden');
+      } else {
+        renderImportReport(data.report);
+        goToCsvStep(3);
+      }
+    } catch (err) {
+      errBox.innerText = "Network error: " + err.message;
+      errBox.classList.remove('hidden');
+    } finally {
+      processBtn.disabled = false;
+      processBtn.innerHTML = '<span>Start Import</span>';
+    }
+  }
+
+  function renderImportReport(report) {
+    document.getElementById('repTotal').innerText = report.total_processed || 0;
+    document.getElementById('repCreated').innerText = report.created || 0;
+    document.getElementById('repUpdated').innerText = report.updated || 0;
+    const errors = report.errors || [];
+    document.getElementById('repErrors').innerText = errors.length;
+
+    const errSec = document.getElementById('csvErrorsSection');
+    const errTbody = document.getElementById('csvErrorsTableBody');
+    errTbody.innerHTML = '';
+
+    if (errors.length > 0) {
+      errSec.classList.remove('hidden');
+      errors.forEach(e => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="p-1 font-mono font-bold">${e.row || '—'}</td>
+          <td class="p-1 font-mono text-[11px]">${e.phone || e.data || '—'}</td>
+          <td class="p-1">${e.error || 'Failed'}</td>
+        `;
+        errTbody.appendChild(tr);
+      });
+    } else {
+      errSec.classList.add('hidden');
+    }
+  }
+
+  // --- LEAD API & WEBHOOK MODAL LOGIC ---
+  function refreshApiUrls() {
+    let origin = window.location.origin;
+    if (window.location.hostname.includes('ngrok') && origin.startsWith('http:')) {
+      origin = origin.replace('http:', 'https:');
+    }
+    const keyEl = document.getElementById('apiOrgKeyValue');
+    if (!keyEl) return;
+    const key = keyEl.value;
+    const fullUrlInput = document.getElementById('apiFullEndpointUrl');
+    const cleanWebhookEl = document.getElementById('apiCleanWebhookUrl');
+    if (fullUrlInput && key) {
+      fullUrlInput.value = `${origin}/api/v1/leads/?api_key=${key}`;
+    }
+    if (cleanWebhookEl && key) {
+      cleanWebhookEl.innerText = `${origin}/api/v1/leads/${key}/`;
+    }
+  }
+
+  function openApiModal() {
+    document.getElementById('apiLeadModal').classList.remove('hidden');
+    refreshApiUrls();
+    switchApiTab('push');
+    switchCodeLang(currentSnippetLang || 'curl');
+  }
+
+  function closeApiModal() {
+    document.getElementById('apiLeadModal').classList.add('hidden');
+    const errBox = document.getElementById('pullErrorBox');
+    const succBox = document.getElementById('pullSuccessBox');
+    const resBox = document.getElementById('apiSimResultBox');
+    if (errBox) errBox.classList.add('hidden');
+    if (succBox) succBox.classList.add('hidden');
+    if (resBox) resBox.classList.add('hidden');
+  }
+
+  function switchApiTab(tab) {
+    const tabPush = document.getElementById('apiTabPush');
+    const tabPull = document.getElementById('apiTabPull');
+    const btnPush = document.getElementById('tabPushBtn');
+    const btnPull = document.getElementById('tabPullBtn');
+
+    if (tab === 'push') {
+      tabPush.classList.remove('hidden');
+      tabPull.classList.add('hidden');
+      btnPush.className = 'pb-3 text-xs font-bold border-b-2 border-brand-600 text-brand-700 flex items-center gap-2 cursor-pointer';
+      btnPull.className = 'pb-3 text-xs font-semibold text-gray-500 hover:text-gray-900 border-b-2 border-transparent flex items-center gap-2 cursor-pointer transition';
+    } else {
+      tabPush.classList.add('hidden');
+      tabPull.classList.remove('hidden');
+      btnPush.className = 'pb-3 text-xs font-semibold text-gray-500 hover:text-gray-900 border-b-2 border-transparent flex items-center gap-2 cursor-pointer transition';
+      btnPull.className = 'pb-3 text-xs font-bold border-b-2 border-brand-600 text-brand-700 flex items-center gap-2 cursor-pointer';
+    }
+  }
+
+  function toggleApiKeyVisibility() {
+    const input = document.getElementById('apiOrgKeyValue');
+    if (input.type === 'password') {
+      input.type = 'text';
+    } else {
+      input.type = 'password';
+    }
+  }
+
+  function copyToClipboard(elementId, btnElement) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+    const text = el.value || el.innerText;
+    navigator.clipboard.writeText(text).then(() => {
+      const originalHTML = btnElement.innerHTML;
+      btnElement.innerHTML = `
+        <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+        </svg>
+        <span>Copied!</span>
+      `;
+      setTimeout(() => {
+        btnElement.innerHTML = originalHTML;
+      }, 2000);
+    });
+  }
+
+  function copySnippetCode(btnElement) {
+    const code = document.getElementById('codePre').innerText;
+    navigator.clipboard.writeText(code).then(() => {
+      const orig = btnElement.innerText;
+      btnElement.innerText = 'Copied!';
+      setTimeout(() => { btnElement.innerText = orig; }, 2000);
+    });
+  }
+
+  let currentSnippetLang = 'curl';
+  function switchCodeLang(lang) {
+    currentSnippetLang = lang;
+    const btnCurl = document.getElementById('btnLangCurl');
+    const btnJs = document.getElementById('btnLangJs');
+    const btnPy = document.getElementById('btnLangPy');
+    const pre = document.getElementById('codePre');
+
+    [btnCurl, btnJs, btnPy].forEach(b => {
+      b.className = 'px-2.5 py-1 rounded-md font-semibold text-gray-600 hover:text-gray-900 cursor-pointer';
+    });
+
+    const apiUrl = document.getElementById('apiFullEndpointUrl').value;
+
+    if (lang === 'curl') {
+      btnCurl.className = 'px-2.5 py-1 rounded-md font-semibold bg-white text-gray-900 shadow-xs cursor-pointer';
+      pre.innerText = `curl -X POST "${apiUrl}" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "phone": "+16505550199",
+    "first_name": "Jane",
+    "last_name": "Smith",
+    "email": "jane@example.com",
+    "list": "Web Leads",
+    "stage": "Intake",
+    "consent": true
+  }'`;
+    } else if (lang === 'js') {
+      btnJs.className = 'px-2.5 py-1 rounded-md font-semibold bg-white text-gray-900 shadow-xs cursor-pointer';
+      pre.innerText = `const response = await fetch("${apiUrl}", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    phone: "+16505550199",
+    first_name: "Jane",
+    last_name: "Smith",
+    email: "jane@example.com",
+    list: "Web Leads",
+    stage: "Intake",
+    consent: true
+  })
+});
+const data = await response.json();
+console.log(data);`;
+    } else if (lang === 'python') {
+      btnPy.className = 'px-2.5 py-1 rounded-md font-semibold bg-white text-gray-900 shadow-xs cursor-pointer';
+      pre.innerText = `import requests
+
+url = "${apiUrl}"
+payload = {
+    "phone": "+16505550199",
+    "first_name": "Jane",
+    "last_name": "Smith",
+    "email": "jane@example.com",
+    "list": "Web Leads",
+    "stage": "Intake",
+    "consent": True
+}
+res = requests.post(url, json=payload)
+print(res.json())`;
+    }
+  }
+
+  async function regenerateOrgApiKey() {
+    const confirmed = await window.showAppConfirm({
+      title: "Regenerate API Key",
+      message: "Are you sure you want to regenerate your API Key? Any existing webhooks using the old key will need to be updated.",
+      confirmText: "Regenerate Key",
+    });
+    if (!confirmed) return;
+    try {
+      const resp = await fetch("{% url 'contacts:regenerate_api_key' %}", {
+        method: "POST",
+        headers: {
+          "X-CSRFToken": getCsrfToken(),
+          "X-Requested-With": "XMLHttpRequest",
+        }
+      });
+      const data = await resp.json();
+      if (data.status === "success") {
+        document.getElementById('apiOrgKeyValue').value = data.api_key;
+        document.getElementById('apiFullEndpointUrl').value = data.api_url;
+        document.getElementById('apiCleanWebhookUrl').innerText = data.webhook_url;
+        switchCodeLang(currentSnippetLang);
+        window.showAppToast("New API key generated successfully!", "success");
+      } else {
+        window.showAppToast(data.message || "Failed to regenerate API key.", "error");
+      }
+    } catch (err) {
+      window.showAppToast("Error regenerating API key: " + err.message, "error");
+    }
+  }
+
+  async function executeApiSimulation() {
+    const simBtn = document.getElementById('apiSimulateBtn');
+    const simJson = document.getElementById('apiSimulatorJson').value;
+    const resBox = document.getElementById('apiSimResultBox');
+    const codeEl = document.getElementById('simStatusCode');
+    const bodyEl = document.getElementById('simResponseBody');
+
+    simBtn.disabled = true;
+    simBtn.innerHTML = '<span>Sending...</span>';
+    resBox.classList.add('hidden');
+
+    try {
+      let parsed;
+      try {
+        parsed = JSON.parse(simJson);
+      } catch (e) {
+        window.showAppToast("Invalid JSON: " + e.message, "error");
+        simBtn.disabled = false;
+        simBtn.innerHTML = '<span>Send Test Lead</span>';
+        return;
+      }
+
+      const key = document.getElementById('apiOrgKeyValue').value;
+      const endpoint = `/api/v1/leads/?api_key=${encodeURIComponent(key)}`;
+      const headers = {
+        "Content-Type": "application/json",
+        "ngrok-skip-browser-warning": "true",
+      };
+      const csrf = getCsrfToken();
+      if (csrf) {
+        headers["X-CSRFToken"] = csrf;
+      }
+      const resp = await fetch(endpoint, {
+        method: "POST",
+        headers: headers,
+        body: JSON.stringify(parsed)
+      });
+
+      const data = await resp.json().catch(() => ({ status: resp.status, message: resp.statusText }));
+      resBox.classList.remove('hidden');
+      codeEl.innerText = `${resp.status} ${resp.statusText || (resp.ok ? 'OK' : 'Error')}`;
+      if (resp.ok) {
+        codeEl.className = "font-bold text-emerald-600";
+      } else {
+        codeEl.className = "font-bold text-rose-600";
+      }
+      bodyEl.innerText = JSON.stringify(data, null, 2);
+
+    } catch (err) {
+      resBox.classList.remove('hidden');
+      codeEl.innerText = "Error";
+      codeEl.className = "font-bold text-rose-600";
+      bodyEl.innerText = err.message;
+    } finally {
+      simBtn.disabled = false;
+      simBtn.innerHTML = '<span>Send Test Lead</span>';
+    }
+  }
+
+  async function submitRemoteApiPull(e) {
+    e.preventDefault();
+    const btn = document.getElementById('remotePullSubmitBtn');
+    const errBox = document.getElementById('pullErrorBox');
+    const succBox = document.getElementById('pullSuccessBox');
+    errBox.classList.add('hidden');
+    succBox.classList.add('hidden');
+
+    const formData = new FormData();
+    formData.append("url", document.getElementById('remote_url').value);
+    formData.append("method", document.getElementById('remote_method').value);
+    formData.append("auth_header", document.getElementById('remote_auth').value);
+    formData.append("contact_list_id", document.getElementById('remote_list_id').value);
+    formData.append("consent_attested", document.getElementById('remote_consent').checked ? "1" : "0");
+
+    btn.disabled = true;
+    btn.innerHTML = '<span>Fetching Leads from URL...</span>';
+
+    try {
+      const resp = await fetch("{% url 'contacts:fetch_remote_leads' %}", {
+        method: "POST",
+        headers: {
+          "X-CSRFToken": getCsrfToken(),
+          "X-Requested-With": "XMLHttpRequest",
+        },
+        body: formData,
+      });
+      const data = await resp.json();
+      if (data.status === "success") {
+        succBox.innerText = data.message;
+        succBox.classList.remove('hidden');
+        setTimeout(() => { window.location.reload(); }, 2500);
+      } else {
+        errBox.innerText = data.message || "Failed to import leads from API URL.";
+        errBox.classList.remove('hidden');
+      }
+    } catch (err) {
+      errBox.innerText = "Network or server error: " + err.message;
+      errBox.classList.remove('hidden');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<span>Fetch & Import Leads</span>';
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    refreshApiUrls();
+    if (new URLSearchParams(window.location.search).get('open_api') === '1') {
+      openApiModal();
+    }
+  });
+</script>
+{% endblock %}

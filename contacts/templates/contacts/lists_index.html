@@ -1,0 +1,633 @@
+{% extends "messaging/base_app.html" %}
+
+{% block title %}Contact Lists · SparkText{% endblock %}
+{% block global_breadcrumb %}
+<a href="{% url 'contacts:list' %}" class="font-medium text-gray-500 hover:text-gray-900 transition">Contacts</a>
+<span class="text-gray-300">/</span>
+<span class="font-semibold text-gray-800 truncate">Contact Lists</span>
+{% endblock %}
+{% block header_title %}Contact Lists & Segments{% endblock %}
+{% block header_subtitle %}Organize your subscribers into targeted lists for broadcast campaigns and outreach{% endblock %}
+
+{% block header_actions %}
+<button type="button" onclick="openCreateListModal()" class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-sm shadow-brand-600/30 cursor-pointer">
+  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+  </svg>
+  New Contact List
+</button>
+{% endblock %}
+
+{% block content %}
+{% csrf_token %}
+
+<!-- Sub-navigation Tabs -->
+<div class="flex items-center gap-2 border-b border-gray-200 pb-3 mb-6 overflow-x-auto">
+  <a href="{% url 'contacts:list' %}" class="px-3.5 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-900 rounded-lg hover:bg-gray-100 transition whitespace-nowrap shrink-0">
+    All Contacts
+  </a>
+  <a href="{% url 'contacts:lists' %}" class="px-3.5 py-1.5 text-xs font-semibold text-brand-700 bg-brand-50 rounded-lg border border-brand-200 whitespace-nowrap shrink-0">
+    Contact Lists ({{ total_lists }})
+  </a>
+  <a href="{% url 'contacts:fields' %}" class="px-3.5 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-900 rounded-lg hover:bg-gray-100 transition whitespace-nowrap shrink-0">
+    Custom Fields
+  </a>
+  <a href="{% url 'contacts:list' %}?open_api=1" class="px-3.5 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-900 rounded-lg hover:bg-gray-100 transition flex items-center gap-1.5 whitespace-nowrap shrink-0">
+    <svg class="w-3.5 h-3.5 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+    </svg>
+    API & Webhooks
+  </a>
+</div>
+
+{% if lists %}
+<!-- Summary KPI Strip -->
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+  <div class="p-4 rounded-2xl bg-white border border-gray-200 shadow-xs">
+    <div class="text-xs font-medium text-gray-500 mb-1">Active Lists</div>
+    <div class="flex items-baseline gap-2">
+      <span class="text-2xl font-black text-gray-900">{{ total_lists }}</span>
+      <span class="text-xs font-medium text-gray-400">segment{{ total_lists|pluralize }}</span>
+    </div>
+  </div>
+  <div class="p-4 rounded-2xl bg-white border border-gray-200 shadow-xs">
+    <div class="text-xs font-medium text-gray-500 mb-1">List Memberships</div>
+    <div class="flex items-baseline gap-2">
+      <span class="text-2xl font-black text-gray-900">{{ total_memberships }}</span>
+      <span class="text-xs font-medium text-gray-400">assigned subscriber{{ total_memberships|pluralize }}</span>
+    </div>
+  </div>
+  <div class="p-4 rounded-2xl bg-white border border-gray-200 shadow-xs">
+    <div class="flex items-center gap-1.5 text-xs font-medium text-emerald-700 mb-1">
+      <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+      Opted In Reach
+    </div>
+    <div class="flex items-baseline gap-2">
+      <span class="text-2xl font-black text-gray-900">{{ total_opted_in }}</span>
+      <span class="text-xs font-medium text-emerald-600">active consent</span>
+    </div>
+  </div>
+</div>
+
+<!-- Filter Bar -->
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+  <div class="relative flex-1 max-w-md">
+    <svg class="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+    </svg>
+    <input
+      type="text"
+      id="listSearchInput"
+      oninput="filterContactLists(this.value)"
+      placeholder="Search contact lists by name..."
+      class="w-full pl-10 pr-8 py-2 text-xs sm:text-sm bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 shadow-2xs transition"
+    >
+    <button
+      type="button"
+      id="listSearchClearBtn"
+      onclick="clearListSearch()"
+      class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5 rounded cursor-pointer"
+      title="Clear search"
+    >
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+      </svg>
+    </button>
+  </div>
+  <div id="listsMatchCount" class="text-xs text-gray-500 font-medium">
+    Showing {{ total_lists }} list{{ total_lists|pluralize }}
+  </div>
+</div>
+
+<!-- Lists Table Card -->
+<div class="bg-white border border-gray-200 rounded-2xl shadow-xs overflow-hidden">
+  <div class="overflow-x-auto">
+    <table class="w-full text-left text-sm border-collapse">
+      <thead>
+        <tr class="bg-gray-50/80 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+          <th class="py-3.5 px-4 sm:px-6">List Name</th>
+          <th class="py-3.5 px-4">Subscribers</th>
+          <th class="py-3.5 px-4">Opted In</th>
+          <th class="py-3.5 px-4">Created</th>
+          <th class="py-3.5 px-4 sm:px-6 text-right">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="listsTableBody" class="divide-y divide-gray-100">
+        {% for cl in lists %}
+        <tr class="contact-list-row hover:bg-slate-50/70 transition" data-list-name="{{ cl.name|lower }}">
+          <td class="py-3.5 px-4 sm:px-6">
+            <a href="{% url 'contacts:list' %}?list={{ cl.id }}" class="group inline-flex items-center gap-3 min-w-0">
+              <div class="w-9 h-9 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center border border-brand-100 shrink-0 group-hover:bg-brand-100 transition">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+              </div>
+              <span class="font-semibold text-sm text-gray-900 group-hover:text-brand-600 transition truncate">{{ cl.name }}</span>
+            </a>
+          </td>
+          <td class="py-3.5 px-4 whitespace-nowrap">
+            <span class="font-bold text-sm text-gray-900 tabular-nums">{{ cl.contact_count }}</span>
+            <span class="text-xs text-gray-500 ml-1">subscriber{{ cl.contact_count|pluralize }}</span>
+          </td>
+          <td class="py-3.5 px-4 whitespace-nowrap">
+            {% if cl.opted_in_count > 0 %}
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/80">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+              {{ cl.opted_in_count }} opted in
+            </span>
+            {% else %}
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">
+              0 opted in
+            </span>
+            {% endif %}
+          </td>
+          <td class="py-3.5 px-4 text-xs text-gray-500 whitespace-nowrap">
+            {{ cl.created_at|date:"M d, Y" }}
+          </td>
+          <td class="py-3.5 px-4 sm:px-6 text-right whitespace-nowrap">
+            <div class="inline-flex items-center justify-end gap-1.5">
+              <button
+                type="button"
+                onclick="openAddContactsModal('{{ cl.id }}', '{{ cl.name|escapejs }}')"
+                class="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-lg transition cursor-pointer"
+                title="Add contacts to this list"
+              >
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                </svg>
+                <span>Add Contacts</span>
+              </button>
+              <a
+                href="{% url 'contacts:list' %}?list={{ cl.id }}"
+                class="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-gray-700 hover:text-brand-600 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg transition"
+                title="View contacts in list"
+              >
+                <span>View</span>
+                <svg class="w-3.5 h-3.5 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                </svg>
+              </a>
+              <button
+                type="button"
+                onclick="openRenameModal('{{ cl.id }}', '{{ cl.name|escapejs }}')"
+                class="p-1.5 text-gray-400 hover:text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg transition cursor-pointer"
+                title="Rename list"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onclick="confirmDeleteList('{{ cl.id }}', '{{ cl.name|escapejs }}')"
+                class="p-1.5 text-gray-400 hover:text-rose-600 bg-white hover:bg-rose-50 border border-gray-200 hover:border-rose-200 rounded-lg transition cursor-pointer"
+                title="Delete list"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div id="listsNoSearchMatches" class="hidden text-center py-10 px-6">
+    <p class="text-sm font-semibold text-gray-700">No contact lists match your search</p>
+    <p class="text-xs text-gray-400 mt-1">Try a different keyword or <button type="button" onclick="clearListSearch()" class="text-brand-600 font-semibold hover:underline cursor-pointer">clear search</button>.</p>
+  </div>
+</div>
+{% else %}
+<div class="bg-white border border-gray-200 rounded-2xl shadow-xs text-center py-16 px-8">
+  <div class="w-14 h-14 bg-brand-50 text-brand-600 rounded-2xl flex items-center justify-center mx-auto mb-3 border border-brand-100">
+    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+    </svg>
+  </div>
+  <h3 class="text-base font-bold text-gray-900 mb-1">No contact lists created yet</h3>
+  <p class="text-xs text-gray-500 max-w-sm mx-auto mb-6">Create lists to group your contacts by tags, campaigns, or lead source.</p>
+  <button type="button" onclick="openCreateListModal()" class="px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs cursor-pointer">
+    + Create First List
+  </button>
+</div>
+{% endif %}
+
+<!-- ================= MODAL: CREATE LIST ================= -->
+<div id="createListModal" class="fixed inset-0 z-50 hidden overflow-y-auto" role="dialog" aria-modal="true">
+  <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity" onclick="closeCreateListModal()"></div>
+  <div class="flex min-h-full items-center justify-center p-4">
+    <div class="relative bg-white rounded-2xl max-w-md w-full p-6 text-left shadow-2xl border border-gray-100">
+      <h3 class="text-base font-bold text-gray-900 mb-1">New Contact List</h3>
+      <p class="text-xs text-gray-500 mb-4">Enter a descriptive name for your subscriber segment.</p>
+
+      <form method="post" action="{% url 'contacts:create_list' %}" class="space-y-4">
+        {% csrf_token %}
+        <div>
+          <label class="block text-xs font-semibold text-gray-700 mb-1">List Name <span class="text-rose-500">*</span></label>
+          <input
+            type="text"
+            name="name"
+            required
+            placeholder="e.g. Fall Promo, VIP Buyers, Website Inquiries"
+            class="w-full px-3.5 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
+        </div>
+
+        <div class="pt-3 border-t border-gray-100 flex items-center justify-end gap-3">
+          <button type="button" onclick="closeCreateListModal()" class="px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-xl cursor-pointer">
+            Cancel
+          </button>
+          <button type="submit" class="px-5 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs cursor-pointer">
+            Create List
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ================= MODAL: RENAME LIST ================= -->
+<div id="renameListModal" class="fixed inset-0 z-50 hidden overflow-y-auto" role="dialog" aria-modal="true">
+  <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity" onclick="closeRenameModal()"></div>
+  <div class="flex min-h-full items-center justify-center p-4">
+    <div class="relative bg-white rounded-2xl max-w-md w-full p-6 text-left shadow-2xl border border-gray-100">
+      <h3 class="text-base font-bold text-gray-900 mb-1">Rename Contact List</h3>
+      <p class="text-xs text-gray-500 mb-4">Update the display name of this list.</p>
+
+      <form id="renameListForm" method="post" action="" class="space-y-4">
+        {% csrf_token %}
+        <div>
+          <label class="block text-xs font-semibold text-gray-700 mb-1">List Name <span class="text-rose-500">*</span></label>
+          <input
+            type="text"
+            name="name"
+            id="renameListNameInput"
+            required
+            class="w-full px-3.5 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
+        </div>
+
+        <div class="pt-3 border-t border-gray-100 flex items-center justify-end gap-3">
+          <button type="button" onclick="closeRenameModal()" class="px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-xl cursor-pointer">
+            Cancel
+          </button>
+          <button type="submit" class="px-5 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs cursor-pointer">
+            Save
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ================= MODAL: ADD CONTACTS TO LIST ================= -->
+<div id="addContactsModal" class="fixed inset-0 z-50 hidden overflow-y-auto" role="dialog" aria-modal="true">
+  <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity" onclick="closeAddContactsModal()"></div>
+  <div class="flex min-h-full items-center justify-center p-4">
+    <div class="relative bg-white rounded-2xl max-w-lg w-full p-6 text-left shadow-2xl border border-gray-100 space-y-4">
+      
+      <!-- Modal Header -->
+      <div class="flex items-start justify-between border-b border-gray-100 pb-3">
+        <div>
+          <h3 class="text-base font-bold text-gray-900 leading-tight">
+            Add Contacts to <span id="modalTargetListName" class="text-brand-600">List</span>
+          </h3>
+          <p class="text-xs text-gray-500 mt-0.5">Select existing contacts or create a new one</p>
+        </div>
+        <button type="button" onclick="closeAddContactsModal()" class="w-7 h-7 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 flex items-center justify-center transition cursor-pointer">
+          ✕
+        </button>
+      </div>
+
+      <!-- Mode Tabs -->
+      <div class="flex border-b border-gray-100 text-xs font-semibold gap-4">
+        <button type="button" id="tabBtnSelectExisting" onclick="switchAddContactTab('existing')" class="pb-2 border-b-2 border-brand-600 text-brand-600 font-bold transition cursor-pointer">
+          Select Existing Contacts ({{ all_contacts|length }})
+        </button>
+        <button type="button" id="tabBtnCreateNew" onclick="switchAddContactTab('new')" class="pb-2 border-b-2 border-transparent text-gray-500 hover:text-gray-800 transition cursor-pointer">
+          + Quick Create Contact
+        </button>
+      </div>
+
+      <!-- Tab 1: Select Existing Contacts -->
+      <div id="addTabExisting" class="space-y-3">
+        <!-- Search bar -->
+        <div class="relative">
+          <input
+            type="text"
+            id="modalContactSearch"
+            oninput="filterModalContacts(this.value)"
+            placeholder="Search contacts by name or phone..."
+            class="w-full pl-8 pr-3 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-800"
+          />
+          <svg class="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-2.5 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+          </svg>
+        </div>
+
+        <div class="flex items-center justify-between text-[11px] text-gray-500 px-1">
+          <span id="selectedCountNotice">0 contacts selected</span>
+          <div class="space-x-2">
+            <button type="button" onclick="selectAllFilteredContacts(true)" class="text-brand-600 hover:underline font-semibold cursor-pointer">Select All</button>
+            <span>·</span>
+            <button type="button" onclick="selectAllFilteredContacts(false)" class="text-gray-500 hover:underline cursor-pointer">Clear</button>
+          </div>
+        </div>
+
+        <!-- Contacts list -->
+        <form id="addExistingContactsForm" method="post" action="">
+          {% csrf_token %}
+          <div id="contactsCheckboxContainer" class="max-h-60 overflow-y-auto space-y-1.5 p-1 border border-gray-100 rounded-xl bg-gray-50/50">
+            {% for c in all_contacts %}
+            <label
+              class="contact-select-row flex items-center justify-between p-2 rounded-xl bg-white border border-gray-200 hover:border-brand-300 transition cursor-pointer text-xs"
+              data-search="{{ c.first_name }} {{ c.last_name }} {{ c.phone }}"
+              data-contact-id="{{ c.id }}"
+            >
+              <div class="flex items-center gap-2.5 min-w-0">
+                <input
+                  type="checkbox"
+                  name="contact_ids"
+                  value="{{ c.id }}"
+                  onchange="updateSelectedCount()"
+                  class="rounded border-gray-300 text-brand-600 focus:ring-brand-500 cursor-pointer"
+                />
+                <div class="min-w-0">
+                  <div class="font-bold text-gray-900 truncate">
+                    {% if c.first_name or c.last_name %}{{ c.first_name }} {{ c.last_name }}{% else %}{{ c.phone }}{% endif %}
+                  </div>
+                  <div class="text-[11px] text-gray-400 font-mono">{{ c.phone }}</div>
+                </div>
+              </div>
+              <div class="flex items-center gap-1.5 shrink-0">
+                <span class="membership-badge hidden px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-600 border border-gray-200">
+                  Already in list
+                </span>
+                {% if c.sms_status == "opted_in" %}
+                  <span class="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-50 text-emerald-700">Opted In</span>
+                {% elif c.sms_status == "opted_out" %}
+                  <span class="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-rose-50 text-rose-700">Opted Out</span>
+                {% endif %}
+              </div>
+            </label>
+            {% empty %}
+            <div class="p-6 text-center text-xs text-gray-400">
+              No contacts available.
+            </div>
+            {% endfor %}
+          </div>
+
+          <div class="pt-4 border-t border-gray-100 flex items-center justify-end gap-2.5 mt-3">
+            <button type="button" onclick="closeAddContactsModal()" class="px-3.5 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-xl cursor-pointer">
+              Cancel
+            </button>
+            <button type="submit" id="btnAddSelectedSubmit" class="px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs cursor-pointer flex items-center gap-1.5">
+              <span>Add Selected Contacts</span>
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Tab 2: Quick Create Contact -->
+      <div id="addTabNew" class="hidden space-y-3">
+        <form id="addNewContactForm" method="post" action="" class="space-y-3">
+          {% csrf_token %}
+          <div>
+            <label class="block text-xs font-bold text-gray-700 mb-1">Phone Number <span class="text-rose-500">*</span></label>
+            <input
+              type="tel"
+              name="new_phone"
+              required
+              placeholder="+1 (555) 000-0000"
+              class="w-full px-3 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 text-gray-900 font-mono"
+            />
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-xs font-bold text-gray-700 mb-1">First Name</label>
+              <input
+                type="text"
+                name="new_first_name"
+                placeholder="First"
+                class="w-full px-3 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 text-gray-900"
+              />
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-gray-700 mb-1">Last Name</label>
+              <input
+                type="text"
+                name="new_last_name"
+                placeholder="Last"
+                class="w-full px-3 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 text-gray-900"
+              />
+            </div>
+          </div>
+          <div class="p-3 bg-brand-50/70 border border-brand-100 rounded-xl text-xs text-brand-900">
+            <label class="flex items-center gap-2 cursor-pointer font-medium">
+              <input type="checkbox" name="new_sms_status" value="opted_in" checked class="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+              <span>Contact has provided express opt-in consent for SMS</span>
+            </label>
+          </div>
+          <div class="pt-3 border-t border-gray-100 flex items-center justify-end gap-2.5">
+            <button type="button" onclick="closeAddContactsModal()" class="px-3.5 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-xl cursor-pointer">
+              Cancel
+            </button>
+            <button type="submit" class="px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs cursor-pointer">
+              Create & Add to List
+            </button>
+          </div>
+        </form>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Hidden delete list form -->
+<form id="deleteListForm" method="post" action="" class="hidden">
+  {% csrf_token %}
+</form>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  const LIST_MEMBERSHIPS = {{ memberships_json|default:"{}"|safe }};
+  let currentActiveListId = null;
+
+  function openCreateListModal() {
+    document.getElementById('createListModal').classList.remove('hidden');
+  }
+  function closeCreateListModal() {
+    document.getElementById('createListModal').classList.add('hidden');
+  }
+
+  function openRenameModal(listId, currentName) {
+    const form = document.getElementById('renameListForm');
+    form.action = `/contacts/lists/${listId}/edit/`;
+    document.getElementById('renameListNameInput').value = currentName;
+    document.getElementById('renameListModal').classList.remove('hidden');
+  }
+  function closeRenameModal() {
+    document.getElementById('renameListModal').classList.add('hidden');
+  }
+
+  async function confirmDeleteList(listId, listName) {
+    const confirmed = await window.showAppConfirm({
+      title: "Delete Contact List",
+      message: `Are you sure you want to delete the list "${listName}"? Contacts within this list will NOT be deleted.`,
+      confirmText: "Delete List",
+    });
+    if (confirmed) {
+      const form = document.getElementById('deleteListForm');
+      form.action = `/contacts/lists/${listId}/delete/`;
+      form.submit();
+    }
+  }
+
+  function openAddContactsModal(listId, listName) {
+    currentActiveListId = listId;
+    const nameEl = document.getElementById('modalTargetListName');
+    if (nameEl) nameEl.textContent = `"${listName}"`;
+
+    const formExisting = document.getElementById('addExistingContactsForm');
+    const formNew = document.getElementById('addNewContactForm');
+    if (formExisting) formExisting.action = `/contacts/lists/${listId}/add-contacts/`;
+    if (formNew) formNew.action = `/contacts/lists/${listId}/add-contacts/`;
+
+    // Reset search
+    const searchInput = document.getElementById('modalContactSearch');
+    if (searchInput) {
+      searchInput.value = '';
+      filterModalContacts('');
+    }
+
+    // Set membership markers
+    const existingMemberIds = new Set(LIST_MEMBERSHIPS[listId] || []);
+    const rows = document.querySelectorAll('.contact-select-row');
+    rows.forEach(row => {
+      const cid = parseInt(row.getAttribute('data-contact-id'), 10);
+      const isMember = existingMemberIds.has(cid);
+      const checkbox = row.querySelector('input[type="checkbox"]');
+      const badge = row.querySelector('.membership-badge');
+
+      if (checkbox) {
+        checkbox.checked = isMember;
+        checkbox.disabled = isMember;
+      }
+      if (badge) {
+        if (isMember) {
+          badge.classList.remove('hidden');
+          row.classList.add('opacity-60', 'bg-gray-50');
+        } else {
+          badge.classList.add('hidden');
+          row.classList.remove('opacity-60', 'bg-gray-50');
+        }
+      }
+    });
+
+    updateSelectedCount();
+    switchAddContactTab('existing');
+    document.getElementById('addContactsModal').classList.remove('hidden');
+  }
+
+  function closeAddContactsModal() {
+    const modal = document.getElementById('addContactsModal');
+    if (modal) modal.classList.add('hidden');
+  }
+
+  function switchAddContactTab(tab) {
+    const tabExisting = document.getElementById('addTabExisting');
+    const tabNew = document.getElementById('addTabNew');
+    const btnExisting = document.getElementById('tabBtnSelectExisting');
+    const btnNew = document.getElementById('tabBtnCreateNew');
+
+    if (tab === 'existing') {
+      tabExisting?.classList.remove('hidden');
+      tabNew?.classList.add('hidden');
+      if (btnExisting) btnExisting.className = 'pb-2 border-b-2 border-brand-600 text-brand-600 font-bold transition cursor-pointer';
+      if (btnNew) btnNew.className = 'pb-2 border-b-2 border-transparent text-gray-500 hover:text-gray-800 transition cursor-pointer';
+    } else {
+      tabExisting?.classList.add('hidden');
+      tabNew?.classList.remove('hidden');
+      if (btnNew) btnNew.className = 'pb-2 border-b-2 border-brand-600 text-brand-600 font-bold transition cursor-pointer';
+      if (btnExisting) btnExisting.className = 'pb-2 border-b-2 border-transparent text-gray-500 hover:text-gray-800 transition cursor-pointer';
+    }
+  }
+
+  function filterModalContacts(query) {
+    const term = (query || '').toLowerCase().trim();
+    const rows = document.querySelectorAll('.contact-select-row');
+    rows.forEach(row => {
+      const text = (row.getAttribute('data-search') || '').toLowerCase();
+      if (!term || text.includes(term)) {
+        row.style.display = 'flex';
+      } else {
+        row.style.display = 'none';
+      }
+    });
+  }
+
+  function updateSelectedCount() {
+    const checkedBoxes = document.querySelectorAll('#contactsCheckboxContainer input[type="checkbox"]:checked:not(:disabled)');
+    const count = checkedBoxes.length;
+    const notice = document.getElementById('selectedCountNotice');
+    const btn = document.getElementById('btnAddSelectedSubmit');
+    if (notice) {
+      notice.textContent = `${count} new contact${count === 1 ? '' : 's'} selected`;
+    }
+    if (btn) {
+      btn.innerHTML = `<span>Add Selected Contacts (${count})</span>`;
+      btn.disabled = count === 0;
+    }
+  }
+
+  function selectAllFilteredContacts(shouldSelect) {
+    const rows = document.querySelectorAll('.contact-select-row');
+    rows.forEach(row => {
+      if (row.style.display !== 'none') {
+        const checkbox = row.querySelector('input[type="checkbox"]:not(:disabled)');
+        if (checkbox) checkbox.checked = shouldSelect;
+      }
+    });
+    updateSelectedCount();
+  }
+
+  function filterContactLists(query) {
+    const term = (query || '').trim().toLowerCase();
+    const clearBtn = document.getElementById('listSearchClearBtn');
+    const matchCountEl = document.getElementById('listsMatchCount');
+    const emptyMatchesEl = document.getElementById('listsNoSearchMatches');
+    if (clearBtn) clearBtn.classList.toggle('hidden', !term);
+
+    const rows = document.querySelectorAll('.contact-list-row');
+    let visible = 0;
+    rows.forEach(row => {
+      const name = row.getAttribute('data-list-name') || '';
+      const matches = !term || name.includes(term);
+      row.style.display = matches ? '' : 'none';
+      if (matches) visible++;
+    });
+
+    if (matchCountEl) {
+      matchCountEl.textContent = `Showing ${visible} list${visible === 1 ? '' : 's'}`;
+    }
+    if (emptyMatchesEl) {
+      emptyMatchesEl.classList.toggle('hidden', visible > 0 || rows.length === 0);
+    }
+  }
+
+  function clearListSearch() {
+    const input = document.getElementById('listSearchInput');
+    if (input) {
+      input.value = '';
+      filterContactLists('');
+      input.focus();
+    }
+  }
+</script>
+{% endblock %}
+

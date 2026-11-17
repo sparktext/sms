@@ -1,0 +1,16 @@
+{
+  "name": "sparktext",
+  "private": true,
+  "scripts": {
+    "build:css:app": "tailwindcss -i ./src/css/app.css -o ./static/css/app.css --minify",
+    "build:css:website": "tailwindcss -i ./src/css/website.css -o ./static/css/website.css --minify",
+    "build:css": "npm run build:css:app && npm run build:css:website",
+    "watch:css:app": "tailwindcss -i ./src/css/app.css -o ./static/css/app.css --watch",
+    "watch:css:website": "tailwindcss -i ./src/css/website.css -o ./static/css/website.css --watch"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.1.0",
+    "tailwindcss": "^4.1.0"
+  }
+}
+

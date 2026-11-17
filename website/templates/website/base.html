@@ -1,0 +1,225 @@
+{% load static %}<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description"
+    content="{% block meta_description %}SparkText — Two-way text messaging for businesses. Send bulk campaigns, manage replies, and stay compliant automatically.{% endblock %}">
+  <title>{% block title %}SparkText — Business SMS Platform{% endblock %}</title>
+
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'css/website.css' %}">
+
+  {% block extra_head %}{% endblock %}
+</head>
+
+<body class="bg-white text-gray-900 antialiased selection:bg-blue-100 selection:text-blue-900">
+
+  <!-- ═══════════════════════════ NAVBAR ═══════════════════════════ -->
+  <header id="navbar" class="fixed top-0 inset-x-0 z-50 bg-white border-b border-gray-100 transition-shadow duration-200">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <nav class="flex items-center justify-between h-20">
+
+        <!-- Logo -->
+        <a href="/" id="nav-logo" class="flex items-center gap-2.5 group" aria-label="SparkText home">
+          <div class="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-xs group-hover:bg-blue-700 transition-colors">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+            </svg>
+          </div>
+          <span class="text-lg font-medium tracking-tight text-gray-950">SparkText</span>
+        </a>
+
+        <!-- Desktop links -->
+        <ul class="hidden md:flex items-center gap-1 list-none" role="list">
+          <li>
+            <a href="/" id="nav-home"
+              class="px-3.5 py-2 rounded-lg text-sm font-normal text-gray-600 hover:text-gray-950 hover:bg-gray-50 transition-colors {% block nav_home %}{% endblock %}">
+              Home
+            </a>
+          </li>
+          <li>
+            <a href="/about/" id="nav-about"
+              class="px-3.5 py-2 rounded-lg text-sm font-normal text-gray-600 hover:text-gray-950 hover:bg-gray-50 transition-colors {% block nav_about %}{% endblock %}">
+              About
+            </a>
+          </li>
+          <li>
+            <a href="/pricing/" id="nav-pricing"
+              class="px-3.5 py-2 rounded-lg text-sm font-normal text-gray-600 hover:text-gray-950 hover:bg-gray-50 transition-colors {% block nav_pricing %}{% endblock %}">
+              Pricing
+            </a>
+          </li>
+          <li>
+            <a href="/contact/" id="nav-contact"
+              class="px-3.5 py-2 rounded-lg text-sm font-normal text-gray-600 hover:text-gray-950 hover:bg-gray-50 transition-colors {% block nav_contact %}{% endblock %}">
+              Contact
+            </a>
+          </li>
+        </ul>
+
+        <!-- CTA -->
+        <div class="hidden md:flex items-center gap-4">
+          <a href="/contact/" class="text-sm font-normal text-gray-600 hover:text-gray-950 transition-colors"
+            id="nav-cta-contact">Contact us</a>
+          {% if request.user.is_authenticated %}
+          <a href="{% url 'messaging:dashboard' %}"
+            class="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2.5 rounded-lg shadow-xs transition-colors"
+            id="nav-cta-dashboard">
+            Dashboard &rarr;
+          </a>
+          {% else %}
+          <a href="{% url 'login' %}"
+            class="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2.5 rounded-lg shadow-xs transition-colors"
+            id="nav-cta-login">
+            Get started &rarr;
+          </a>
+          {% endif %}
+        </div>
+
+        <!-- Mobile hamburger -->
+        <button id="mobile-menu-btn"
+          class="md:hidden p-2 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors" aria-label="Toggle menu"
+          aria-expanded="false">
+          <svg id="ham-icon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+          <svg id="close-icon" class="w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </nav>
+
+      <!-- Mobile menu -->
+      <div id="mobile-menu" class="hidden md:hidden pb-5 pt-2 border-t border-gray-100 space-y-1">
+        <a href="/"
+          class="block px-3 py-2 rounded-lg text-sm font-normal text-gray-700 hover:bg-gray-50 hover:text-gray-950 transition-colors">Home</a>
+        <a href="/about/"
+          class="block px-3 py-2 rounded-lg text-sm font-normal text-gray-700 hover:bg-gray-50 hover:text-gray-950 transition-colors">About</a>
+        <a href="/pricing/"
+          class="block px-3 py-2 rounded-lg text-sm font-normal text-gray-700 hover:bg-gray-50 hover:text-gray-950 transition-colors">Pricing</a>
+        <a href="/contact/"
+          class="block px-3 py-2 rounded-lg text-sm font-normal text-gray-700 hover:bg-gray-50 hover:text-gray-950 transition-colors">Contact</a>
+        <div class="pt-3 flex flex-col gap-2 px-1">
+          {% if request.user.is_authenticated %}
+          <a href="{% url 'messaging:dashboard' %}"
+            class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2.5 rounded-lg text-center transition-colors">
+            Dashboard &rarr;
+          </a>
+          {% else %}
+          <a href="{% url 'login' %}"
+            class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2.5 rounded-lg text-center transition-colors">
+            Get started &rarr;
+          </a>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Page content offset for fixed nav -->
+  <div class="h-20"></div>
+
+  <!-- ═══════════════════════════ PAGE CONTENT ═══════════════════════════ -->
+  {% block content %}{% endblock %}
+
+  <!-- ═══════════════════════════ FOOTER ═══════════════════════════ -->
+  <footer class="bg-[#0A0A0A] text-gray-400 pt-24 pb-12 border-t border-neutral-900">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-12 mb-20">
+
+        <!-- Brand col -->
+        <div class="lg:col-span-2">
+          <a href="/" class="flex items-center gap-2.5 mb-4 group inline-flex" aria-label="SparkText">
+            <div class="w-7 h-7 rounded-md bg-blue-600 flex items-center justify-center text-white">
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+              </svg>
+            </div>
+            <span class="text-lg font-medium tracking-tight text-white">SparkText</span>
+          </a>
+          <p class="text-sm font-light text-gray-400 leading-relaxed max-w-sm mb-6">
+            Two-way business messaging platform built for deliverability, compliance, and effortless customer conversations.
+          </p>
+          <div>
+            <a href="mailto:info@sparktext.si"
+              class="inline-flex items-center gap-2 text-xs font-normal text-gray-300 hover:text-white border border-neutral-800 rounded-lg px-3.5 py-2 transition-colors">
+              <svg class="w-3.5 h-3.5 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                <rect width="20" height="16" x="2" y="4" rx="2" />
+                <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+              </svg>
+              info@sparktext.si
+            </a>
+          </div>
+        </div>
+
+        <!-- Links -->
+        <div>
+          <h4 class="text-xs font-medium uppercase tracking-[0.2em] text-gray-300 mb-5">Product</h4>
+          <ul class="space-y-3 list-none" role="list">
+            <li><a href="/#features" class="text-sm font-light text-gray-400 hover:text-white transition-colors">Features</a></li>
+            <li><a href="/#how-it-works" class="text-sm font-light text-gray-400 hover:text-white transition-colors">How it works</a></li>
+            <li><a href="/pricing/" class="text-sm font-light text-gray-400 hover:text-white transition-colors">Pricing</a></li>
+          </ul>
+        </div>
+
+        <div>
+          <h4 class="text-xs font-medium uppercase tracking-[0.2em] text-gray-300 mb-5">Company</h4>
+          <ul class="space-y-3 list-none" role="list">
+            <li><a href="/about/" class="text-sm font-light text-gray-400 hover:text-white transition-colors">About</a></li>
+            <li><a href="/contact/" class="text-sm font-light text-gray-400 hover:text-white transition-colors">Contact</a></li>
+          </ul>
+        </div>
+
+        <div>
+          <h4 class="text-xs font-medium uppercase tracking-[0.2em] text-gray-300 mb-5">Legal</h4>
+          <ul class="space-y-3 list-none" role="list">
+            <li><a href="/privacy/" class="text-sm font-light text-gray-400 hover:text-white transition-colors">Privacy Policy</a></li>
+            <li><a href="/terms/" class="text-sm font-light text-gray-400 hover:text-white transition-colors">Terms of Service</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Bottom bar -->
+      <div class="border-t border-neutral-900 pt-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-xs font-light text-gray-400">
+        <span>&copy; 2026 SparkText Inc. All rights reserved.</span>
+        <address class="not-italic text-gray-400">9675 Moreno Ln, Gilroy, CA 95020 &middot; (661) 203-1738</address>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ═══════════════════════════ JS ═══════════════════════════ -->
+  <script>
+    // Mobile menu toggle
+    const btn = document.getElementById('mobile-menu-btn');
+    const menu = document.getElementById('mobile-menu');
+    const hamIcon = document.getElementById('ham-icon');
+    const closeIcon = document.getElementById('close-icon');
+
+    if (btn && menu) {
+      btn.addEventListener('click', () => {
+        const open = menu.classList.toggle('hidden');
+        hamIcon.classList.toggle('hidden', !open);
+        closeIcon.classList.toggle('hidden', open);
+        btn.setAttribute('aria-expanded', String(!open));
+      });
+    }
+
+    // Navbar scroll shadow
+    const navbar = document.getElementById('navbar');
+    window.addEventListener('scroll', () => {
+      if (window.scrollY > 8) {
+        navbar.classList.add('shadow-xs');
+      } else {
+        navbar.classList.remove('shadow-xs');
+      }
+    });
+  </script>
+  {% block extra_js %}{% endblock %}
+</body>
+
+</html>

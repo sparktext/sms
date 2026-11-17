@@ -1,0 +1,116 @@
+{% for conv in conversations %}
+<a href="{% url 'messaging:conversation_detail' conv.id %}{% if status_filter %}?status={{ status_filter }}{% endif %}{% if assigned_filter %}&assigned={{ assigned_filter }}{% endif %}{% if q %}&q={{ q }}{% endif %}"
+   data-conv-id="{{ conv.id }}"
+   id="conv-item-{{ conv.id }}"
+   data-search-text="{{ conv.contact.first_name }} {{ conv.contact.last_name }} {{ conv.contact.phone }} {% if conv.cached_last_msg %}{{ conv.cached_last_msg.body }}{% endif %}"
+   data-has-reply="{% if conv.last_inbound_at %}true{% else %}false{% endif %}"
+   data-unread-count="{% if conversation and conversation.id == conv.id %}0{% else %}{{ conv.unread_count }}{% endif %}"
+   data-assigned-to="{{ conv.assigned_to_id|default:'' }}"
+   class="chat-list-item flex items-center justify-between p-3.5 transition group select-none
+   {% if conversation and conversation.id == conv.id %}
+     bg-brand-50/70 border-l-4 border-l-brand-600
+   {% else %}
+     hover:bg-slate-50/80 border-l-4 border-l-transparent {% if conv.unread_count > 0 %}bg-slate-50/50{% endif %}
+   {% endif %}">
+  
+  <div class="flex items-center gap-3 min-w-0 flex-1">
+    <!-- Avatar with status dot -->
+    <div class="relative shrink-0">
+      <div class="w-10 h-10 rounded-2xl bg-brand-100/70 text-brand-700 font-bold text-xs flex items-center justify-center border border-brand-200/60 shadow-2xs">
+        {% if conv.contact.first_name %}{{ conv.contact.first_name|slice:":1"|upper }}{% elif conv.contact.last_name %}{{ conv.contact.last_name|slice:":1"|upper }}{% else %}#FF{% endif %}
+      </div>
+      {% if conv.contact.sms_status == "opted_in" %}
+        <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white absolute -bottom-0.5 -right-0.5" title="Opted In"></span>
+      {% elif conv.contact.sms_status == "opted_out" %}
+        <span class="w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-white absolute -bottom-0.5 -right-0.5" title="Opted Out (STOP)"></span>
+      {% endif %}
+    </div>
+
+    <div class="min-w-0 flex-1">
+      <div class="flex items-center justify-between gap-1 mb-0.5">
+        <div class="flex items-center gap-1.5 min-w-0">
+          <span class="font-bold text-xs text-gray-900 truncate {% if conversation and conversation.id == conv.id %}text-brand-900{% endif %}">
+            {% if conv.contact.first_name or conv.contact.last_name %}
+              {{ conv.contact.first_name }} {{ conv.contact.last_name }}
+            {% else %}
+              {{ conv.contact.phone }}
+            {% endif %}
+          </span>
+          {% if conv.assigned_to_id == request.user.id %}
+            <span class="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-bold bg-brand-50 text-brand-700 border border-brand-200 shrink-0" title="Assigned to you">You</span>
+          {% elif conv.assigned_to %}
+            <span class="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-medium bg-gray-100 text-gray-600 border border-gray-200 shrink-0 max-w-[85px] truncate" title="Assigned to {{ conv.assigned_to.first_name|default:conv.assigned_to.email }}">
+              <span>👤</span>
+              <span class="truncate">{{ conv.assigned_to.first_name|default:conv.assigned_to.email }}</span>
+            </span>
+          {% endif %}
+        </div>
+        <span class="text-[10px] text-gray-400 shrink-0 font-medium">
+          {{ conv.last_message_at|timesince }} ago
+        </span>
+      </div>
+
+      <!-- Snippet & unread badge -->
+      <div class="conv-snippet-row flex items-center justify-between gap-1">
+        <p class="text-[11px] text-gray-500 truncate max-w-[170px] sm:max-w-[200px]">
+          {% with last_msg=conv.cached_last_msg %}
+            {% if last_msg %}
+              {% if last_msg.direction == 'outbound' %}<span class="text-gray-400">You:</span> {% endif %}{{ last_msg.body }}
+            {% else %}
+              <span class="text-gray-400 italic">No messages yet</span>
+            {% endif %}
+          {% endwith %}
+        </p>
+
+        {% if conv.unread_count > 0 %}{% if not conversation or conversation.id != conv.id %}
+        <span class="conv-unread-badge px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-brand-600 text-white shrink-0">
+          {{ conv.unread_count }}
+        </span>
+        {% endif %}{% endif %}
+      </div>
+
+      <!-- Search Match Clarification (Issue #5) -->
+      {% if conv.search_match_snippet and q %}
+      <div class="mt-1 flex items-center gap-1 text-[10px] bg-amber-50 text-amber-900 border border-amber-200/90 rounded px-1.5 py-0.5 truncate max-w-full" title="{{ conv.search_match_snippet }}">
+        <span class="font-bold text-amber-700 shrink-0">🔍 Match:</span>
+        <span class="truncate italic">"{{ conv.search_match_snippet }}"</span>
+      </div>
+      {% endif %}
+
+      <!-- Lead Qualification Tag Pill (if collected) -->
+      {% if conv.qualification_answers and conv.qualification_answers.coverage_type %}
+      <div class="mt-1">
+        <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-brand-50 text-brand-700 border border-brand-200/80">
+          <span>🚗 {{ conv.qualification_answers.coverage_type }}</span>
+          {% if conv.qualification_answers.zip_code %}
+            <span class="text-gray-400">·</span>
+            <span>{{ conv.qualification_answers.zip_code }}</span>
+          {% endif %}
+        </span>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+</a>
+{% empty %}
+{% if not request.GET.append %}
+<div class="p-8 text-center">
+  <p class="text-xs text-gray-400">{% if q %}No conversations match "{{ q }}"{% else %}No {{ status_filter }} conversations{% endif %}</p>
+</div>
+{% endif %}
+{% endfor %}
+{% if has_more_conversations %}
+<div id="inbox-load-more-wrap" class="p-3 flex justify-center bg-gray-50/50">
+  <button
+    type="button"
+    id="inbox-load-more-btn"
+    data-next-offset="{{ next_conv_offset|default:30 }}"
+    onclick="loadMoreConversations()"
+    class="px-3.5 py-1.5 rounded-xl text-xs font-semibold text-brand-700 bg-white hover:bg-brand-50 border border-gray-200 hover:border-brand-200 shadow-2xs transition cursor-pointer"
+  >
+    Load more conversations
+  </button>
+</div>
+{% endif %}
+

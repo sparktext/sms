@@ -11,37 +11,89 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
 from pathlib import Path
+import environ
+import os
+import sys
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Read environment variables
+env = environ.Env(
+    DEBUG=(bool, True),
+    SECRET_KEY=(str, "django-insecure-@^3s@sl(m65*7z*#-d@obnklrqilm_zci@9s)f9p_o)!q@7k=6"),
+    TWILIO_ACCOUNT_SID=(str, ""),
+    TWILIO_AUTH_TOKEN=(str, ""),
+    TWILIO_PHONE_NUMBER=(str, ""),
+    PUBLIC_BASE_URL=(str, ""),
+    TWILIO_VALIDATE_WEBHOOKS=(bool, True),
+    TELNYX_API_KEY=(str, ""),
+    TELNYX_PUBLIC_KEY=(str, ""),
+    TELNYX_PHONE_NUMBER=(str, ""),
+    TELNYX_VALIDATE_WEBHOOKS=(bool, False),
+    MESSAGING_PROVIDER=(str, "telnyx"),
+    MESSAGING_REPLY_WINDOW_HOURS=(int, 24),
+    AI_CLIENT=(str, "openai"),
+    AI_BASE_URL=(str, "http://localhost:1235/v1"),
+    AI_MODEL=(str, "google/gemma-4-12b-qat"),
+    AI_API_KEY=(str, ""),
+    AI_TIMEOUT_SECONDS=(int, 45),
+    AI_MAX_RETRIES=(int, 1),
+    REDIS_URL=(str, "redis://localhost:6380?protocol=2&socket_timeout=30"),
+    EMAIL_BACKEND=(str, "django.core.mail.backends.smtp.EmailBackend"),
+    EMAIL_HOST=(str, "smtp.hostinger.com"),
+    EMAIL_PORT=(int, 465),
+    EMAIL_USE_SSL=(bool, True),
+    EMAIL_HOST_USER=(str, "info@sparktext.si"),
+    EMAIL_HOST_PASSWORD=(str, ""),
+    DEFAULT_FROM_EMAIL=(str, "info@sparktext.si"),
+    CONTACT_EMAIL=(str, "info@sparktext.si"),
+)
+environ.Env.read_env(BASE_DIR / ".env", overwrite=True)
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-@^3s@sl(m65*7z*#-d@obnklrqilm_zci@9s)f9p_o)!q@7k=6'
+SECRET_KEY = env("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = env("DEBUG")
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ["localhost", "127.0.0.1", "testserver", "*", "https://denim-creamed-starlit.ngrok-free.dev"]
 
-
+CSRF_TRUSTED_ORIGINS = ["https://denim-creamed-starlit.ngrok-free.dev", "http://denim-creamed-starlit.ngrok-free.dev"]
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+USE_X_FORWARDED_HOST = True
+USE_X_FORWARDED_PORT = True
 # Application definition
 
 INSTALLED_APPS = [
+    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    # Channels
+    'channels',
     # Local apps
+    'rest_framework',
     'messaging',
     'contacts',
     'compliance',
+    'campaigns',
+    'core',
+    'website',
 ]
+
+AUTH_USER_MODEL = "core.User"      # must be set BEFORE the first migrate
+LOGIN_URL = "login"
+LOGIN_REDIRECT_URL = "messaging:dashboard"
+LOGOUT_REDIRECT_URL = "website:home"
+
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
@@ -58,19 +110,40 @@ ROOT_URLCONF = 'sparktext.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'messaging.context_processors.unread_inbox_count',
             ],
         },
     },
 ]
 
 WSGI_APPLICATION = 'sparktext.wsgi.application'
+ASGI_APPLICATION = 'sparktext.asgi.application'
+
+TESTING = "test" in sys.argv
+if TESTING:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels.layers.InMemoryChannelLayer",
+        }
+    }
+else:
+    CHANNEL_LAYERS = {
+        "default": {
+            # Redis channel layer — shared across ALL processes (web server, AI worker, campaign worker).
+            # This means WebSocket broadcasts from any process instantly reach connected browsers.
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {
+                "hosts": [env("REDIS_URL", default="redis://localhost:6379")],
+            },
+        }
+    }
 
 
 # Database
@@ -78,8 +151,12 @@ WSGI_APPLICATION = 'sparktext.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'sparktext',
+        'USER': 'postgres',
+        'PASSWORD': 'sparktext',
+        'HOST': 'localhost',
+        'PORT': '5432',
     }
 }
 
@@ -118,14 +195,43 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
+STATICFILES_DIRS = [BASE_DIR / 'static']
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 
-# Email
+# Email (Standard Django SMTP Configuration via Environment)
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
+ 
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="info@sparktext.si")
+CONTACT_EMAIL = env("CONTACT_EMAIL", default="info@sparktext.si")
+EMAIL_BACKEND = env("EMAIL_BACKEND", default="django.core.mail.backends.smtp.EmailBackend")
+EMAIL_HOST = env("EMAIL_HOST", default="smtp.hostinger.com")
+EMAIL_PORT = env.int("EMAIL_PORT", default=465)
+EMAIL_USE_SSL = env.bool("EMAIL_USE_SSL", default=True)
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="info@sparktext.si")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
 
-MAILERS = {
-    'default': {
-        'BACKEND': 'django.core.mail.backends.console.EmailBackend',
-    },
-}
+# Messaging & Provider Settings
+TWILIO_ACCOUNT_SID = env("TWILIO_ACCOUNT_SID", default="")
+TWILIO_AUTH_TOKEN = env("TWILIO_AUTH_TOKEN", default="")
+TWILIO_PHONE_NUMBER = env("TWILIO_PHONE_NUMBER", default="")
+PUBLIC_BASE_URL = env("PUBLIC_BASE_URL", default="")
+TWILIO_VALIDATE_WEBHOOKS = env("TWILIO_VALIDATE_WEBHOOKS", default=True)
+
+# Telnyx Settings
+TELNYX_API_KEY = env("TELNYX_API_KEY", default="")
+TELNYX_PUBLIC_KEY = env("TELNYX_PUBLIC_KEY", default="")
+TELNYX_PHONE_NUMBER = env("TELNYX_PHONE_NUMBER", default="")
+TELNYX_VALIDATE_WEBHOOKS = env("TELNYX_VALIDATE_WEBHOOKS", default=False)
+
+MESSAGING_PROVIDER = env("MESSAGING_PROVIDER", default="telnyx")
+MESSAGING_REPLY_WINDOW_HOURS = env("MESSAGING_REPLY_WINDOW_HOURS", default=24)
+
+# AI Assistant Settings
+AI_CLIENT = env("AI_CLIENT", default="openai")
+AI_BASE_URL = env("AI_BASE_URL", default="http://localhost:1235/v1")
+AI_MODEL = env("AI_MODEL", default="google/gemma-4-12b-qat")
+AI_API_KEY = env("AI_API_KEY", default="")
+AI_TIMEOUT_SECONDS = env("AI_TIMEOUT_SECONDS", default=45)
+AI_MAX_RETRIES = env("AI_MAX_RETRIES", default=1)

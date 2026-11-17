@@ -1,0 +1,181 @@
+{% extends "messaging/base_app.html" %}
+
+{% block title %}Dashboard | SparkText{% endblock %}
+{% block header_title %}Welcome, {{ request.user.first_name|default:request.user.email }}{% endblock %}
+{% block header_subtitle %}Here is a summary of your messaging activity.{% endblock %}
+
+{% block content %}
+
+<!-- Summary numbers -->
+<section class="grid grid-cols-2 lg:grid-cols-4 gap-4" aria-label="Summary">
+  <a href="{% url 'messaging:inbox' %}" class="bg-white border border-gray-200 hover:border-brand-300 hover:shadow-xs rounded-2xl p-5 transition group block">
+    <div class="flex items-center justify-between gap-2">
+      <p class="text-sm text-gray-600 group-hover:text-gray-900">Texts sent today</p>
+      <svg class="w-4 h-4 text-gray-300 group-hover:text-brand-600 transition shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+      </svg>
+    </div>
+    <p class="text-3xl font-bold text-gray-900 mt-2">{{ stats.sent_today }}</p>
+  </a>
+  <a href="{% url 'messaging:inbox' %}?assigned=replied" class="bg-white border border-gray-200 hover:border-brand-300 hover:shadow-xs rounded-2xl p-5 transition group block">
+    <div class="flex items-center justify-between gap-2">
+      <p class="text-sm text-gray-600 group-hover:text-gray-900">Customer replies</p>
+      <svg class="w-4 h-4 text-gray-300 group-hover:text-brand-600 transition shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+      </svg>
+    </div>
+    <p class="text-3xl font-bold text-gray-900 mt-2">{{ stats.replies }}</p>
+  </a>
+  <a href="{% url 'messaging:inbox' %}?status=needs_human" class="bg-white border {% if stats.needs_human > 0 %}border-amber-200 hover:border-amber-400{% else %}border-gray-200 hover:border-brand-300{% endif %} hover:shadow-xs rounded-2xl p-5 transition group block">
+    <div class="flex items-center justify-between gap-2">
+      <p class="text-sm {% if stats.needs_human > 0 %}text-amber-800 font-medium{% else %}text-gray-600 group-hover:text-gray-900{% endif %}">Needs a human</p>
+      <svg class="w-4 h-4 {% if stats.needs_human > 0 %}text-amber-500{% else %}text-gray-300 group-hover:text-brand-600{% endif %} transition shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+      </svg>
+    </div>
+    <p class="text-3xl font-bold {% if stats.needs_human > 0 %}text-amber-700{% else %}text-gray-900{% endif %} mt-2">{{ stats.needs_human }}</p>
+  </a>
+  <a href="{% url 'contacts:list' %}?status=opted_out" class="bg-white border border-gray-200 hover:border-rose-300 hover:shadow-xs rounded-2xl p-5 transition group block">
+    <div class="flex items-center justify-between gap-2">
+      <p class="text-sm text-gray-600 group-hover:text-gray-900">Opt-outs</p>
+      <svg class="w-4 h-4 text-gray-300 group-hover:text-rose-600 transition shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+      </svg>
+    </div>
+    <p class="text-3xl font-bold text-gray-900 mt-2">{{ stats.opt_outs }}</p>
+  </a>
+</section>
+
+<div class="grid lg:grid-cols-3 gap-6">
+
+  <!-- Setup checklist -->
+  {% if not setup_complete %}
+  <section class="lg:col-span-2 bg-white border border-gray-200 rounded-2xl p-6">
+    <div class="flex items-center justify-between gap-4">
+      <h2 class="text-lg font-semibold text-gray-900">Finish setting up</h2>
+      <p class="text-sm text-gray-600">{{ steps_done }} of {{ steps_total }} done</p>
+    </div>
+    <div class="mt-3 h-2 rounded-full bg-gray-100" role="progressbar" aria-valuenow="{{ percent }}" aria-valuemin="0"
+      aria-valuemax="100">
+      <div class="h-2 rounded-full bg-brand-600" style="width: {{ percent }}%"></div>
+    </div>
+
+    <ul class="mt-5 divide-y divide-gray-100">
+      {% for step in steps %}
+      <li class="flex items-start gap-4 py-4">
+        {% if step.done %}
+        <span
+          class="mt-0.5 w-6 h-6 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0"
+          aria-label="Done">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
+          </svg>
+        </span>
+        {% else %}
+        <span class="mt-0.5 w-6 h-6 rounded-full border-2 border-gray-300 shrink-0" aria-label="Not done"></span>
+        {% endif %}
+        <div class="flex-1 min-w-0">
+          <p class="text-sm font-semibold text-gray-900">{{ step.title }}</p>
+          <p class="text-sm text-gray-600">{{ step.desc }}</p>
+        </div>
+        {% if not step.done and step.url %}
+        <a href="{{ step.url }}" class="text-sm font-medium text-brand-700 hover:text-brand-900 shrink-0">Start</a>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  <!-- Recent conversations -->
+  <section
+    class="{% if setup_complete %}lg:col-span-3{% else %}lg:col-span-1{% endif %} bg-white border border-gray-200 rounded-2xl p-6">
+    <div class="flex items-center justify-between pb-3 border-b border-gray-100">
+      <div>
+        <h2 class="text-lg font-semibold text-gray-900">Recent conversations</h2>
+        <p class="text-xs text-gray-500">Latest active SMS threads and inquiries</p>
+      </div>
+      <a href="{% url 'messaging:inbox' %}" class="text-xs font-semibold text-brand-600 hover:text-brand-800 transition flex items-center gap-1">
+        <span>Open Inbox</span>
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+        </svg>
+      </a>
+    </div>
+
+    {% if recent_conversations %}
+    <div class="mt-3 divide-y divide-gray-100">
+      {% for conv in recent_conversations %}
+      <a href="{% url 'messaging:conversation_detail' conv.id %}" class="flex items-center justify-between py-3.5 px-2 -mx-2 rounded-xl hover:bg-slate-50 transition group">
+        <div class="flex items-center gap-3 min-w-0 flex-1 pr-3">
+          <div class="w-10 h-10 rounded-xl bg-brand-50 text-brand-700 font-bold text-xs flex items-center justify-center shrink-0 border border-brand-100/60 shadow-2xs">
+            {% if conv.contact.first_name %}{{ conv.contact.first_name|slice:":1"|upper }}{% elif conv.contact.last_name %}{{ conv.contact.last_name|slice:":1"|upper }}{% else %}#FF{% endif %}
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-semibold text-gray-900 truncate group-hover:text-brand-600">
+                {% if conv.contact.first_name or conv.contact.last_name %}
+                  {{ conv.contact.first_name }} {{ conv.contact.last_name }}
+                {% else %}
+                  {{ conv.contact.phone }}
+                {% endif %}
+              </span>
+              {% if conv.unread_count > 0 %}
+              <span class="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-brand-600 text-white">
+                {{ conv.unread_count }}
+              </span>
+              {% endif %}
+            </div>
+            <p class="text-xs text-gray-500 truncate mt-0.5">
+              {% if conv.last_msg %}
+                {% if conv.last_msg.direction == 'outbound' %}<span class="text-gray-400">You:</span> {% endif %}{{ conv.last_msg.body }}
+              {% else %}
+                <span class="italic text-gray-400">No messages yet</span>
+              {% endif %}
+            </p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-3 shrink-0">
+          {% if conv.status == 'needs_human' %}
+            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+              <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span> Needs Human
+            </span>
+          {% elif conv.status == 'closed' %}
+            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-50 text-gray-600 border border-gray-200">
+              <span class="w-1.5 h-1.5 rounded-full bg-gray-400"></span> Closed
+            </span>
+          {% else %}
+            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Open
+            </span>
+          {% endif %}
+          <span class="text-[11px] text-gray-400 font-medium hidden sm:inline">
+            {{ conv.last_message_at|timesince }} ago
+          </span>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="mt-6 text-center py-8">
+      <div class="w-12 h-12 rounded-2xl bg-gray-50 text-gray-400 flex items-center justify-center mx-auto mb-2 border border-gray-100">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+        </svg>
+      </div>
+      <p class="text-sm font-medium text-gray-900">No conversations yet</p>
+      <p class="text-sm text-gray-500 mt-1">Replies from your customers will show up here, with the AI's answers.</p>
+      <a href="{% url 'messaging:inbox' %}" class="inline-flex items-center gap-1.5 mt-4 px-3.5 py-1.5 text-xs font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 rounded-lg border border-brand-200 transition">
+        <span>Go to Inbox</span>
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+        </svg>
+      </a>
+    </div>
+    {% endif %}
+  </section>
+
+</div>
+
+{% endblock %}

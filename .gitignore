@@ -34,6 +34,9 @@ Thumbs.db
 /staticfiles/
 /static_root/
 
+# Node dependencies
+node_modules/
+
 # Distribution / packaging
 dist/
 build/

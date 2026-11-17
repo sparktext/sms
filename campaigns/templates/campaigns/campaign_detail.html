@@ -1,0 +1,751 @@
+{% extends "messaging/base_app.html" %}
+
+{% block title %}{{ campaign.name }} - Campaign Details{% endblock %}
+{% block global_breadcrumb %}
+<a href="{% url 'campaigns:list' %}" class="font-medium text-gray-500 hover:text-gray-900 transition">Campaigns</a>
+<span class="text-gray-300">/</span>
+<span class="font-semibold text-gray-800 truncate">{{ campaign.name }}</span>
+{% endblock %}
+
+{% block header_back %}
+<a
+  href="{% url 'campaigns:list' %}"
+  title="Back to Campaigns"
+  aria-label="Back to Campaigns"
+  class="inline-flex items-center justify-center w-9 h-9 rounded-xl border border-gray-200 bg-white text-gray-500 hover:text-gray-900 hover:bg-gray-50 hover:border-gray-300 transition shadow-2xs shrink-0"
+>
+  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+  </svg>
+</a>
+{% endblock %}
+
+{% block header_title %}{{ campaign.name }}{% endblock %}
+{% block header_subtitle %}Campaign analytics, delivery progress, and recipient activity{% endblock %}
+
+{% block header_actions %}
+<div id="campaign-header-actions" class="flex items-center flex-wrap gap-2">
+
+  <!-- Duplicate Campaign Button -->
+  <a
+    href="{% url 'campaigns:clone' campaign.id %}"
+    class="px-3.5 py-2 text-xs font-semibold text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 rounded-xl transition shadow-2xs cursor-pointer flex items-center gap-1.5"
+    title="Duplicate this campaign into a new draft"
+  >
+    <svg class="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+    </svg>
+    <span>Duplicate</span>
+  </a>
+
+  {% if campaign.status == 'scheduled' or campaign.status == 'draft' %}
+  <!-- Edit Campaign -->
+  <a
+    href="{% url 'campaigns:edit' campaign.id %}"
+    class="px-3.5 py-2 text-xs font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-xl transition shadow-2xs cursor-pointer flex items-center gap-1.5"
+    title="Edit campaign settings, audience, message, or AI playbook"
+  >
+    <svg class="w-3.5 h-3.5 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+    </svg>
+    <span>Edit Campaign</span>
+  </a>
+
+  <form method="post" action="{% url 'campaigns:action' campaign.id %}">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="send_now">
+    <button
+      type="submit"
+      class="px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs cursor-pointer flex items-center gap-1.5"
+    >
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+      </svg>
+      <span>Send Now</span>
+    </button>
+  </form>
+  {% endif %}
+
+  {% if campaign.status == 'scheduled' or campaign.status == 'sending' %}
+  <form method="post" action="{% url 'campaigns:action' campaign.id %}" id="cancelCampaignForm">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="cancel">
+    <button
+      type="button"
+      onclick="window.showAppConfirm({ title: 'Cancel Campaign', message: 'Are you sure you want to cancel this campaign? Any pending messages will be stopped.', confirmText: 'Cancel Campaign' }).then(ok => { if (ok) document.getElementById('cancelCampaignForm').submit(); })"
+      class="px-3.5 py-2 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition cursor-pointer"
+    >
+      Cancel Campaign
+    </button>
+  </form>
+  {% endif %}
+
+  {% if campaign.status == 'draft' or campaign.status == 'cancelled' or campaign.status == 'scheduled' and campaign.sent_count == 0 %}
+  <button
+    type="button"
+    onclick="document.getElementById('deleteDetailCampaignModal').classList.remove('hidden')"
+    class="px-3.5 py-2 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition cursor-pointer flex items-center gap-1.5"
+    title="Permanently delete this campaign"
+  >
+    <svg class="w-3.5 h-3.5 text-rose-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+    </svg>
+    <span>Delete</span>
+  </button>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+  <!-- Overview Header Card -->
+  <div class="bg-white rounded-2xl border border-gray-200 p-5 shadow-2xs space-y-4">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4">
+      <div>
+        <div class="flex items-center gap-2.5">
+          <h2 class="text-lg font-bold text-gray-900">{{ campaign.name }}</h2>
+          
+          <!-- Status pill -->
+          <div id="campaign-status-pill-container">
+          {% if campaign.status == 'completed' %}
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Completed
+            </span>
+          {% elif campaign.status == 'sending' %}
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 animate-pulse">
+              <span class="w-1.5 h-1.5 rounded-full bg-blue-500"></span> Sending...
+            </span>
+          {% elif campaign.status == 'scheduled' %}
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+              <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span> Scheduled
+            </span>
+          {% elif campaign.status == 'cancelled' %}
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+              <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span> Cancelled
+            </span>
+          {% else %}
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-gray-50 text-gray-600 border border-gray-200">
+              <span class="w-1.5 h-1.5 rounded-full bg-gray-400"></span> Draft
+            </span>
+          {% endif %}
+          </div>
+
+          <!-- Live Channel indicator -->
+          <span
+            id="campaign-live-indicator"
+            class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-gray-100 text-gray-600 border border-gray-200 transition"
+            title="Connecting to real-time campaign broadcast channel..."
+          >
+            <span class="w-2 h-2 rounded-full bg-gray-400"></span> Connecting...
+          </span>
+        </div>
+
+        <div class="text-xs text-gray-500 flex flex-wrap items-center gap-2 mt-1">
+          <span>Sender: <strong class="text-gray-700 font-mono">{{ campaign.phone_number.e164 }}</strong></span>
+          <span>·</span>
+          <span>Created by: <strong class="text-gray-700">{% if campaign.created_by %}{{ campaign.created_by.first_name|default:campaign.created_by.email }}{% else %}User{% endif %}</strong></span>
+          <span>·</span>
+          <span>Created: {{ campaign.created_at|date:"M d, Y h:i A" }}</span>
+          {% if campaign.scheduled_at %}
+            <span>·</span>
+            <span>Scheduled for: <strong class="text-brand-700">{{ campaign.scheduled_at|date:"M d, Y h:i A" }}</strong></span>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Quick Delivery Rate Badge -->
+      <div class="text-right">
+        <div id="campaign-delivery-rate" class="text-2xl font-black text-brand-600">{{ campaign.delivery_rate }}%</div>
+        <div class="text-[11px] text-gray-400">Carrier Confirmation Rate</div>
+      </div>
+    </div>
+
+    <!-- Progress Bar -->
+    <div>
+      <div class="flex items-center justify-between text-xs text-gray-600 font-medium mb-1.5">
+        <span id="campaign-progress-dispatch-text">Dispatch Progress (<span id="progress-sent-count">{{ campaign.sent_count }}</span> / <span id="progress-total-count">{{ campaign.total_recipients }}</span> messages)</span>
+        <span id="campaign-progress-percent" class="font-bold text-gray-900">{{ campaign.progress_percent }}%</span>
+      </div>
+      <div class="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden">
+        <div
+          id="campaign-progress-bar"
+          class="h-full bg-brand-600 rounded-full transition-all duration-500 ease-out"
+          style="width: {{ campaign.progress_percent }}%"
+        ></div>
+      </div>
+    </div>
+
+    <!-- Metrics Cards Grid -->
+    <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-2">
+      <div class="bg-gray-50 rounded-xl p-3 border border-gray-100 text-center">
+        <div id="metric-total-recipients" class="text-lg font-bold text-gray-900">{{ campaign.total_recipients }}</div>
+        <div class="text-[11px] text-gray-500 font-medium">Total Audience</div>
+      </div>
+      <div class="bg-gray-50 rounded-xl p-3 border border-gray-100 text-center">
+        <div id="metric-sent-count" class="text-lg font-bold text-brand-600">{{ campaign.sent_count }}</div>
+        <div class="text-[11px] text-gray-500 font-medium">Dispatched</div>
+      </div>
+      <div class="bg-gray-50 rounded-xl p-3 border border-gray-100 text-center">
+        <div id="metric-delivered-count" class="text-lg font-bold text-emerald-600">{{ campaign.delivered_count }}</div>
+        <div class="text-[11px] text-gray-500 font-medium">Delivered</div>
+      </div>
+      <a href="?status=failed{% if q %}&q={{ q }}{% endif %}" class="bg-gray-50 hover:bg-rose-50/70 rounded-xl p-3 border border-gray-100 hover:border-rose-200 text-center transition block" title="Filter failed recipients">
+        <div id="metric-failed-count" class="text-lg font-bold text-rose-600">{{ campaign.failed_count }}</div>
+        <div class="text-[11px] text-gray-500 font-medium">Failed</div>
+      </a>
+      <a href="?status=skipped{% if q %}&q={{ q }}{% endif %}" class="bg-gray-50 hover:bg-amber-50/70 rounded-xl p-3 border border-gray-100 hover:border-amber-200 text-center transition block" title="Filter skipped recipients">
+        <div id="metric-skipped-count" class="text-lg font-bold text-amber-700">{{ campaign.skipped_count }}</div>
+        <div class="text-[11px] text-gray-500 font-medium">Skipped (Opt-Out/Consent)</div>
+      </a>
+    </div>
+  </div>
+
+  <!-- Middle Grid: Template Preview & Audience Criteria -->
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <!-- Message Template -->
+    <div class="bg-white rounded-2xl border border-gray-200 p-4 shadow-2xs space-y-2">
+      <h3 class="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center justify-between">
+        <span>Message Template</span>
+        <span class="text-gray-400 font-normal">Personalized Copy</span>
+      </h3>
+      <div class="p-3 bg-gray-50 rounded-xl border border-gray-200 text-xs text-gray-800 font-mono whitespace-pre-wrap leading-relaxed">
+        {{ campaign.message_template }}
+      </div>
+    </div>
+
+    <!-- Targeting Criteria -->
+    <div class="bg-white rounded-2xl border border-gray-200 p-4 shadow-2xs space-y-2">
+      <h3 class="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center justify-between">
+        <span>Targeting Criteria</span>
+        <span class="text-gray-400 font-normal">Lists & Filters</span>
+      </h3>
+      <div class="space-y-2 text-xs">
+        <div>
+          <span class="text-gray-500 block mb-1">Target Contact Lists:</span>
+          <div class="flex flex-wrap gap-1.5">
+            {% for l in campaign.lists.all %}
+              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-gray-100 text-gray-700 border border-gray-200">
+                <svg class="w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+                </svg>
+                <span>{{ l.name }}</span>
+              </span>
+            {% empty %}
+              <span class="text-gray-400 italic">All Organization Contacts</span>
+            {% endfor %}
+          </div>
+        </div>
+
+        {% if campaign.filter_criteria.stage %}
+        <div class="pt-2 border-t border-gray-100">
+          <span class="text-gray-500 block mb-1">Lead Stage Filter:</span>
+          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+            <svg class="w-3 h-3 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/>
+            </svg>
+            <span>{{ campaign.filter_criteria.stage }}</span>
+          </span>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- AI Playbook & Response Strategy Card -->
+    <div class="bg-white rounded-2xl border border-gray-200 p-4 shadow-2xs space-y-3 md:col-span-2">
+      <div class="flex items-center justify-between border-b border-gray-100 pb-2.5">
+        <h3 class="text-xs font-bold text-gray-800 uppercase tracking-wider flex items-center gap-2">
+          <svg class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+          </svg>
+          <span>AI Assistant Playbook & Response Strategy</span>
+        </h3>
+        {% if campaign.ai_mode == 'custom' %}
+          <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 inline-flex items-center gap-1">
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/>
+            </svg>
+            <span>Custom Playbook Active</span>
+          </span>
+        {% elif campaign.ai_mode == 'off' %}
+          <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200 inline-flex items-center gap-1">
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+            </svg>
+            <span>Human Takeover Only (AI Off)</span>
+          </span>
+        {% else %}
+          <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 inline-flex items-center gap-1">
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+            </svg>
+            <span>Default AI Assistant Active</span>
+          </span>
+        {% endif %}
+      </div>
+
+      {% if campaign.ai_mode == 'custom' %}
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+          {% if campaign.ai_campaign_goal %}
+          <div class="bg-gray-50/80 p-3 rounded-xl border border-gray-200/80 space-y-1">
+            <span class="text-gray-400 font-bold uppercase text-[10px] block">Campaign Objective</span>
+            <p class="text-gray-900 font-medium leading-relaxed">{{ campaign.ai_campaign_goal }}</p>
+          </div>
+          {% endif %}
+
+          {% if campaign.ai_special_instructions %}
+          <div class="bg-gray-50/80 p-3 rounded-xl border border-gray-200/80 space-y-1">
+            <span class="text-gray-400 font-bold uppercase text-[10px] block">Special Offers & Constraints</span>
+            <p class="text-gray-900 whitespace-pre-wrap leading-relaxed">{{ campaign.ai_special_instructions }}</p>
+          </div>
+          {% endif %}
+        </div>
+
+        {% if campaign.ai_qualification_questions %}
+        <div class="pt-1">
+          <span class="text-gray-400 font-bold uppercase text-[10px] block mb-1.5">Custom Lead Qualification Questions ({{ campaign.ai_qualification_questions|length }}):</span>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {% for q in campaign.ai_qualification_questions %}
+            <div class="flex items-start justify-between p-2.5 bg-gray-50 rounded-xl border border-gray-200 text-xs gap-2">
+              <div class="min-w-0">
+                <span class="font-mono text-indigo-700 font-bold text-[11px] block">{{ q.key }}</span>
+                <span class="text-gray-800 text-[11px] leading-snug">"{{ q.question }}"</span>
+              </div>
+              <span class="text-[10px] font-semibold shrink-0 px-1.5 py-0.5 rounded {% if q.required %}bg-rose-50 text-rose-700 border border-rose-200{% else %}bg-gray-100 text-gray-500 border border-gray-200{% endif %}">
+                {% if q.required %}Required{% else %}Optional{% endif %}
+              </span>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+      {% elif campaign.ai_mode == 'off' %}
+        <p class="text-xs text-gray-500">Inbound replies from recipients of this campaign are routed directly to sales reps in the inbox. Automated AI replies will not be sent.</p>
+      {% else %}
+        <p class="text-xs text-gray-500">Inbound replies from recipients of this campaign are handled automatically using your organization's default AI Assistant settings, knowledge base, and standard qualification questions.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Recipients Ledger Table -->
+  <div class="bg-white rounded-2xl border border-gray-200 shadow-2xs overflow-hidden">
+    <!-- Table Header & Filter Bar -->
+    <div class="p-4 border-b border-gray-100 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-gray-50/50">
+      
+      <!-- Status Tabs -->
+      <div class="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
+        <a
+          href="{% url 'campaigns:detail' campaign.id %}{% if q %}?q={{ q }}{% endif %}"
+          class="px-3 py-1.5 rounded-xl text-xs font-semibold transition whitespace-nowrap {% if not status_filter %}bg-slate-900 text-white shadow-2xs{% else %}bg-white text-gray-600 hover:text-gray-900 border border-gray-200{% endif %}"
+        >
+          All Recipients
+        </a>
+        {% for val, label in statuses %}
+        <a
+          href="?status={{ val }}{% if q %}&q={{ q }}{% endif %}"
+          class="px-3 py-1.5 rounded-xl text-xs font-semibold transition whitespace-nowrap {% if status_filter == val %}bg-slate-900 text-white shadow-2xs{% else %}bg-white text-gray-600 hover:text-gray-900 border border-gray-200{% endif %}"
+        >
+          {{ label }}
+        </a>
+        {% endfor %}
+      </div>
+
+      <!-- Search & Action Controls -->
+      <div class="flex flex-wrap items-center gap-2">
+        <form method="get" class="relative w-full sm:w-56">
+          {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
+          <input
+            type="text"
+            name="q"
+            value="{{ q }}"
+            placeholder="Search by phone or name..."
+            class="w-full pl-9 pr-3.5 py-1.5 text-xs bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900"
+          />
+          <svg class="w-4 h-4 text-gray-400 absolute left-3 top-2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+          </svg>
+        </form>
+
+        {% if campaign.skipped_count > 0 %}
+        <a
+          href="{% url 'contacts:list' %}?status=unknown"
+          class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-xl transition whitespace-nowrap"
+          title="Review contacts missing opt-in consent"
+        >
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+          </svg>
+          <span>Fix Missing Consent</span>
+        </a>
+        {% endif %}
+
+        <a
+          href="{% url 'campaigns:recipient_export' campaign.id %}?{% if status_filter %}status={{ status_filter|urlencode }}&{% endif %}{% if q %}q={{ q|urlencode }}{% endif %}"
+          class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 rounded-xl transition shadow-2xs whitespace-nowrap"
+          title="Download filtered recipients as CSV"
+        >
+          <svg class="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+          </svg>
+          <span>Export CSV</span>
+        </a>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="overflow-x-auto">
+      <table class="w-full text-left text-xs">
+        <thead class="bg-gray-50/70 border-b border-gray-100 text-gray-500 font-semibold uppercase tracking-wider text-[10px]">
+          <tr>
+            <th class="py-3 px-4">Contact</th>
+            <th class="py-3 px-4">Phone Number</th>
+            <th class="py-3 px-4">Delivery Status</th>
+            <th class="py-3 px-4">Personalized Message Preview</th>
+            <th class="py-3 px-4">Dispatched At</th>
+            <th class="py-3 px-4 text-right">Conversation</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100 text-gray-700">
+          {% for r in recipients_page %}
+          <tr id="recip-row-{{ r.id }}" class="hover:bg-gray-50/70 transition">
+            <td class="py-3 px-4 font-bold text-gray-900">
+              <a href="{% url 'contacts:detail' r.contact.id %}" class="hover:text-brand-600 hover:underline">
+                {% if r.contact.first_name or r.contact.last_name %}
+                  {{ r.contact.first_name }} {{ r.contact.last_name }}
+                {% else %}
+                  {{ r.contact.phone }}
+                {% endif %}
+              </a>
+            </td>
+
+            <td class="py-3 px-4 font-mono text-gray-600">
+              {{ r.contact.phone }}
+            </td>
+
+            <td id="recip-status-{{ r.id }}" class="py-3 px-4">
+              {% if r.status == 'delivered' %}
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+                  <span>Delivered</span>
+                </span>
+              {% elif r.status == 'sent' %}
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+                  <span>Sent</span>
+                </span>
+              {% elif r.status == 'failed' %}
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-50 text-rose-700 border border-rose-200" title="{{ r.error_message }}">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/></svg>
+                  <span>Failed</span>
+                </span>
+              {% elif r.status == 'skipped' %}
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-200" title="{{ r.skip_reason }}">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                  <span>Skipped</span>
+                </span>
+                <span class="block text-[10px] text-gray-400 mt-0.5">{{ r.skip_reason }}</span>
+              {% else %}
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-600">
+                  Pending
+                </span>
+              {% endif %}
+            </td>
+
+            <td class="py-3 px-4 max-w-xs truncate text-gray-500 text-[11px]" title="{{ r.personalized_body }}">
+              {{ r.personalized_body }}
+            </td>
+
+            <td id="recip-sent-at-{{ r.id }}" class="py-3 px-4 text-gray-400 font-mono text-[11px]">
+              {% if r.sent_at %}{{ r.sent_at|date:"M d, h:i A" }}{% else %}—{% endif %}
+            </td>
+
+            <td id="recip-chat-{{ r.id }}" class="py-3 px-4 text-right">
+              {% if r.message %}
+              <a
+                href="{% url 'messaging:conversation_detail' r.message.conversation_id %}"
+                class="inline-flex items-center gap-1 text-[11px] font-semibold text-brand-600 hover:text-brand-800 hover:underline"
+              >
+                <span>Open Chat</span>
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+                </svg>
+              </a>
+              {% else %}
+              <a href="{% url 'contacts:detail' r.contact.id %}" class="text-gray-400 hover:text-brand-600 text-[11px] font-medium hover:underline">Inspect Contact</a>
+              {% endif %}
+            </td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="6" class="p-8 text-center text-gray-400 text-xs">
+              No recipients match the selected status filter.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Pagination -->
+    {% if recipients_page.has_other_pages %}
+    <div class="p-3.5 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500 bg-gray-50/40">
+      <div>
+        Showing page {{ recipients_page.number }} of {{ recipients_page.paginator.num_pages }}
+      </div>
+      <div class="flex items-center gap-1.5">
+        {% if recipients_page.has_previous %}
+        <a
+          href="?page={{ recipients_page.previous_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if q %}&q={{ q }}{% endif %}"
+          class="px-2.5 py-1 bg-white border border-gray-200 rounded-lg text-gray-700 hover:bg-gray-50 transition font-medium"
+        >
+          Previous
+        </a>
+        {% endif %}
+        {% if recipients_page.has_next %}
+        <a
+          href="?page={{ recipients_page.next_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if q %}&q={{ q }}{% endif %}"
+          class="px-2.5 py-1 bg-white border border-gray-200 rounded-lg text-gray-700 hover:bg-gray-50 transition font-medium"
+        >
+          Next
+        </a>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+
+</div>
+
+<!-- ─────────────────────────────────────────────────────────────
+     Real-Time Campaign Progress WebSocket (Zero Polling)
+     ───────────────────────────────────────────────────────────── -->
+<script>
+(function() {
+  const campaignId = {{ campaign.id }};
+  const liveIndicator = document.getElementById("campaign-live-indicator");
+  const progressBar = document.getElementById("campaign-progress-bar");
+  const progressPercent = document.getElementById("campaign-progress-percent");
+  const progressSentCount = document.getElementById("progress-sent-count");
+  const progressTotalCount = document.getElementById("progress-total-count");
+  const metricSent = document.getElementById("metric-sent-count");
+  const metricDelivered = document.getElementById("metric-delivered-count");
+  const metricFailed = document.getElementById("metric-failed-count");
+  const metricSkipped = document.getElementById("metric-skipped-count");
+  const metricTotal = document.getElementById("metric-total-recipients");
+  const deliveryRate = document.getElementById("campaign-delivery-rate");
+  const statusContainer = document.getElementById("campaign-status-pill-container");
+  const headerActions = document.getElementById("campaign-header-actions");
+
+  let socket = null;
+  let heartbeatTimer = null;
+  let reconnectTimer = null;
+  let reconnectAttempts = 0;
+
+  function setLiveBadge(state) {
+    if (!liveIndicator) return;
+    if (state === "live") {
+      liveIndicator.className = "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 transition";
+      liveIndicator.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Live';
+      liveIndicator.title = "WebSocket connected — broadcasting progress live";
+    } else if (state === "connecting") {
+      liveIndicator.className = "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 transition";
+      liveIndicator.innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span> Reconnecting...';
+      liveIndicator.title = "Reconnecting to live channel...";
+    } else {
+      liveIndicator.className = "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-gray-100 text-gray-600 border border-gray-200 transition";
+      liveIndicator.innerHTML = '<span class="w-2 h-2 rounded-full bg-gray-400"></span> Offline';
+      liveIndicator.title = "Live connection offline";
+    }
+  }
+
+  function updateStatusPill(status, statusDisplay) {
+    if (!statusContainer) return;
+    if (status === "completed") {
+      statusContainer.innerHTML = '<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Completed</span>';
+    } else if (status === "sending") {
+      statusContainer.innerHTML = '<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 animate-pulse"><span class="w-1.5 h-1.5 rounded-full bg-blue-500"></span> Sending...</span>';
+    } else if (status === "cancelled") {
+      statusContainer.innerHTML = '<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200"><span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span> Cancelled</span>';
+    } else if (status === "scheduled") {
+      statusContainer.innerHTML = '<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200"><span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span> Scheduled</span>';
+    }
+  }
+
+  function updateRecipientRow(recip) {
+    const statusCell = document.getElementById("recip-status-" + recip.id);
+    if (statusCell) {
+      if (recip.status === "delivered") {
+        statusCell.innerHTML = '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg><span>Delivered</span></span>';
+      } else if (recip.status === "sent") {
+        statusCell.innerHTML = '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg><span>Sent</span></span>';
+      } else if (recip.status === "failed") {
+        statusCell.innerHTML = '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-50 text-rose-700 border border-rose-200" title="' + (recip.error_message || '') + '"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/></svg><span>Failed</span></span>';
+      } else if (recip.status === "skipped") {
+        statusCell.innerHTML = '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-200" title="' + (recip.skip_reason || '') + '"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg><span>Skipped</span></span>' +
+          (recip.skip_reason ? '<span class="block text-[10px] text-gray-400 mt-0.5">' + recip.skip_reason + '</span>' : '');
+      }
+    }
+
+    if (recip.sent_at) {
+      const sentCell = document.getElementById("recip-sent-at-" + recip.id);
+      if (sentCell) sentCell.textContent = recip.sent_at;
+    }
+
+    if (recip.conversation_id) {
+      const chatCell = document.getElementById("recip-chat-" + recip.id);
+      if (chatCell && !chatCell.querySelector("a")) {
+        chatCell.innerHTML = '<a href="/inbox/' + recip.conversation_id + '/" class="inline-flex items-center gap-1 text-[11px] font-semibold text-brand-600 hover:text-brand-800 hover:underline"><span>Open Chat</span><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg></a>';
+      }
+    }
+  }
+
+  function handleCampaignProgress(data) {
+    if (data.campaign_id !== campaignId) return;
+
+    // Smoothly animate progress bar
+    if (progressBar) {
+      progressBar.style.width = data.progress_percent + "%";
+    }
+    if (progressPercent) {
+      progressPercent.textContent = data.progress_percent + "%";
+    }
+    if (progressSentCount) {
+      progressSentCount.textContent = data.sent_count;
+    }
+    if (progressTotalCount && data.total_recipients) {
+      progressTotalCount.textContent = data.total_recipients;
+    }
+
+    // Metrics cards
+    if (metricSent) metricSent.textContent = data.sent_count;
+    if (metricDelivered) metricDelivered.textContent = data.delivered_count;
+    if (metricFailed) metricFailed.textContent = data.failed_count;
+    if (metricSkipped) metricSkipped.textContent = data.skipped_count;
+    if (metricTotal && data.total_recipients) metricTotal.textContent = data.total_recipients;
+    if (deliveryRate) deliveryRate.textContent = data.delivery_rate + "%";
+
+    // Status pill
+    if (data.status) {
+      updateStatusPill(data.status, data.status_display);
+    }
+
+    // Hide Send Now action button once started or completed
+    if (data.is_completed || data.is_sending) {
+      const sendNowForm = document.querySelector('form input[value="send_now"]');
+      if (sendNowForm) {
+        const formEl = sendNowForm.closest("form");
+        if (formEl) formEl.remove();
+      }
+    }
+    if (data.is_completed) {
+      const cancelForm = document.querySelector('form input[value="cancel"]');
+      if (cancelForm) {
+        const formEl = cancelForm.closest("form");
+        if (formEl) formEl.remove();
+      }
+    }
+
+    // Update table rows live if visible
+    if (Array.isArray(data.recipients)) {
+      data.recipients.forEach(updateRecipientRow);
+    }
+  }
+
+  function initWebSocket() {
+    setLiveBadge("connecting");
+    const wsProtocol = window.location.protocol === "https:" ? "wss://" : "ws://";
+    const wsUrl = wsProtocol + window.location.host + "/ws/campaign/" + campaignId + "/";
+
+    try {
+      socket = new WebSocket(wsUrl);
+
+      socket.onopen = function() {
+        reconnectAttempts = 0;
+        setLiveBadge("live");
+        if (heartbeatTimer) clearInterval(heartbeatTimer);
+        heartbeatTimer = setInterval(function() {
+          if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ type: "ping" }));
+          }
+        }, 25000);
+      };
+
+      socket.onmessage = function(event) {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === "pong") return;
+          if (data.event === "campaign_progress") {
+            handleCampaignProgress(data);
+          }
+        } catch (err) {
+          console.debug("Failed to parse campaign WS event:", err);
+        }
+      };
+
+      socket.onclose = function(e) {
+        setLiveBadge("connecting");
+        if (heartbeatTimer) clearInterval(heartbeatTimer);
+        scheduleReconnect();
+      };
+
+      socket.onerror = function(err) {
+        console.debug("Campaign WS error:", err);
+        socket.close();
+      };
+    } catch (e) {
+      scheduleReconnect();
+    }
+  }
+
+  function scheduleReconnect() {
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    const delay = Math.min(1000 * Math.pow(1.5, reconnectAttempts), 10000);
+    reconnectAttempts++;
+    reconnectTimer = setTimeout(initWebSocket, delay);
+  }
+
+  initWebSocket();
+})();
+</script>
+
+<!-- Delete Campaign Confirmation Modal -->
+{% if campaign.status == 'draft' or campaign.status == 'cancelled' or campaign.status == 'scheduled' and campaign.sent_count == 0 %}
+<div id="deleteDetailCampaignModal" class="fixed inset-0 z-[60] hidden overflow-y-auto" role="dialog" aria-modal="true">
+  <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity" onclick="document.getElementById('deleteDetailCampaignModal').classList.add('hidden')"></div>
+  <div class="flex min-h-full items-center justify-center p-4 text-center sm:p-0">
+    <div class="relative transform overflow-hidden rounded-2xl bg-white text-left shadow-2xl transition-all sm:my-8 sm:w-full sm:max-w-md border border-gray-100 p-6 space-y-4">
+      <div class="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center border border-rose-100">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+        </svg>
+      </div>
+      <div>
+        <h3 class="text-base font-bold text-gray-900">Delete Campaign?</h3>
+        <p class="text-xs text-gray-500 mt-1 leading-relaxed">
+          Are you sure you want to permanently delete <strong>"{{ campaign.name }}"</strong>? This action cannot be undone.
+        </p>
+      </div>
+      <form method="post" action="{% url 'campaigns:action' campaign.id %}" class="flex items-center justify-end gap-2 pt-2">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="delete">
+        <button
+          type="button"
+          onclick="document.getElementById('deleteDetailCampaignModal').classList.add('hidden')"
+          class="px-4 py-2 text-xs font-semibold text-gray-600 hover:text-gray-900 transition cursor-pointer"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          class="px-4 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-xl transition cursor-pointer shadow-xs"
+        >
+          Delete Campaign
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+

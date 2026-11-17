@@ -1,0 +1,328 @@
+{% extends "website/base.html" %}
+
+{% block title %}SparkText — Two-Way SMS for Businesses{% endblock %}
+{% block meta_description %}SparkText makes business texting effortless. Send bulk campaigns, run two-way conversations, handle opt-outs automatically, and track delivery — all in one platform.{% endblock %}
+
+{% block nav_home %}nav-active{% endblock %}
+
+{% block content %}
+
+<!-- ═══════════════════════════ HERO ═══════════════════════════ -->
+<section class="relative bg-white pt-24 pb-32 sm:pt-32 sm:pb-40 subtle-dots overflow-hidden" aria-label="Hero">
+  <div class="relative max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+
+    <!-- Badge -->
+    <div class="fade-in inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-gray-200 bg-gray-50/80 mb-8">
+      <span class="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse"></span>
+      <span class="text-xs font-semibold tracking-wide text-gray-800">⚡ Autonomous AI Copilot & A2P 10DLC Infrastructure</span>
+    </div>
+
+    <!-- Headline -->
+    <h1 class="fade-in-2 text-4xl sm:text-5xl lg:text-6xl xl:text-7xl font-light tracking-tight text-gray-950 leading-[1.08] mb-8">
+      Text messaging built for business<br>
+      <span class="font-medium text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">powered by an AI that texts like a teammate</span>
+    </h1>
+
+    <!-- Subtitle -->
+    <p class="fade-in-3 text-lg sm:text-xl font-light text-gray-600 max-w-2xl mx-auto leading-relaxed mb-10">
+      Send bulk broadcasts, conduct genuine two-way customer conversations, and let your AI Sales Copilot answer inquiries, qualify leads, and draft replies in real time.
+    </p>
+
+    <!-- CTA Row -->
+    <div class="fade-in-4 flex flex-col sm:flex-row items-center justify-center gap-4 mb-16">
+      <a href="/contact/" id="hero-get-started"
+        class="w-full sm:w-auto inline-flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm px-6 py-3.5 rounded-lg shadow-xs transition-colors">
+        Get started &rarr;
+      </a>
+      <a href="/pricing/" id="hero-pricing-link"
+        class="w-full sm:w-auto inline-flex items-center justify-center text-sm font-medium text-gray-600 hover:text-gray-950 px-5 py-3.5 transition-colors">
+        View pricing &rarr;
+      </a>
+    </div>
+
+    <!-- Live Interactive AI & SMS Showcase Card -->
+    <div class="fade-in-5 max-w-2xl mx-auto bg-slate-900 text-white rounded-3xl p-6 sm:p-7 shadow-2xl border border-slate-800 text-left mb-16">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-4 mb-5">
+        <div class="flex items-center gap-3">
+          <div class="w-3 h-3 rounded-full bg-emerald-400 animate-pulse"></div>
+          <span class="text-xs font-bold tracking-wide uppercase text-slate-300">Live AI Assistant & Copilot Preview</span>
+        </div>
+        <span class="text-[11px] font-semibold text-emerald-400 bg-emerald-950/70 border border-emerald-800/80 px-2.5 py-0.5 rounded-full">
+          Autonomous Intake
+        </span>
+      </div>
+
+      <div class="space-y-3.5 text-xs">
+        <!-- Inbound 1 -->
+        <div class="flex justify-start">
+          <div class="bg-slate-800 text-slate-100 px-4 py-2.5 rounded-2xl rounded-tl-sm max-w-md border border-slate-700/60 leading-relaxed">
+            Hi! Do you offer insurance reviews and multi-policy discounts in California?
+          </div>
+        </div>
+
+        <!-- AI Outbound 1 -->
+        <div class="flex justify-end">
+          <div class="bg-blue-600 text-white px-4 py-2.5 rounded-2xl rounded-tr-sm max-w-md leading-relaxed shadow-xs">
+            Yes, we do! Our California policies save drivers an average of $450. What city or ZIP code are you in?
+            <div class="text-[10px] text-blue-200 text-right mt-1 font-mono">10:42 AM · 🤖 AI Assistant</div>
+          </div>
+        </div>
+
+        <!-- Inbound 2 -->
+        <div class="flex justify-start">
+          <div class="bg-slate-800 text-slate-100 px-4 py-2.5 rounded-2xl rounded-tl-sm max-w-md border border-slate-700/60 leading-relaxed">
+            I'm in Millbrae, 94030. Looking for auto and home bundling.
+          </div>
+        </div>
+
+        <!-- AI Draft Suggestion Box -->
+        <div class="p-3.5 bg-indigo-950/70 border border-indigo-700/50 rounded-2xl space-y-2 mt-2">
+          <div class="flex items-center justify-between text-[11px]">
+            <span class="font-bold text-indigo-300 flex items-center gap-1.5">
+              <span>💡</span> Gemma Copilot Draft (Suggest Mode)
+            </span>
+            <span class="text-emerald-400 font-semibold bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800/80 text-[10px]">
+              🎯 Lead Qualified (Auto/Home)
+            </span>
+          </div>
+          <p class="text-slate-200 text-xs italic">
+            "Awesome! Our Millbrae team can quote both within 10 minutes. When are you hoping to start coverage?"
+          </p>
+          <div class="flex items-center gap-2 pt-1">
+            <span class="px-2.5 py-1 text-[11px] font-bold text-white bg-blue-600 rounded-lg shadow-2xs">
+              ✓ 1-Click Approve & Send
+            </span>
+            <span class="text-[11px] text-slate-400">or edit before dispatching</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stats row -->
+    <div class="grid grid-cols-3 divide-x divide-gray-100 max-w-xl mx-auto border border-gray-100 rounded-2xl bg-white shadow-xs">
+      <div class="py-5 px-3 sm:py-6 sm:px-4">
+        <div class="text-2xl sm:text-3xl font-light tracking-tight text-gray-950">98%</div>
+        <div class="text-[10px] sm:text-xs font-medium uppercase tracking-[0.15em] text-gray-400 mt-1">Open rate</div>
+      </div>
+      <div class="py-5 px-3 sm:py-6 sm:px-4">
+        <div class="text-2xl sm:text-3xl font-light tracking-tight text-gray-950">&lt; 30s</div>
+        <div class="text-[10px] sm:text-xs font-medium uppercase tracking-[0.15em] text-gray-400 mt-1">AI reply speed</div>
+      </div>
+      <div class="py-5 px-3 sm:py-6 sm:px-4">
+        <div class="text-2xl sm:text-3xl font-light tracking-tight text-gray-950">100%</div>
+        <div class="text-[10px] sm:text-xs font-medium uppercase tracking-[0.15em] text-gray-400 mt-1">10DLC ready</div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+
+<!-- ═══════════════════════════ FEATURES ═══════════════════════════ -->
+<section class="py-32 sm:py-40 bg-white border-t border-gray-100" id="features" aria-label="Core features">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+
+    <!-- Header -->
+    <div class="text-center max-w-2xl mx-auto mb-20 sm:mb-24">
+      <p class="text-xs font-medium uppercase tracking-[0.2em] text-blue-600 mb-3">Features</p>
+      <h2 class="text-3xl sm:text-4xl lg:text-5xl font-light tracking-tight text-gray-950 mb-4">
+        Everything you need to text at scale
+      </h2>
+      <p class="text-base sm:text-lg font-light text-gray-500 leading-relaxed">
+        Built for teams who prioritize deliverability, audit-ready compliance, and reliable customer communications.
+      </p>
+    </div>
+
+    <!-- Cards grid -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+
+      <!-- AI Sales Copilot -->
+      <article id="feature-ai"
+        class="bg-white border border-blue-100 rounded-2xl p-8 card-hover shadow-xs flex flex-col justify-between ring-1 ring-blue-500/10">
+        <div>
+          <div class="w-11 h-11 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 mb-6 font-bold text-lg">
+            🤖
+          </div>
+          <div class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider text-blue-700 bg-blue-50 mb-2">
+            AI Copilot
+          </div>
+          <h3 class="text-lg font-medium text-gray-950 mb-2">AI Sales Assistant</h3>
+          <p class="text-sm font-light text-gray-600 leading-relaxed">
+            Powered by local Gemma intelligence. Texts like a real teammate in punchy 1-line replies, collects qualification info, and drafts replies for 1-click team approval.
+          </p>
+        </div>
+      </article>
+
+      <!-- Two-Way Inbox -->
+      <article id="feature-inbox"
+        class="bg-white border border-gray-100 rounded-2xl p-8 card-hover shadow-xs flex flex-col justify-between">
+        <div>
+          <div class="w-11 h-11 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-700 mb-6">
+            <svg class="w-5 h-5 text-gray-800" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </svg>
+          </div>
+          <h3 class="text-lg font-medium text-gray-950 mb-2">Live 2-Way Inbox</h3>
+          <p class="text-sm font-light text-gray-600 leading-relaxed">
+            Real-time WebSockets with typing indicators, team collision detection, and automated round-robin sales rep routing for newly qualified leads.
+          </p>
+        </div>
+      </article>
+
+      <!-- Bulk Campaigns -->
+      <article id="feature-campaigns"
+        class="bg-white border border-gray-100 rounded-2xl p-8 card-hover shadow-xs flex flex-col justify-between">
+        <div>
+          <div class="w-11 h-11 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-700 mb-6">
+            <svg class="w-5 h-5 text-gray-800" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+              <path d="m22 2-7 20-4-9-9-4Z" />
+              <path d="M22 2 11 13" />
+            </svg>
+          </div>
+          <h3 class="text-lg font-medium text-gray-950 mb-2">Bulk Campaigns & Goals</h3>
+          <p class="text-sm font-light text-gray-600 leading-relaxed">
+            Schedule broadcast campaigns with personalized merge tags, 1-click duplication, live progress tracking, and custom AI playbooks per broadcast.
+          </p>
+        </div>
+      </article>
+
+      <!-- Auto Opt-Out & Compliance -->
+      <article id="feature-optout"
+        class="bg-white border border-gray-100 rounded-2xl p-8 card-hover shadow-xs flex flex-col justify-between">
+        <div>
+          <div class="w-11 h-11 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-700 mb-6">
+            <svg class="w-5 h-5 text-gray-800" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              <path d="m9 12 2 2 4-4" />
+            </svg>
+          </div>
+          <h3 class="text-lg font-medium text-gray-950 mb-2">Automated Compliance</h3>
+          <p class="text-sm font-light text-gray-600 leading-relaxed">
+            Complete TCPA & 10DLC peace of mind. Automated STOP/START handling, quiet hours guardrails, and audit-ready consent logging.
+          </p>
+        </div>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══════════════════════════ HOW IT WORKS ═══════════════════════════ -->
+<section class="py-32 sm:py-40 bg-white border-t border-gray-100" id="how-it-works" aria-label="How it works">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+
+    <div class="text-center max-w-2xl mx-auto mb-20 sm:mb-24">
+      <p class="text-xs font-medium uppercase tracking-[0.2em] text-blue-600 mb-3">Workflow</p>
+      <h2 class="text-3xl sm:text-4xl lg:text-5xl font-light tracking-tight text-gray-950 mb-4">
+        Up and running in under an hour
+      </h2>
+      <p class="text-base sm:text-lg font-light text-gray-500 leading-relaxed">
+        From initial setup to your first delivered campaign — straightforward and engineer-free.
+      </p>
+    </div>
+
+    <!-- Steps -->
+    <div class="relative">
+      <!-- Connecting line (desktop) -->
+      <div class="hidden md:block absolute top-6 left-[16%] right-[16%] h-px bg-gray-200 pointer-events-none" aria-hidden="true"></div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-12 sm:gap-8 relative">
+
+        <!-- Step 1 -->
+        <div id="step-1" class="text-center">
+          <div class="relative z-10 w-12 h-12 mx-auto rounded-full border border-gray-200 bg-white text-gray-900 text-sm font-medium flex items-center justify-center mb-6 shadow-xs">
+            1
+          </div>
+          <h3 class="text-lg font-medium text-gray-950 mb-2">Connect your number</h3>
+          <p class="text-sm font-light text-gray-500 leading-relaxed max-w-xs mx-auto">
+            Provision a 10DLC-registered long code or toll-free number. We streamline carrier brand registration for you.
+          </p>
+        </div>
+
+        <!-- Step 2 -->
+        <div id="step-2" class="text-center">
+          <div class="relative z-10 w-12 h-12 mx-auto rounded-full border border-gray-200 bg-white text-gray-900 text-sm font-medium flex items-center justify-center mb-6 shadow-xs">
+            2
+          </div>
+          <h3 class="text-lg font-medium text-gray-950 mb-2">Import your contacts</h3>
+          <p class="text-sm font-light text-gray-500 leading-relaxed max-w-xs mx-auto">
+            Upload CSV contact lists or integrate your CRM. Define custom attributes and dynamic audience segments in minutes.
+          </p>
+        </div>
+
+        <!-- Step 3 -->
+        <div id="step-3" class="text-center">
+          <div class="relative z-10 w-12 h-12 mx-auto rounded-full border border-gray-200 bg-white text-gray-900 text-sm font-medium flex items-center justify-center mb-6 shadow-xs">
+            3
+          </div>
+          <h3 class="text-lg font-medium text-gray-950 mb-2">Send &amp; reply</h3>
+          <p class="text-sm font-light text-gray-500 leading-relaxed max-w-xs mx-auto">
+            Launch scheduled campaigns or initiate direct 1-to-1 conversations. Incoming customer replies appear in your inbox instantly.
+          </p>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</section>
+
+
+<!-- ═══════════════════════════ COMPLIANCE BANNER ═══════════════════════════ -->
+<section class="py-20 sm:py-28 bg-white border-t border-gray-100" aria-label="Compliance">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+
+    <div class="bg-[#111827] rounded-3xl p-10 sm:p-14 text-white">
+      <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-8">
+        <div class="flex items-start sm:items-center gap-5">
+          <div class="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center text-white flex-shrink-0">
+            <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              <path d="m9 12 2 2 4-4" />
+            </svg>
+          </div>
+          <div>
+            <h2 class="text-2xl sm:text-3xl font-light tracking-tight text-white mb-2">
+              Built-in opt-out &amp; consent tracking
+            </h2>
+            <p class="text-sm sm:text-base font-light text-gray-300 max-w-2xl leading-relaxed">
+              SparkText records every opt-in source, consent timestamp, and STOP keyword automatically.
+              Your sender reputation stays protected and regulatory audits remain stress-free.
+            </p>
+          </div>
+        </div>
+        <a href="/contact/" id="compliance-cta"
+          class="flex-shrink-0 inline-flex items-center px-5 py-2.5 rounded-lg bg-white hover:bg-gray-100 text-gray-950 font-medium text-sm transition-colors">
+          Learn more &rarr;
+        </a>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+
+<!-- ═══════════════════════════ CTA SECTION ═══════════════════════════ -->
+<section class="py-32 sm:py-40 bg-gray-50 border-t border-gray-100 text-center" aria-label="Call to action">
+  <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+    <h2 class="text-3xl sm:text-4xl lg:text-5xl font-light tracking-tight text-gray-950 mb-4">
+      Ready to start texting?
+    </h2>
+    <p class="text-base sm:text-lg font-light text-gray-500 mb-10 max-w-lg mx-auto">
+      Join forward-thinking businesses that rely on SparkText for modern, reliable customer communications.
+    </p>
+    <div class="flex flex-col sm:flex-row gap-3.5 justify-center">
+      <a href="/contact/" id="cta-get-started"
+        class="inline-flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm px-6 py-3 rounded-lg shadow-xs transition-colors">
+        Get started
+      </a>
+      <a href="/pricing/" id="cta-pricing"
+        class="inline-flex items-center justify-center bg-white hover:bg-gray-100 text-gray-800 font-medium text-sm px-6 py-3 rounded-lg border border-gray-200 shadow-xs transition-colors">
+        View pricing
+      </a>
+    </div>
+  </div>
+</section>
+
+{% endblock %}

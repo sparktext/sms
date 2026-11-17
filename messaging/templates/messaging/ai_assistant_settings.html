@@ -1,0 +1,560 @@
+{% extends "messaging/base_app.html" %}
+
+{% block title %}AI Assistant Settings - SparkText{% endblock %}
+{% block page_header_class %}max-w-5xl w-full mx-auto{% endblock %}
+{% block header_title %}AI Assistant{% endblock %}
+{% block header_subtitle %}Automated two-way conversational assistant powered by your local Gemma model{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto space-y-6 pb-12">
+
+  <!-- Status / Mode Overview Banner -->
+  <div class="p-5 rounded-2xl border transition {% if config.mode == 'auto' %}bg-emerald-50/60 border-emerald-200 text-emerald-950{% elif config.mode == 'suggest' %}bg-indigo-50/60 border-indigo-200 text-indigo-950{% else %}bg-gray-50 border-gray-200 text-gray-800{% endif %} flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-2xs">
+    <div class="flex items-center gap-3.5">
+      <div class="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 {% if config.mode == 'auto' %}bg-emerald-100 text-emerald-700{% elif config.mode == 'suggest' %}bg-indigo-100 text-indigo-700{% else %}bg-gray-200 text-gray-500{% endif %}">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+        </svg>
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <h2 class="text-base font-bold">
+            {% if config.mode == 'auto' %}Auto Mode Active
+            {% elif config.mode == 'suggest' %}Suggest Mode Active (Human Approval)
+            {% else %}AI Assistant is currently OFF
+            {% endif %}
+          </h2>
+          <span class="px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider {% if config.mode == 'auto' %}bg-emerald-100 text-emerald-800 border border-emerald-300{% elif config.mode == 'suggest' %}bg-indigo-100 text-indigo-800 border border-indigo-300{% else %}bg-gray-200 text-gray-700{% endif %}">
+            {{ config.mode }}
+          </span>
+        </div>
+        <p class="text-xs text-gray-600 mt-0.5">
+          {% if config.mode == 'auto' %}Gemma automatically drafts and directly texts qualified replies to incoming customer SMS.
+          {% elif config.mode == 'suggest' %}Gemma drafts suggested replies directly into the Inbox composer for your team to review and approve.
+          {% else %}Inbound messages will not generate AI drafts or replies.
+          {% endif %}
+        </p>
+      </div>
+    </div>
+
+    <!-- Live Engine Status Badge -->
+    <div id="ai-engine-status" class="shrink-0 flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white border border-gray-200/90 shadow-2xs text-xs self-start sm:self-auto">
+      <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse" id="engine-dot"></span>
+      <span id="engine-text" class="text-gray-600 font-medium">Checking LM Studio...</span>
+    </div>
+  </div>
+
+  <form method="post" id="ai-settings-form" class="space-y-6">
+    {% csrf_token %}
+    <input type="hidden" name="qualification_questions_json" id="qualification_questions_json" value="{{ questions_json }}">
+
+    <!-- 1. Operating Mode Selection Card -->
+    <div class="bg-white border border-gray-200 rounded-2xl p-6 shadow-2xs">
+      <h3 class="text-sm font-bold text-gray-900 mb-1 flex items-center gap-2">
+        <svg class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+        </svg>
+        <span>Operating Mode</span>
+      </h3>
+      <p class="text-xs text-gray-500 mb-4">Choose how actively the AI assistant participates in conversations.</p>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+        <label class="cursor-pointer border rounded-2xl p-4 flex flex-col justify-between transition hover:border-gray-300 {% if config.mode == 'off' %}border-slate-900 bg-slate-50/60 ring-2 ring-slate-900/10{% else %}border-gray-200 bg-white{% endif %}">
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-bold text-xs text-gray-900">Off</span>
+              <input type="radio" name="mode" value="off" {% if config.mode == 'off' %}checked{% endif %} class="text-slate-900 focus:ring-slate-900">
+            </div>
+            <p class="text-[11px] text-gray-500 leading-relaxed">AI is disabled. Inbound texts are handled entirely by human agents.</p>
+          </div>
+        </label>
+
+        <label class="cursor-pointer border rounded-2xl p-4 flex flex-col justify-between transition hover:border-indigo-300 {% if config.mode == 'suggest' %}border-brand-600 bg-brand-50/40 ring-2 ring-brand-500/20{% else %}border-gray-200 bg-white{% endif %}">
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-bold text-xs text-brand-900">Suggest (Copilot)</span>
+              <input type="radio" name="mode" value="suggest" {% if config.mode == 'suggest' %}checked{% endif %} class="text-brand-600 focus:ring-brand-500">
+            </div>
+            <p class="text-[11px] text-gray-500 leading-relaxed">Generates reply drafts with Send/Edit/Discard buttons in your chat composer.</p>
+          </div>
+        </label>
+
+        <label class="cursor-pointer border rounded-2xl p-4 flex flex-col justify-between transition hover:border-emerald-300 {% if config.mode == 'auto' %}border-emerald-600 bg-emerald-50/40 ring-2 ring-emerald-500/20{% else %}border-gray-200 bg-white{% endif %}">
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-bold text-xs text-emerald-900">Auto (Autonomous)</span>
+              <input type="radio" name="mode" value="auto" {% if config.mode == 'auto' %}checked{% endif %} class="text-emerald-600 focus:ring-emerald-500">
+            </div>
+            <p class="text-[11px] text-gray-500 leading-relaxed">Directly texts replies to customers within conversational safety and compliance rules.</p>
+          </div>
+        </label>
+      </div>
+    </div>
+
+    <!-- 2. Business Identity & Tone Card -->
+    <div class="bg-white border border-gray-200 rounded-2xl p-6 shadow-2xs space-y-4">
+      <h3 class="text-sm font-bold text-gray-900 mb-1 flex items-center gap-2">
+        <svg class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
+        </svg>
+        <span>Business Information & Voice</span>
+      </h3>
+      <p class="text-xs text-gray-500">How the assistant presents your organization to customers.</p>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs font-semibold text-gray-700 mb-1">Business Name</label>
+          <input
+            type="text"
+            name="business_name"
+            value="{{ config.business_name }}"
+            class="w-full px-3.5 py-2 text-xs bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition text-gray-900"
+            placeholder="e.g. Acme Plumbing & HVAC"
+          />
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-700 mb-1">Tone of Voice</label>
+          <input
+            type="text"
+            name="tone"
+            value="{{ config.tone }}"
+            class="w-full px-3.5 py-2 text-xs bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition text-gray-900"
+            placeholder="e.g. friendly, empathetic, concise, and professional"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold text-gray-700 mb-1">Business Description</label>
+        <textarea
+          name="business_description"
+          rows="2"
+          class="w-full px-3.5 py-2 text-xs bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition text-gray-900 resize-none"
+          placeholder="Brief summary of what your business does..."
+        >{{ config.business_description }}</textarea>
+      </div>
+    </div>
+
+    <!-- 3. Knowledge Base Card -->
+    <div class="bg-white border border-gray-200 rounded-2xl p-6 shadow-2xs space-y-3">
+      <div class="flex items-center justify-between">
+        <div>
+          <h3 class="text-sm font-bold text-gray-900 flex items-center gap-2">
+            <svg class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+            </svg>
+            <span>Knowledge Base</span>
+          </h3>
+          <p class="text-xs text-gray-500">Provide official details about services, hours, locations, and frequently asked questions.</p>
+        </div>
+      </div>
+      <div>
+        <textarea
+          name="knowledge"
+          rows="7"
+          class="w-full px-3.5 py-2.5 text-xs font-mono bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition text-gray-900"
+          placeholder="Hours: Mon-Fri 8am - 6pm&#10;Services: Emergency plumbing, heating repair, drain cleaning&#10;Service Area: Dallas, TX and surrounding counties&#10;FAQ: Do you do free estimates? Yes, on-site estimates are complimentary."
+        >{{ config.knowledge }}</textarea>
+        <p class="text-[11px] text-gray-400 mt-1">The AI will strictly answer customer questions using only facts documented here.</p>
+      </div>
+    </div>
+
+    <!-- 4. Interactive Qualification Questions Card -->
+    <div class="bg-white border border-gray-200 rounded-2xl p-6 shadow-2xs space-y-4">
+      <div class="flex items-center justify-between">
+        <div>
+          <h3 class="text-sm font-bold text-gray-900 flex items-center gap-2">
+            <svg class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
+            </svg>
+            <span>Lead Qualification Questions</span>
+          </h3>
+          <p class="text-xs text-gray-500">Questions the AI collects one at a time. Once all required questions are answered, contact Stage updates to <strong>Qualified</strong>.</p>
+        </div>
+        <button
+          type="button"
+          onclick="addQuestionRow()"
+          class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-brand-600 bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-xl transition cursor-pointer"
+        >
+          <span>+ Add Question</span>
+        </button>
+      </div>
+
+      <div class="border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-100 bg-gray-50/30" id="questions-container">
+        <!-- Rendered via JS -->
+      </div>
+    </div>
+
+    <!-- 4b. AI Test Sandbox (Simulate Customer Text) -->
+    <div id="ai-sandbox-card" class="bg-white border border-indigo-200/80 rounded-2xl p-6 shadow-2xs space-y-4">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div>
+          <h3 class="text-sm font-bold text-gray-900 flex items-center gap-2">
+            <svg class="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/>
+            </svg>
+            <span>AI Test Sandbox — Simulate Customer Text</span>
+          </h3>
+          <p class="text-xs text-gray-500">Test your current tone, knowledge base, and handoff rules before enabling Auto mode. Nothing is saved or texted.</p>
+        </div>
+        <span class="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 self-start sm:self-auto shrink-0">
+          Dry-Run Preview
+        </span>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-1.5">
+        <span class="text-[11px] font-medium text-gray-400 mr-1">Try sample:</span>
+        <button type="button" onclick="fillSandboxPrompt('What are your hours and services?')" class="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-gray-50 hover:bg-gray-100 text-gray-700 border border-gray-200 transition cursor-pointer">
+          Hours &amp; services
+        </button>
+        <button type="button" onclick="fillSandboxPrompt('How much does this cost? Can I get a quote?')" class="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-gray-50 hover:bg-gray-100 text-gray-700 border border-gray-200 transition cursor-pointer">
+          Pricing inquiry
+        </button>
+        <button type="button" onclick="fillSandboxPrompt('Can I speak to a real person right now?')" class="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-gray-50 hover:bg-gray-100 text-gray-700 border border-gray-200 transition cursor-pointer">
+          Request human
+        </button>
+      </div>
+
+      <div class="flex flex-col sm:flex-row gap-2.5">
+        <input
+          type="text"
+          id="ai-sandbox-input"
+          placeholder="Type a simulated customer SMS (e.g. 'Hi, what services do you offer in 94107?')..."
+          onkeydown="if (event.key === 'Enter') { event.preventDefault(); runAiSandboxTest(); }"
+          class="flex-1 px-3.5 py-2.5 text-xs bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition text-gray-900"
+        />
+        <button
+          type="button"
+          id="ai-sandbox-run-btn"
+          onclick="runAiSandboxTest()"
+          class="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition shadow-2xs cursor-pointer shrink-0 disabled:opacity-60"
+        >
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+          <span id="ai-sandbox-btn-label">Simulate Reply</span>
+        </button>
+      </div>
+
+      <div id="ai-sandbox-result" class="hidden rounded-xl border p-4 space-y-3 text-xs"></div>
+    </div>
+
+    <!-- 5. Negative Rules & Handoff Guardrails -->
+    <div class="bg-white border border-gray-200 rounded-2xl p-6 shadow-2xs space-y-4">
+      <h3 class="text-sm font-bold text-gray-900 mb-1 flex items-center gap-2">
+        <svg class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+        </svg>
+        <span>Safety, Never-Say & Handoff Guardrails</span>
+      </h3>
+      <p class="text-xs text-gray-500">Hard constraints to keep the assistant compliant, safe, and on-brand.</p>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs font-semibold text-gray-700 mb-1">
+            Never-Say Phrases <span class="text-gray-400 font-normal">(one per line)</span>
+          </label>
+          <textarea
+            name="never_say"
+            rows="4"
+            class="w-full px-3.5 py-2 text-xs font-mono bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition text-gray-900"
+            placeholder="100% money back&#10;guaranteed approval&#10;call right now"
+          >{{ config.never_say }}</textarea>
+          <p class="text-[10px] text-gray-400 mt-1">If the model generates any of these phrases, code validation blocks the reply and alerts human agents.</p>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-gray-700 mb-1">
+            Custom Handoff Triggers
+          </label>
+          <textarea
+            name="handoff_rules"
+            rows="4"
+            class="w-full px-3.5 py-2 text-xs bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition text-gray-900"
+            placeholder="e.g. Hand off if customer mentions flooding, gas leaks, or asks for legal contracts."
+          >{{ config.handoff_rules }}</textarea>
+          <p class="text-[10px] text-gray-400 mt-1">Angry complaints, explicit requests for a human, and price questions automatically trigger handoff.</p>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-gray-100">
+        <div>
+          <label class="block text-xs font-semibold text-gray-700 mb-1">Max Reply Length (Characters)</label>
+          <input
+            type="number"
+            name="max_reply_chars"
+            value="{{ config.max_reply_chars }}"
+            min="50"
+            max="1600"
+            class="w-full px-3.5 py-2 text-xs bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition text-gray-900 font-mono"
+          />
+          <p class="text-[10px] text-gray-400 mt-1">Recommended 140–160 characters (1 SMS bubble for punchy, human texting).</p>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-gray-700 mb-1">Max AI Replies / Hour / Contact</label>
+          <input
+            type="number"
+            name="max_ai_replies_per_hour_per_contact"
+            value="{{ config.max_ai_replies_per_hour_per_contact }}"
+            min="1"
+            max="60"
+            class="w-full px-3.5 py-2 text-xs bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition text-gray-900 font-mono"
+          />
+          <p class="text-[10px] text-gray-400 mt-1">Prevents runaway chat loops with any single customer.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Save Action Bar -->
+    <div class="flex items-center justify-end gap-3 pt-2">
+      <button
+        type="submit"
+        class="px-5 py-2.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-xl shadow-xs transition cursor-pointer flex items-center gap-2"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+        </svg>
+        <span>Save AI Assistant Settings</span>
+      </button>
+    </div>
+
+  </form>
+
+</div>
+
+<script>
+  let questions = [];
+  try {
+    const raw = document.getElementById("qualification_questions_json").value;
+    questions = JSON.parse(raw) || [];
+  } catch (e) {
+    questions = [];
+  }
+
+  function renderQuestions() {
+    const container = document.getElementById("questions-container");
+    container.innerHTML = "";
+
+    if (questions.length === 0) {
+      container.innerHTML = `
+        <div class="p-6 text-center text-xs text-gray-400">
+          No qualification questions added yet. Click <strong>+ Add Question</strong> to define questions for the AI to collect.
+        </div>
+      `;
+      syncQuestions();
+      return;
+    }
+
+    questions.forEach((q, idx) => {
+      const row = document.createElement("div");
+      row.className = "p-3.5 bg-white flex flex-col sm:flex-row items-start sm:items-center gap-3";
+      row.innerHTML = `
+        <div class="w-full sm:w-1/4">
+          <label class="block text-[10px] text-gray-400 font-bold mb-0.5">FIELD KEY</label>
+          <input
+            type="text"
+            value="${escapeHtml(q.key || '')}"
+            oninput="updateQuestion(${idx}, 'key', this.value)"
+            placeholder="e.g. service_type"
+            class="w-full px-2.5 py-1.5 text-xs font-mono bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-brand-500"
+          />
+        </div>
+        <div class="w-full sm:flex-1">
+          <label class="block text-[10px] text-gray-400 font-bold mb-0.5">QUESTION FOR THE AI TO ASK</label>
+          <input
+            type="text"
+            value="${escapeHtml(q.question || '')}"
+            oninput="updateQuestion(${idx}, 'question', this.value)"
+            placeholder="e.g. What type of service are you looking for?"
+            class="w-full px-2.5 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-brand-500"
+          />
+        </div>
+        <div class="flex items-center gap-4 shrink-0 pt-3 sm:pt-4">
+          <label class="inline-flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              ${q.required ? 'checked' : ''}
+              onchange="updateQuestion(${idx}, 'required', this.checked)"
+              class="rounded text-brand-600 focus:ring-brand-500"
+            />
+            <span>Required for Stage</span>
+          </label>
+          <button
+            type="button"
+            onclick="removeQuestionRow(${idx})"
+            class="text-gray-400 hover:text-rose-600 transition p-1"
+            title="Remove question"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+          </button>
+        </div>
+      `;
+      container.appendChild(row);
+    });
+
+    syncQuestions();
+  }
+
+  function addQuestionRow() {
+    questions.push({
+      key: `field_${questions.length + 1}`,
+      question: "",
+      required: false,
+    });
+    renderQuestions();
+  }
+
+  function removeQuestionRow(idx) {
+    questions.splice(idx, 1);
+    renderQuestions();
+  }
+
+  function updateQuestion(idx, field, val) {
+    if (questions[idx]) {
+      questions[idx][field] = val;
+      syncQuestions();
+    }
+  }
+
+  function syncQuestions() {
+    document.getElementById("qualification_questions_json").value = JSON.stringify(questions);
+  }
+
+  function escapeHtml(str) {
+    return (str || "").replace(/"/g, "&quot;");
+  }
+
+  // Initial render
+  renderQuestions();
+
+  // Engine Status Check
+  async function checkEngineStatus() {
+    const dot = document.getElementById("engine-dot");
+    const text = document.getElementById("engine-text");
+    if (!dot || !text) return;
+    try {
+      const res = await fetch("{% url 'messaging:ai_assistant_ping' %}", {
+        headers: { "X-Requested-With": "XMLHttpRequest" }
+      });
+      const data = await res.json();
+      if (data.status === "online") {
+        dot.className = "w-2 h-2 rounded-full bg-emerald-500";
+        text.className = "text-emerald-700 font-semibold";
+        text.innerText = "LM Studio Online (" + (data.model || "Connected") + ")";
+      } else {
+        dot.className = "w-2 h-2 rounded-full bg-rose-500";
+        text.className = "text-rose-700 font-medium";
+        text.innerText = "LM Studio Offline (Port 1235)";
+      }
+    } catch (e) {
+      dot.className = "w-2 h-2 rounded-full bg-rose-500";
+      text.className = "text-rose-700 font-medium";
+      text.innerText = "Engine Unreachable";
+    }
+  }
+  checkEngineStatus();
+
+  function escapeSandboxText(str) {
+    const div = document.createElement("div");
+    div.appendChild(document.createTextNode(str || ""));
+    return div.innerHTML;
+  }
+
+  function fillSandboxPrompt(text) {
+    const input = document.getElementById("ai-sandbox-input");
+    if (input) {
+      input.value = text;
+      input.focus();
+    }
+  }
+
+  async function runAiSandboxTest() {
+    const input = document.getElementById("ai-sandbox-input");
+    const btn = document.getElementById("ai-sandbox-run-btn");
+    const btnLabel = document.getElementById("ai-sandbox-btn-label");
+    const resultBox = document.getElementById("ai-sandbox-result");
+    const form = document.getElementById("ai-settings-form");
+    if (!input || !resultBox || !form) return;
+
+    const sample = input.value.trim();
+    if (!sample) {
+      input.focus();
+      if (typeof window.showAppToast === "function") {
+        window.showAppToast("Enter a sample customer text first.", "warning");
+      }
+      return;
+    }
+
+    syncQuestions();
+    const formData = new FormData(form);
+    formData.append("test_message", sample);
+
+    if (btn) btn.disabled = true;
+    if (btnLabel) btnLabel.textContent = "Generating...";
+    resultBox.className = "rounded-xl border border-gray-200 bg-gray-50 p-4 text-xs text-gray-500";
+    resultBox.textContent = "Running dry-run against your local Gemma model...";
+    resultBox.classList.remove("hidden");
+
+    try {
+      const res = await fetch("{% url 'messaging:ai_assistant_sandbox_test' %}", {
+        method: "POST",
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+        body: formData,
+      });
+      const data = await res.json();
+
+      if (data.status === "offline" || data.status === "error") {
+        resultBox.className = "rounded-xl border border-rose-200 bg-rose-50/70 p-4 space-y-1.5 text-xs text-rose-900";
+        resultBox.innerHTML = `
+          <div class="font-bold">Sandbox simulation could not complete</div>
+          <p class="text-[11px] text-rose-800">${escapeSandboxText(data.error || "Unknown error")}</p>
+        `;
+        return;
+      }
+
+      const collectedEntries = Object.entries(data.collected || {});
+      const collectedHtml = collectedEntries.length
+        ? collectedEntries.map(([k, v]) => `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-gray-200 font-mono text-[10px] text-gray-700">${escapeSandboxText(k)}: <strong>${escapeSandboxText(String(v))}</strong></span>`).join(" ")
+        : `<span class="text-[11px] text-gray-400">None extracted</span>`;
+
+      const isBlocked = data.status === "validation_blocked";
+      resultBox.className = `rounded-xl border p-4 space-y-3 text-xs ${isBlocked ? "border-amber-200 bg-amber-50/50" : "border-emerald-200 bg-emerald-50/40"}`;
+      resultBox.innerHTML = `
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="flex flex-wrap items-center gap-1.5">
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${isBlocked ? "bg-amber-100 text-amber-800 border border-amber-300" : "bg-emerald-100 text-emerald-800 border border-emerald-300"}">
+              ${isBlocked ? "Blocked by Guardrail" : "Guardrails Passed"}
+            </span>
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-white border border-gray-200 text-gray-700">
+              Intent: ${escapeSandboxText(data.intent || "unknown")}
+            </span>
+            ${data.needs_human ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-300">Handoff Triggered</span>` : ""}
+          </div>
+          <span class="text-[11px] font-mono text-gray-500">${data.char_count || 0} / ${data.max_reply_chars || 160} chars · ${data.latency_ms || 0} ms</span>
+        </div>
+
+        <div class="p-3 rounded-xl bg-white border border-gray-200 text-gray-900 leading-relaxed font-medium">
+          ${escapeSandboxText(data.reply || "(Empty reply)")}
+        </div>
+
+        ${isBlocked && data.validation_error ? `<p class="text-[11px] text-amber-900 font-medium">Safety rule reason: ${escapeSandboxText(data.validation_error)}</p>` : ""}
+        ${data.needs_human && data.handoff_reason ? `<p class="text-[11px] text-amber-800">Handoff reason: ${escapeSandboxText(data.handoff_reason)}</p>` : ""}
+
+        <div class="flex flex-wrap items-center gap-1.5 pt-1 border-t border-gray-200/70">
+          <span class="text-[11px] font-semibold text-gray-600 mr-1">Extracted fields:</span>
+          ${collectedHtml}
+        </div>
+      `;
+    } catch (err) {
+      resultBox.className = "rounded-xl border border-rose-200 bg-rose-50/70 p-4 text-xs text-rose-800";
+      resultBox.textContent = "Network error while running AI sandbox simulation.";
+    } finally {
+      if (btn) btn.disabled = false;
+      if (btnLabel) btnLabel.textContent = "Simulate Reply";
+    }
+  }
+</script>
+{% endblock %}
+
