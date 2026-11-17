@@ -26,11 +26,9 @@
         <div>
           <h2 class="text-base font-bold text-gray-900 leading-tight">Messages</h2>
         </div>
-        {% if request.user.role != 'readonly' %}
         <button type="button" onclick="openNewChatModal()" class="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-brand-600 bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-lg transition cursor-pointer" title="Start new conversation with any phone number or contact">
           <span>+ New Chat</span>
         </button>
-        {% endif %}
       </div>
 
       <!-- Search bar & Sub-Filter Dropdown -->

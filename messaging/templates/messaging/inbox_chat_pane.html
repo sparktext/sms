@@ -394,11 +394,9 @@
       <p class="text-xs text-gray-500 max-w-sm mx-auto mb-6 leading-relaxed">
         Select a contact from the left pane to view message history, check compliance status, and send text messages.
       </p>
-      {% if request.user.role != 'readonly' %}
       <button type="button" onclick="openNewChatModal()" class="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition shadow-xs cursor-pointer">
         Start a Conversation ⚡
       </button>
-      {% endif %}
     </div>
   {% endif %}
 

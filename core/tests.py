@@ -195,29 +195,6 @@ class SettingsAndTeamTests(TestCase):
         self.agent.refresh_from_db()
         self.assertEqual(self.agent.role, User.Role.ADMIN)
 
-    def test_team_member_update_to_readonly_role(self):
-        self.client.force_login(self.owner)
-        resp = self.client.post(
-            f"/settings/team/members/{self.agent.id}/role/",
-            {"role": "readonly"},
-            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
-        )
-        self.assertEqual(resp.status_code, 200)
-        self.agent.refresh_from_db()
-        self.assertEqual(self.agent.role, User.Role.READONLY)
-        self.assertTrue(self.agent.is_read_only)
-
-    def test_team_invite_create_readonly(self):
-        self.client.force_login(self.owner)
-        resp = self.client.post(
-            "/settings/team/invite/",
-            {"email": "auditor@apex.com", "role": "readonly"},
-            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
-        )
-        self.assertEqual(resp.status_code, 201)
-        invite = OrganizationInvite.objects.get(email="auditor@apex.com", organization=self.org)
-        self.assertEqual(invite.role, User.Role.READONLY)
-
     def test_cannot_demote_sole_owner(self):
         self.client.force_login(self.owner)
         resp = self.client.post(
@@ -249,17 +226,6 @@ class SettingsAndTeamTests(TestCase):
         self.agent.refresh_from_db()
         self.assertIsNone(self.agent.organization)
         self.assertFalse(self.agent.is_active)
-
-    def test_readonly_user_availability_toggle_blocked(self):
-        self.agent.role = User.Role.READONLY
-        self.agent.save(update_fields=["role"])
-        self.client.force_login(self.agent)
-        resp = self.client.post(
-            "/settings/availability/toggle/",
-            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
-        )
-        self.assertEqual(resp.status_code, 400)
-        self.assertIn("Read-only members do not participate", resp.json()["message"])
 
     def test_accept_invite_flow(self):
         invite = OrganizationInvite.objects.create(

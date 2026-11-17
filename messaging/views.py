@@ -404,9 +404,6 @@ def conversation_detail(request, conversation_id):
 
     message_list, has_older_messages, oldest_msg_id = get_recent_thread_slice(conversation)
     can_send, block_reason = can_send_manual(conversation.contact, conversation)
-    if getattr(request.user, "is_read_only", False) or request.user.role == User.Role.READONLY:
-        can_send = False
-        block_reason = "You have read-only access. You can view conversations but cannot send SMS messages."
     org_members = list(User.objects.filter(organization=org).order_by("first_name", "email"))
 
     context = {
@@ -471,12 +468,6 @@ def send_conversation_message(request, conversation_id):
         id=conversation_id,
         organization=org,
     )
-
-    if getattr(request.user, "is_read_only", False) or request.user.role == User.Role.READONLY:
-        if _is_ajax_request(request):
-            return JsonResponse({"status": "error", "message": "You have read-only access and cannot send SMS messages."}, status=403)
-        messages.error(request, "You have read-only access and cannot send SMS messages.")
-        return redirect("messaging:conversation_detail", conversation_id=conversation.id)
 
     body = request.POST.get("body", "").strip()
 
@@ -807,13 +798,6 @@ def update_conversation_status(request, conversation_id):
         raise PermissionDenied("User is not associated with an organization.")
 
     conversation = get_object_or_404(Conversation, id=conversation_id, organization=org)
-
-    if getattr(request.user, "is_read_only", False) or request.user.role == User.Role.READONLY:
-        if _is_ajax_request(request):
-            return JsonResponse({"status": "error", "message": "Permission denied: read-only access."}, status=403)
-        messages.error(request, "Permission denied: read-only access.")
-        return redirect("messaging:conversation_detail", conversation_id=conversation.id)
-
     new_status = request.POST.get("status", "").strip().lower()
 
     if new_status in [Conversation.Status.OPEN, Conversation.Status.NEEDS_HUMAN, Conversation.Status.CLOSED]:
@@ -867,12 +851,6 @@ def start_new_chat(request):
     org = request.user.organization
     if not org:
         raise PermissionDenied("User is not associated with an organization.")
-
-    if getattr(request.user, "is_read_only", False) or request.user.role == User.Role.READONLY:
-        return JsonResponse({
-            "status": "error",
-            "message": "You have read-only access and cannot initiate new conversations.",
-        }, status=403)
 
     phone_number = None
     sender_phone_number_id = request.POST.get("sender_phone_number_id", "").strip()
@@ -1185,12 +1163,6 @@ def resume_ai_conversation(request, conversation_id):
     if not org:
         raise PermissionDenied("User is not associated with an organization.")
 
-    if getattr(request.user, "is_read_only", False) or request.user.role == User.Role.READONLY:
-        if _is_ajax_request(request):
-            return JsonResponse({"status": "error", "message": "Permission denied: read-only access."}, status=403)
-        messages.error(request, "Permission denied: read-only access.")
-        return redirect("messaging:conversation_detail", conversation_id=conversation_id)
-
     conversation = get_object_or_404(Conversation, id=conversation_id, organization=org)
     conversation.status = Conversation.Status.OPEN
     conversation.handoff_reason = ""
@@ -1439,16 +1411,11 @@ def update_conversation_assigned_to(request, conversation_id):
     if not org:
         raise PermissionDenied("User is not associated with an organization.")
 
-    if getattr(request.user, "is_read_only", False) or request.user.role == User.Role.READONLY:
-        return JsonResponse({"status": "error", "message": "Permission denied: read-only access."}, status=403)
-
     conversation = get_object_or_404(Conversation, id=conversation_id, organization=org)
     user_id = request.POST.get("assigned_to_id", "").strip()
 
     if user_id:
         assigned_user = get_object_or_404(User, id=user_id, organization=org)
-        if assigned_user.role == User.Role.READONLY:
-            return JsonResponse({"status": "error", "message": "Read-only members cannot be assigned leads."}, status=400)
         conversation.assigned_to = assigned_user
         assigned_name = assigned_user.first_name or assigned_user.email
     else:

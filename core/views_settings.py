@@ -164,8 +164,6 @@ def team_invite_create(request):
 
     email = request.POST.get("email", "").strip().lower()
     role = request.POST.get("role", User.Role.AGENT).strip().lower()
-    if role in ["viewer", "read_only", "readonly"]:
-        role = User.Role.READONLY
 
     if not email:
         return JsonResponse({"status": "error", "message": "Please enter a valid email address."}, status=400)
@@ -245,8 +243,6 @@ def team_member_update_role(request, user_id):
 
     target_user = get_object_or_404(User, id=user_id, organization=org)
     new_role = request.POST.get("role", "").strip().lower()
-    if new_role in ["viewer", "read_only", "readonly"]:
-        new_role = User.Role.READONLY
 
     valid_roles = [r[0] for r in User.Role.choices]
     if new_role not in valid_roles:
@@ -456,9 +452,6 @@ def toggle_agent_availability(request, user_id=None):
         if request.user.role not in [User.Role.OWNER, User.Role.ADMIN]:
             return JsonResponse({"status": "error", "message": "Permission denied."}, status=403)
         target_user = get_object_or_404(User, id=user_id, organization=org)
-
-    if target_user.role == User.Role.READONLY:
-        return JsonResponse({"status": "error", "message": "Read-only members do not participate in lead routing."}, status=400)
 
     target_user.is_available_for_leads = not target_user.is_available_for_leads
     target_user.save(update_fields=["is_available_for_leads"])

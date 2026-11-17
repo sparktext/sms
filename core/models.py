@@ -147,7 +147,6 @@ class User(AbstractUser):
         OWNER = "owner", "Owner"
         ADMIN = "admin", "Admin"
         AGENT = "agent", "Agent"
-        READONLY = "readonly", "Read-Only"
 
     username = None
     email = models.EmailField(unique=True)
@@ -174,10 +173,6 @@ class User(AbstractUser):
 
     def __str__(self):
         return self.email
-
-    @property
-    def is_read_only(self) -> bool:
-        return self.role == self.Role.READONLY
 
     @property
     def is_admin_or_owner(self) -> bool:

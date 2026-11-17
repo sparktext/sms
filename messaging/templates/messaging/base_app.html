@@ -495,7 +495,6 @@
             </div>
           </div>
 
-          {% if request.user.role != 'readonly' %}
           <button
             type="button"
             id="nav-availability-btn"
@@ -506,15 +505,6 @@
             <span class="w-2 h-2 rounded-full {% if request.user.is_available_for_leads %}bg-emerald-500 animate-pulse{% else %}bg-gray-400{% endif %}"></span>
             <span id="nav-availability-text" class="hidden sm:inline">{% if request.user.is_available_for_leads %}Available for Leads{% else %}Away / Paused{% endif %}</span>
           </button>
-          {% else %}
-          <span
-            class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 whitespace-nowrap shrink-0 shadow-2xs"
-            title="You have read-only observer access"
-          >
-            <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
-            <span class="hidden sm:inline">Read-Only</span>
-          </span>
-          {% endif %}
           {% endif %}
           
         </div>
