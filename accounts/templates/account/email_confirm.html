@@ -1,26 +1,24 @@
 {% extends "accounts/base_auth.html" %}
-{% load i18n %}
 
 {% block title %}Confirm Email – SparkText{% endblock %}
 
 {% block content %}
 
 {% if confirmation %}
-  {# valid key - show success + auto-redirect #}
   <div class="text-center">
-    <div class="icon-circle" style="background:#ecfdf5;border-color:#a7f3d0;">
-      <svg width="28" height="28" fill="none" stroke="#047857" stroke-width="2.5" viewBox="0 0 24 24">
+    <div class="icon-circle success">
+      <svg width="26" height="26" fill="none" stroke="#16a34a" stroke-width="2.5" viewBox="0 0 24 24">
         <polyline stroke-linecap="round" stroke-linejoin="round" points="20 6 9 17 4 12"/>
       </svg>
     </div>
     <h1 class="page-title">Email confirmed!</h1>
     <p class="page-subtitle">
-      <strong style="color:#1e293b;">{{ confirmation.email_address.email }}</strong> is now verified.<br>
-      You're all set — let's get you to your workspace.
+      <strong style="color:var(--slate-800);">{{ confirmation.email_address.email }}</strong> is now verified.<br>
+      Let's get you into your workspace.
     </p>
   </div>
 
-  <form id="confirm-form" method="post" style="margin-top:1rem;">
+  <form id="confirm-form" method="post" style="margin-top:0.5rem;">
     {% csrf_token %}
     <button type="submit" class="btn btn-primary">
       <span class="spinner"></span>
@@ -29,15 +27,13 @@
   </form>
 
   <script>
-    // Auto-submit after 1.5 s so the user sees the success state
-    setTimeout(function() { document.getElementById('confirm-form').submit(); }, 1500);
+    setTimeout(function() { document.getElementById('confirm-form').submit(); }, 1800);
   </script>
 
 {% else %}
-  {# invalid/expired key #}
   <div class="text-center">
     <div class="icon-circle danger">
-      <svg width="26" height="26" fill="none" stroke="#e11d48" stroke-width="1.75" viewBox="0 0 24 24">
+      <svg width="24" height="24" fill="none" stroke="#dc2626" stroke-width="1.75" viewBox="0 0 24 24">
         <circle cx="12" cy="12" r="10" stroke-width="2"/>
         <path stroke-linecap="round" stroke-width="2" d="M12 8v4m0 4h.01"/>
       </svg>
@@ -45,14 +41,13 @@
     <h1 class="page-title">Link expired</h1>
     <p class="page-subtitle">
       This confirmation link is invalid or has already been used.<br>
-      Request a new one below.
+      Request a fresh one below.
     </p>
   </div>
 
-  <a href="{% url 'account_email_verification_sent' %}" class="btn btn-primary" style="margin-top:8px;">
+  <a href="{% url 'account_email_verification_sent' %}" class="btn btn-primary" style="text-decoration:none; margin-top:0.5rem;">
     <span class="btn-label">Resend verification email</span>
   </a>
-
 {% endif %}
 
 {% endblock %}
@@ -62,4 +57,3 @@
   <a href="{% url 'account_login' %}" class="link">Back to sign in</a>
 </div>
 {% endblock %}
-
