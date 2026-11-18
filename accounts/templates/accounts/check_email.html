@@ -6,25 +6,21 @@
 
 <div class="text-center">
   <div class="icon-circle">
-    <svg width="26" height="26" fill="none" stroke="#4f46e5" stroke-width="1.75" viewBox="0 0 24 24">
+    <svg width="24" height="24" fill="none" stroke="#6366f1" stroke-width="1.75" viewBox="0 0 24 24">
       <path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
     </svg>
   </div>
   <h1 class="page-title">Check your inbox</h1>
   <p class="page-subtitle">
     We sent a verification link to<br>
-    <strong style="color:#1e293b;">{{ email|default:"your email address" }}</strong>
+    <strong style="color:var(--slate-800);">{{ email|default:"your email address" }}</strong>
   </p>
 </div>
 
 <div class="info-box">
   <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="2"/><path stroke-linecap="round" stroke-width="2" d="M12 8v4m0 4h.01"/></svg>
-  <span><strong>Next:</strong> Click the link in that email to verify your account. It expires in <strong>24 hours</strong>.</span>
+  <span><strong>Next:</strong> Click the link in that email to verify your account. It expires in <strong>24 hours</strong>. Check your spam folder if you don't see it.</span>
 </div>
-
-<p style="font-size:0.875rem;color:#64748b;text-align:center;margin-bottom:12px;">
-  Didn't receive it? Check your spam folder, or…
-</p>
 
 <button id="resend-btn" class="btn btn-outline" onclick="resendEmail(this)">
   <span class="spinner spinner-dark"></span>
@@ -50,15 +46,18 @@ function resendEmail(btn) {
   var orig    = label ? label.textContent : 'Resend verification email';
   var secs    = 60;
   if (spinner) spinner.style.display = 'block';
+
   fetch("{% url 'account_email_verification_sent' %}", {
     method: 'POST',
     headers: {'X-CSRFToken': '{{ csrf_token }}', 'Content-Type': 'application/json'}
   }).catch(function(){});
+
   var iv = setInterval(function () {
     if (label) label.textContent = 'Resend in ' + secs + 's';
     secs--;
     if (secs < 0) {
-      clearInterval(iv); btn.disabled = false; cooldown = false;
+      clearInterval(iv);
+      btn.disabled = false; cooldown = false;
       if (spinner) spinner.style.display = 'none';
       if (label) label.textContent = orig;
     }
