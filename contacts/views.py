@@ -316,14 +316,14 @@ def import_preview(request):
 
     uploaded_file = request.FILES.get("file")
     if not uploaded_file:
-        return JsonResponse({"status": "error", "message": "Please select a CSV file."}, status=400)
+        return JsonResponse({"status": "error", "message": "Please select a CSV or Excel file."}, status=400)
 
     try:
         raw_bytes = uploaded_file.read()
-        preview = preview_csv(raw_bytes, sample_size=5)
+        preview = preview_csv(raw_bytes, sample_size=5, filename=uploaded_file.name)
 
         if not preview["headers"]:
-            return JsonResponse({"status": "error", "message": "The CSV file appears to be empty."}, status=400)
+            return JsonResponse({"status": "error", "message": "The uploaded file appears to be empty."}, status=400)
 
         suggestions = suggest_column_mappings(org, preview["headers"])
         approved_fields = list(ContactField.objects.filter(organization=org).values("key", "label"))
@@ -341,7 +341,7 @@ def import_preview(request):
         err_msg = "; ".join(ve.messages) if hasattr(ve, "messages") else str(ve)
         return JsonResponse({"status": "error", "message": err_msg}, status=400)
     except Exception as exc:
-        return JsonResponse({"status": "error", "message": f"Could not read CSV file: {str(exc)}"}, status=400)
+        return JsonResponse({"status": "error", "message": f"Could not read file: {str(exc)}"}, status=400)
 
 
 @login_required

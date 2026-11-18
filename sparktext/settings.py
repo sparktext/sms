@@ -32,7 +32,7 @@ env = environ.Env(
     TELNYX_PUBLIC_KEY=(str, ""),
     TELNYX_PHONE_NUMBER=(str, ""),
     TELNYX_VALIDATE_WEBHOOKS=(bool, False),
-    MESSAGING_PROVIDER=(str, "telnyx"),
+    MESSAGING_PROVIDER=(str, "twilio"),
     MESSAGING_REPLY_WINDOW_HOURS=(int, 24),
     AI_CLIENT=(str, "openai"),
     AI_BASE_URL=(str, "http://localhost:1235/v1"),
@@ -299,7 +299,7 @@ TELNYX_PUBLIC_KEY = env("TELNYX_PUBLIC_KEY", default="")
 TELNYX_PHONE_NUMBER = env("TELNYX_PHONE_NUMBER", default="")
 TELNYX_VALIDATE_WEBHOOKS = env("TELNYX_VALIDATE_WEBHOOKS", default=False)
 
-MESSAGING_PROVIDER = env("MESSAGING_PROVIDER", default="telnyx")
+MESSAGING_PROVIDER = env("MESSAGING_PROVIDER", default="twilio")
 MESSAGING_REPLY_WINDOW_HOURS = env("MESSAGING_REPLY_WINDOW_HOURS", default=24)
 
 # AI Assistant Settings

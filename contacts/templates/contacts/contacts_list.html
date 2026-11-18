@@ -17,7 +17,7 @@
   <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
   </svg>
-  <span class="hidden sm:inline">Import CSV</span>
+  <span class="hidden sm:inline">Import CSV / Excel</span>
   <span class="sm:hidden">Import</span>
 </button>
 <a id="exportContactsLink" href="{% url 'contacts:export_contacts' %}{% if request.GET.urlencode %}?{{ request.GET.urlencode }}{% endif %}" class="inline-flex items-center gap-2 px-3 py-2 text-xs sm:text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 hover:text-gray-900 transition shadow-xs cursor-pointer whitespace-nowrap shrink-0 hidden sm:inline-flex" title="Export current list to CSV">
@@ -370,8 +370,8 @@
       <!-- Modal Header -->
       <div class="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
         <div>
-          <h3 class="text-lg font-bold text-gray-900" id="csv-modal-title">Import Contacts from CSV</h3>
-          <p class="text-xs text-gray-500 mt-0.5">Upload a customer list, map column data, and import into your audience.</p>
+          <h3 class="text-lg font-bold text-gray-900" id="csv-modal-title">Import Contacts from CSV or Excel</h3>
+          <p class="text-xs text-gray-500 mt-0.5">Upload a customer list (.csv, .xlsx, .xls), map column data, and import into your audience.</p>
         </div>
         <button type="button" onclick="closeCsvModal()" class="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition cursor-pointer">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -409,14 +409,14 @@
             onclick="document.getElementById('csvFileInput').click()"
             class="border-2 border-dashed border-gray-200 hover:border-brand-400 rounded-2xl p-8 text-center cursor-pointer transition bg-gray-50/50 hover:bg-brand-50/20"
           >
-            <input type="file" id="csvFileInput" accept=".csv,text/csv" class="hidden" onchange="handleFileSelected(event)" />
+            <input type="file" id="csvFileInput" accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.xls,application/vnd.ms-excel" class="hidden" onchange="handleFileSelected(event)" />
             <div class="w-12 h-12 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center mx-auto mb-3">
               <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
               </svg>
             </div>
-            <div class="text-sm font-semibold text-gray-800" id="csvFileLabel">Click or drag a CSV file here</div>
-            <div class="text-xs text-gray-400 mt-1">UTF-8 or Windows-1252 supported. Maximum 50,000 rows.</div>
+            <div class="text-sm font-semibold text-gray-800" id="csvFileLabel">Click or drag a CSV or Excel file here</div>
+            <div class="text-xs text-gray-400 mt-1">CSV (.csv), Excel (.xlsx, .xls) supported. Maximum 50,000 rows.</div>
           </div>
 
           <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-600 flex items-start gap-2.5">
@@ -424,7 +424,7 @@
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <div>
-              <strong>Compliance Notice:</strong> Importing a CSV will not grant SMS consent. Uploaded contacts will be marked with status <em>No consent</em> until explicit consent is registered.
+              <strong>Compliance Notice:</strong> Importing a list will not grant SMS consent. Uploaded contacts will be marked with status <em>No consent</em> until explicit consent is registered.
             </div>
           </div>
 
@@ -1151,16 +1151,30 @@
     selectedCsvFile = null;
     csvPreviewData = null;
     document.getElementById('csvFileInput').value = '';
-    document.getElementById('csvFileLabel').innerText = 'Click or drag a CSV file here';
+    document.getElementById('csvFileLabel').innerText = 'Click or drag a CSV or Excel file here';
     document.getElementById('csvUploadNextBtn').disabled = true;
   }
 
+  function setFileForImport(file) {
+    if (!file) return;
+    const errBox = document.getElementById('csvErrorBox');
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    const validExts = ['csv', 'xlsx', 'xls'];
+    if (!validExts.includes(ext)) {
+      errBox.innerText = `Unsupported file type ".${ext}". Please upload a CSV (.csv) or Excel (.xlsx, .xls) file.`;
+      errBox.classList.remove('hidden');
+      return;
+    }
+    errBox.classList.add('hidden');
+    selectedCsvFile = file;
+    document.getElementById('csvFileLabel').innerText = `${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+    document.getElementById('csvUploadNextBtn').disabled = false;
+  }
+
   function handleFileSelected(e) {
-    const file = e.target.files[0];
+    const file = e.target.files && e.target.files[0];
     if (file) {
-      selectedCsvFile = file;
-      document.getElementById('csvFileLabel').innerText = `${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
-      document.getElementById('csvUploadNextBtn').disabled = false;
+      setFileForImport(file);
     }
   }
 
@@ -1186,7 +1200,7 @@
     const nextBtn = document.getElementById('csvUploadNextBtn');
     errBox.classList.add('hidden');
     nextBtn.disabled = true;
-    nextBtn.innerHTML = '<span>Scanning CSV...</span>';
+    nextBtn.innerHTML = '<span>Scanning file...</span>';
 
     const formData = new FormData();
     formData.append('file', selectedCsvFile);
@@ -1203,7 +1217,7 @@
       const data = await resp.json();
 
       if (!resp.ok || data.status === 'error') {
-        errBox.innerText = data.message || "Failed to scan CSV file.";
+        errBox.innerText = data.message || "Failed to scan file.";
         errBox.classList.remove('hidden');
       } else {
         csvPreviewData = data;
@@ -1698,6 +1712,31 @@ print(res.json())`;
     refreshApiUrls();
     if (new URLSearchParams(window.location.search).get('open_api') === '1') {
       openApiModal();
+    }
+
+    // Drag & Drop support for CSV & Excel files
+    const dropZone = document.getElementById('csvDropZone');
+    if (dropZone) {
+      ['dragenter', 'dragover'].forEach(evtName => {
+        dropZone.addEventListener(evtName, (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          dropZone.classList.add('border-brand-500', 'bg-brand-50/50');
+        }, false);
+      });
+      ['dragleave', 'drop'].forEach(evtName => {
+        dropZone.addEventListener(evtName, (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          dropZone.classList.remove('border-brand-500', 'bg-brand-50/50');
+        }, false);
+      });
+      dropZone.addEventListener('drop', (e) => {
+        const dt = e.dataTransfer;
+        if (dt && dt.files && dt.files.length > 0) {
+          setFileForImport(dt.files[0]);
+        }
+      }, false);
     }
   });
 </script>

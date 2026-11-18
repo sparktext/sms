@@ -278,31 +278,149 @@ def update_contact(
 # CSV Import Logic
 # =========================================================================
 
-def preview_csv(file_or_content, sample_size: int = 5) -> Dict[str, Any]:
+def extract_tabular_data(
+    file_or_content,
+    filename: Optional[str] = None,
+) -> Tuple[List[str], Any, Optional[str]]:
     """
-    Step 1 (Preview): Parse the CSV file/stream and return column names
-    along with sample rows and warnings.
-    Keeps blank headers and flags duplicates.
+    Parses CSV, XLSX, or XLS files into (headers, rows_generator, warning).
+    Supports:
+      - CSV (.csv): utf-8, utf-8-sig, and cp1252 fallback
+      - Excel (.xlsx): openpyxl
+      - Excel (.xls): xlrd
     """
-    warning = None
+    raw_bytes = None
+
     if isinstance(file_or_content, bytes):
-        content, warning = decode_csv_content(file_or_content)
+        raw_bytes = file_or_content
     elif isinstance(file_or_content, str):
-        content = file_or_content
+        reader = csv.reader(io.StringIO(file_or_content))
+        try:
+            raw_headers = next(reader)
+        except StopIteration:
+            return [], iter([]), None
+        headers = [h.strip() for h in raw_headers]
+        def str_csv_rows():
+            for r in reader:
+                if any(c.strip() for c in r):
+                    yield [c.strip() for c in r[:len(headers)]]
+        return headers, str_csv_rows(), None
     else:
         raw = file_or_content.read()
         if isinstance(raw, bytes):
-            content, warning = decode_csv_content(raw)
+            raw_bytes = raw
         else:
-            content = raw
+            reader = csv.reader(io.StringIO(raw))
+            try:
+                raw_headers = next(reader)
+            except StopIteration:
+                return [], iter([]), None
+            headers = [h.strip() for h in raw_headers]
+            def raw_str_rows():
+                for r in reader:
+                    if any(c.strip() for c in r):
+                        yield [c.strip() for c in r[:len(headers)]]
+            return headers, raw_str_rows(), None
 
+    if len(raw_bytes) > MAX_FILE_SIZE_BYTES:
+        raise ValidationError(
+            _("File size exceeds maximum permitted limit of %(max_mb)d MB."),
+            params={"max_mb": MAX_FILE_SIZE_BYTES // (1024 * 1024)}
+        )
+
+    fname = (filename or "").lower().strip()
+    is_xlsx = fname.endswith(".xlsx") or raw_bytes.startswith(b"PK\x03\x04")
+    is_xls = fname.endswith(".xls") or raw_bytes.startswith(b"\xd0\xcf\x11\xe0")
+
+    if is_xlsx:
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(raw_bytes), read_only=True, data_only=True)
+            sheet = wb.active
+            if sheet is None:
+                return [], iter([]), None
+
+            def _cell_to_str(val):
+                if val is None:
+                    return ""
+                if isinstance(val, float) and val.is_integer():
+                    return str(int(val))
+                return str(val).strip()
+
+            row_iter = sheet.iter_rows(values_only=True)
+            first_row = None
+            for candidate in row_iter:
+                if any(v is not None and str(v).strip() for v in candidate):
+                    first_row = candidate
+                    break
+            if first_row is None:
+                return [], iter([]), None
+
+            headers = [_cell_to_str(h) for h in first_row]
+
+            def xlsx_rows_gen():
+                for r in row_iter:
+                    if any(v is not None and str(v).strip() for v in r):
+                        yield [_cell_to_str(v) for v in r[:len(headers)]]
+
+            return headers, xlsx_rows_gen(), None
+        except Exception as e:
+            if fname.endswith(".xlsx"):
+                raise ValidationError(_("Could not read Excel file (.xlsx): %(error)s") % {"error": str(e)})
+
+    if is_xls:
+        try:
+            import xlrd
+            wb = xlrd.open_workbook(file_contents=raw_bytes)
+            sheet = wb.sheet_by_index(0)
+            if sheet.nrows == 0:
+                return [], iter([]), None
+
+            def _xlrd_cell_to_str(cell_value, cell_type):
+                if cell_value is None or cell_type == xlrd.XL_CELL_EMPTY:
+                    return ""
+                if cell_type == xlrd.XL_CELL_NUMBER and isinstance(cell_value, float) and cell_value.is_integer():
+                    return str(int(cell_value))
+                return str(cell_value).strip()
+
+            headers = [_xlrd_cell_to_str(sheet.cell_value(0, c), sheet.cell_type(0, c)) for c in range(sheet.ncols)]
+
+            def xls_rows_gen():
+                for r in range(1, sheet.nrows):
+                    row_vals = [_xlrd_cell_to_str(sheet.cell_value(r, c), sheet.cell_type(r, c)) for c in range(len(headers))]
+                    if any(row_vals):
+                        yield row_vals
+
+            return headers, xls_rows_gen(), None
+        except Exception as e:
+            if fname.endswith(".xls"):
+                raise ValidationError(_("Could not read Excel file (.xls): %(error)s") % {"error": str(e)})
+
+    # Default to CSV decoding
+    content, warning = decode_csv_content(raw_bytes)
     reader = csv.reader(io.StringIO(content))
     try:
         raw_headers = next(reader)
     except StopIteration:
-        return {"headers": [], "rows": [], "duplicate_headers": [], "total_rows_sampled": 0, "warning": warning}
+        return [], iter([]), warning
 
     headers = [h.strip() for h in raw_headers]
+
+    def csv_rows_gen():
+        for r in reader:
+            if any(cell.strip() for cell in r):
+                yield [cell.strip() for cell in r[:len(headers)]]
+
+    return headers, csv_rows_gen(), warning
+
+
+def preview_csv(file_or_content, sample_size: int = 5, filename: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Step 1 (Preview): Parse the CSV/Excel file and return column names
+    along with sample rows and warnings.
+    Keeps blank headers and flags duplicates.
+    """
+    headers, row_gen, warning = extract_tabular_data(file_or_content, filename=filename)
 
     seen_headers = set()
     duplicate_headers = []
@@ -314,9 +432,8 @@ def preview_csv(file_or_content, sample_size: int = 5) -> Dict[str, Any]:
     sample_rows = []
     for _idx in range(sample_size):
         try:
-            row = next(reader)
-            if any(cell.strip() for cell in row):
-                sample_rows.append([cell.strip() for cell in row[:len(headers)]])
+            row = next(row_gen)
+            sample_rows.append(row)
         except StopIteration:
             break
 
@@ -466,25 +583,10 @@ def import_contacts_csv(
     if contact_list and contact_list.organization_id != organization.id:
         raise ValidationError(_("The provided contact_list does not belong to this organization."))
 
-    warning = None
-    if isinstance(file_or_content, bytes):
-        content, warning = decode_csv_content(file_or_content)
-    elif isinstance(file_or_content, str):
-        content = file_or_content
-    else:
-        raw = file_or_content.read()
-        if isinstance(raw, bytes):
-            content, warning = decode_csv_content(raw)
-        else:
-            content = raw
+    headers, row_gen, warning = extract_tabular_data(file_or_content, filename=filename)
+    if not headers:
+        return {"created": 0, "updated": 0, "skipped": 0, "errors": [{"row": 1, "error": "File is empty or has no header row."}], "warning": warning}
 
-    reader = csv.reader(io.StringIO(content))
-    try:
-        raw_headers = next(reader)
-    except StopIteration:
-        return {"created": 0, "updated": 0, "skipped": 0, "errors": [{"row": 1, "error": "CSV file is empty."}], "warning": warning}
-
-    headers = [h.strip() for h in raw_headers]
     validate_csv_mapping(organization, headers, column_mapping)
 
     # Handle "add" decisions: Create new ContactFields upfront
@@ -517,12 +619,12 @@ def import_contacts_csv(
     rows = []
     seen_in_file_phones: Set[str] = set()
 
-    for line_idx, row in enumerate(reader, start=2):
+    for line_idx, row in enumerate(row_gen, start=2):
         if not any(cell.strip() for cell in row):
             continue
         if len(rows) >= MAX_ROW_COUNT:
             raise ValidationError(
-                _("CSV file exceeds the maximum allowed limit of %(max)d rows.") % {"max": MAX_ROW_COUNT}
+                _("File exceeds the maximum allowed limit of %(max)d rows.") % {"max": MAX_ROW_COUNT}
             )
         rows.append((line_idx, row))
 

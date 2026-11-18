@@ -573,6 +573,60 @@ class ContactsViewAndTemplateTests(TestCase):
         self.assertEqual(c.first_name, "Charlie")
         self.assertEqual(c.last_name, "Brown")
 
+    def test_import_excel_xlsx_flow(self):
+        import io
+        import json
+        import openpyxl
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        # Create in-memory XLSX file
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["First Name", "Last Name", "Phone Number", "Email"])
+        ws.append(["David", "Miller", "+16502533333", "david@example.com"])
+        buf = io.BytesIO()
+        wb.save(buf)
+        xlsx_bytes = buf.getvalue()
+
+        upload_file = SimpleUploadedFile("contacts.xlsx", xlsx_bytes, content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+        # Preview step
+        resp_prev = self.client.post(
+            "/contacts/import/preview/",
+            {"file": upload_file},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(resp_prev.status_code, 200)
+        prev_data = resp_prev.json()
+        self.assertEqual(prev_data["status"], "success")
+        self.assertIn("Phone Number", prev_data["headers"])
+
+        # Process step
+        mapping = {
+            "First Name": {"decision": "map", "target": "first_name"},
+            "Last Name": {"decision": "map", "target": "last_name"},
+            "Phone Number": {"decision": "map", "target": "phone"},
+            "Email": {"decision": "map", "target": "email"},
+        }
+        upload_file2 = SimpleUploadedFile("contacts.xlsx", xlsx_bytes, content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        resp_proc = self.client.post(
+            "/contacts/import/process/",
+            {
+                "file": upload_file2,
+                "mapping": json.dumps(mapping),
+                "consent_attested": "1",
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(resp_proc.status_code, 200)
+        proc_data = resp_proc.json()
+        self.assertEqual(proc_data["status"], "success")
+        self.assertEqual(proc_data["report"]["created"], 1)
+        c = Contact.objects.get(organization=self.org, phone="+16502533333")
+        self.assertEqual(c.first_name, "David")
+        self.assertEqual(c.last_name, "Miller")
+        self.assertEqual(c.email, "david@example.com")
+
     def test_sms_status_unknown_displays_no_consent(self):
         c = Contact.objects.create(first_name="Test", last_name="Lead", phone="+16502530000", organization=self.org)
         self.assertEqual(c.sms_status, Contact.SMSStatus.UNKNOWN)
@@ -834,7 +888,7 @@ class ContactsViewAndTemplateTests(TestCase):
 
     def test_export_contacts_csv(self):
         """Export contacts view streams valid CSV with correct headers and contact data."""
-        self.client.login(username=self.user.email, password="password123")
+        self.client.force_login(self.user)
         Contact.objects.create(
             organization=self.org,
             phone="+14155552671",
