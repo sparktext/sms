@@ -1,0 +1,44 @@
+{# A whole group (vehicles, drivers...) in one box: one column per item, one row per field. Context: group, box_id #}
+<div id="{{ box_id }}" data-lead-group data-lead-card data-title="{{ group.table.search_titles }}"
+     class="rounded-xl border border-gray-200/80 bg-white shadow-xs overflow-hidden scroll-mt-28">
+  <div class="flex items-center gap-2 px-3.5 py-2.5 border-b border-gray-100">
+    <span class="text-sm leading-none">{{ group.icon }}</span>
+    <span class="text-[13px] font-semibold text-gray-900">{{ group.title }}</span>
+    <span class="px-1.5 py-0.5 rounded-md bg-gray-100 text-[10px] font-semibold text-gray-500">{{ group.cards|length }}{% if group.truncated %}+{% endif %}</span>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="w-full border-collapse text-left">
+      <thead>
+        <tr class="bg-gray-50/80">
+          <th scope="col" class="sticky left-0 z-10 bg-gray-50 w-44 min-w-[150px] px-3.5 py-2 text-[10px] font-semibold uppercase tracking-wide text-gray-400">Field</th>
+          {% for col in group.table.columns %}
+          <th scope="col" data-col-title="{{ col.title|lower }}" class="min-w-[210px] px-2 py-2 align-bottom data-[match]:bg-brand-50">
+            <div class="flex items-center gap-1.5 px-1.5">
+              <span class="text-[13px] font-semibold text-gray-900 leading-tight">{{ col.title }}</span>
+              {% if col.badge %}
+              <span class="px-1.5 py-0.5 rounded-md text-[10px] font-semibold shrink-0 {% if col.is_primary %}bg-brand-50 text-brand-700{% else %}bg-white text-gray-600 border border-gray-200{% endif %}">{{ col.badge }}</span>
+              {% endif %}
+            </div>
+          </th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in group.table.rows %}
+        <tr data-lead-row data-label="{{ row.label|lower }}" class="group/row border-t border-gray-100 data-[match]:bg-brand-50/60">
+          <th scope="row" class="sticky left-0 z-10 bg-white group-hover/row:bg-gray-50 group-data-[match]/row:bg-brand-50 px-3.5 py-1 text-[11px] font-normal leading-tight text-gray-500">{{ row.label }}</th>
+          {% for f in row.cells %}
+          <td data-lead-cell class="px-2 py-0.5 group-hover/row:bg-gray-50/60 data-[changed]:bg-amber-50">
+            {% if f %}
+            <div class="flex items-center">{% include "contacts/partials/lead_input.html" %}</div>
+            {% else %}
+            <span class="block px-1.5 py-1 text-[13px] text-gray-200" title="Not in this lead's data">—</span>
+            {% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>

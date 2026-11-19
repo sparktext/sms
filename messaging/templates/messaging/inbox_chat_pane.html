@@ -493,6 +493,7 @@
         <option value="New Lead" {% if conversation.contact.custom_fields.stage == "New Lead" or not conversation.contact.custom_fields.stage %}selected{% endif %}>🟢 New Lead</option>
         <option value="Contacted" {% if conversation.contact.custom_fields.stage == "Contacted" %}selected{% endif %}>💬 Contacted</option>
         <option value="Qualified" {% if conversation.contact.custom_fields.stage == "Qualified" %}selected{% endif %}>⭐ Qualified</option>
+        <option value="Not Qualified" {% if conversation.contact.custom_fields.stage == "Not Qualified" %}selected{% endif %}>🚫 Not Qualified</option>
         <option value="Quote Sent" {% if conversation.contact.custom_fields.stage == "Quote Sent" %}selected{% endif %}>📄 Quote Sent</option>
         <option value="Won" {% if conversation.contact.custom_fields.stage == "Won" %}selected{% endif %}>🏆 Closed Won</option>
         <option value="Lost" {% if conversation.contact.custom_fields.stage == "Lost" %}selected{% endif %}>❌ Closed Lost</option>

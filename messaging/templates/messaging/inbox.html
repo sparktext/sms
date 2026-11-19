@@ -216,6 +216,40 @@
                 />
               </div>
             </div>
+
+            <div>
+              <label for="newChatSource" class="block text-xs font-bold text-gray-700 mb-1">
+                Source <span class="text-rose-500">*</span>
+              </label>
+              <input
+                type="text"
+                id="newChatSource"
+                name="source"
+                placeholder="e.g. LeadPoint, QuoteLab, Direct"
+                required
+                class="w-full px-3 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900 bg-gray-50/40 focus:bg-white transition font-medium"
+              />
+              <p class="text-[10px] text-gray-400 mt-1">Lead source or provider (compulsory).</p>
+            </div>
+
+            <!-- Consent Checkbox -->
+            <div class="p-2.5 bg-amber-50/70 border border-amber-200/80 rounded-xl">
+              <label class="flex items-start gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  id="newChatConsent"
+                  name="consent"
+                  value="1"
+                  class="mt-0.5 w-4 h-4 text-brand-600 border-gray-300 rounded focus:ring-brand-500 cursor-pointer"
+                />
+                <div>
+                  <span class="block text-[11px] font-bold text-gray-900">Opted In / Express Consent</span>
+                  <span class="block text-[10px] text-gray-600 mt-0.5 leading-snug">
+                    Contact has explicitly consented to receive SMS communications from this business (records TCPA opt-in audit entry).
+                  </span>
+                </div>
+              </label>
+            </div>
           </div>
 
           <div class="mt-4 pt-3 border-t border-gray-100 flex items-center justify-end gap-2">
@@ -554,10 +588,16 @@
     const phone = document.getElementById("newChatPhone").value.trim();
     const firstName = document.getElementById("newChatFirstName").value.trim();
     const lastName = document.getElementById("newChatLastName").value.trim();
+    const source = (document.getElementById("newChatSource")?.value || document.getElementById("newChatVendor")?.value || "").trim();
+    const consent = document.getElementById("newChatConsent")?.checked;
     const btn = document.getElementById("btnSubmitDirectChat");
 
     if (!phone) {
       showModalError("Please enter a valid phone number.");
+      return;
+    }
+    if (!source) {
+      showModalError("Source is compulsory. Please enter a lead source.");
       return;
     }
 
@@ -570,6 +610,8 @@
     formData.append("phone", phone);
     formData.append("first_name", firstName);
     formData.append("last_name", lastName);
+    formData.append("source", source);
+    formData.append("consent", consent ? "1" : "0");
     const senderSelect = document.getElementById("newChatSenderSelect");
     if (senderSelect && senderSelect.value) {
       formData.append("sender_phone_number_id", senderSelect.value);
@@ -2251,6 +2293,13 @@
             if (convId === currentConvId) {
               selectConversation(currentConvId, window.location.href, false);
             }
+          } else if (data.event === "send_permission") {
+            // STOP/START or an inbound text changed whether we may reply: swap the
+            // "Sending Currently Blocked" banner and the composer without a manual refresh.
+            const composerShown = !!document.getElementById("message-form");
+            if (convId === currentConvId && composerShown !== !!data.can_send) {
+              selectConversation(currentConvId, window.location.href, false);
+            }
           }
         } catch (err) {
           console.debug("WS message parse error:", err);
@@ -2349,7 +2398,7 @@
         if (len > 160) {
           segments = Math.ceil(len / 153);
         }
-        charCounter.textContent = `${len} / 1600 characters · ${segments} segment${segments > 1 ? 's' : ''}`;
+        charCounter.textContent = `${len} / 160 characters · ${segments} segment${segments > 1 ? 's' : ''}`;
 
         // Send collision typing signal
         if (!isCurrentlyTypingSignalSent && len > 0) {
@@ -2392,7 +2441,7 @@
 
         // Clear input immediately and render optimistic sending bubble
         textarea.value = "";
-        if (charCounter) charCounter.textContent = "0 / 1600 characters · 1 segment";
+        if (charCounter) charCounter.textContent = "0 / 160 characters · 1 segment";
         explicitlyMarkedUnreadConvId = null;
 
         appendChatMessage({

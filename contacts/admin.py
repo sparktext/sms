@@ -25,7 +25,6 @@ class ContactAdminForm(forms.ModelForm):
             "first_name",
             "last_name",
             "email",
-            "timezone",
             "source",
             "custom_fields_json",
             "external_ids",
@@ -80,7 +79,6 @@ class ContactAdmin(admin.ModelAdmin):
             "first_name": form.cleaned_data.get("first_name", ""),
             "last_name": form.cleaned_data.get("last_name", ""),
             "email": form.cleaned_data.get("email", ""),
-            "timezone": form.cleaned_data.get("timezone", ""),
             "custom_fields": form.cleaned_data.get("custom_fields_json", {}),
             "external_ids": form.cleaned_data.get("external_ids", {}),
         }

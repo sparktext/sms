@@ -47,6 +47,7 @@
   <form method="post" id="ai-settings-form" class="space-y-6">
     {% csrf_token %}
     <input type="hidden" name="qualification_questions_json" id="qualification_questions_json" value="{{ questions_json }}">
+    {{ lead_field_options|json_script:"lead-field-options" }}
 
     <!-- 1. Operating Mode Selection Card -->
     <div class="bg-white border border-gray-200 rounded-2xl p-6 shadow-2xs">
@@ -159,29 +160,43 @@
       </div>
     </div>
 
-    <!-- 4. Interactive Qualification Questions Card -->
-    <div class="bg-white border border-gray-200 rounded-2xl p-6 shadow-2xs space-y-4">
-      <div class="flex items-center justify-between">
-        <div>
-          <h3 class="text-sm font-bold text-gray-900 flex items-center gap-2">
-            <svg class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
-            </svg>
-            <span>Lead Qualification Questions</span>
-          </h3>
-          <p class="text-xs text-gray-500">Questions the AI collects one at a time. Once all required questions are answered, contact Stage updates to <strong>Qualified</strong>.</p>
-        </div>
-        <button
-          type="button"
-          onclick="addQuestionRow()"
-          class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-brand-600 bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-xl transition cursor-pointer"
-        >
-          <span>+ Add Question</span>
-        </button>
+    <!-- 4. Lead Qualification Questions (two steps) -->
+    <div class="bg-white border border-gray-200 rounded-2xl p-6 shadow-2xs space-y-5">
+      <div>
+        <h3 class="text-sm font-bold text-gray-900">Lead Qualification Questions</h3>
+        <p class="text-xs text-gray-500 mt-0.5">The AI asks one question at a time, skips anything the lead form already answers, then offers a call from an agent.</p>
       </div>
 
-      <div class="border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-100 bg-gray-50/30" id="questions-container">
-        <!-- Rendered via JS -->
+      <!-- Step 1 -->
+      <section class="space-y-2">
+        <div class="flex items-end justify-between gap-3">
+          <div>
+            <h4 class="text-xs font-bold text-gray-900">Step 1 · Ask every lead</h4>
+            <p class="text-[11px] text-gray-500">Leads we know little about only get these.</p>
+          </div>
+          <button type="button" onclick="addQuestionRow(1)" class="shrink-0 text-xs font-semibold text-brand-600 hover:text-brand-800 cursor-pointer">+ Add question</button>
+        </div>
+        <div id="questions-step1" class="border border-gray-200 rounded-xl divide-y divide-gray-100"></div>
+      </section>
+
+      <!-- Step 2 -->
+      <section class="space-y-2">
+        <div class="flex items-end justify-between gap-3">
+          <div>
+            <h4 class="text-xs font-bold text-gray-900">Step 2 · Only leads whose form answered Step 1</h4>
+            <p class="text-[11px] text-gray-500">Deeper questions for leads that arrive with full details. Each main Step 1 question needs a lead field for this to apply.</p>
+          </div>
+          <button type="button" onclick="addQuestionRow(2)" class="shrink-0 text-xs font-semibold text-brand-600 hover:text-brand-800 cursor-pointer">+ Add question</button>
+        </div>
+        <div id="questions-step2" class="border border-gray-200 rounded-xl divide-y divide-gray-100"></div>
+      </section>
+
+      <!-- Shown only when a question has a fit rule -->
+      <div id="not-fit-message-box" hidden>
+        <label for="not_qualified_message" class="block text-xs font-semibold text-gray-700 mb-1">Message when a lead is not a fit</label>
+        <textarea id="not_qualified_message" name="not_qualified_message" rows="2" maxlength="500"
+                  class="w-full px-3 py-2 text-xs bg-gray-50 border border-gray-200 rounded-lg focus:bg-white focus:outline-none focus:border-brand-500">{{ config.not_qualified_message }}</textarea>
+        <p class="text-[11px] text-gray-400 mt-1">Sent once when an answer breaks a fit rule. The AI stops asking, offers no call, and the stage becomes <strong>Not Qualified</strong>.</p>
       </div>
     </div>
 
@@ -325,108 +340,205 @@
 </div>
 
 <script>
+  // ---------------- Lead qualification questions (Step 1 / Step 2, follow-ups up to 2 levels) ----------------
+  const MAX_FOLLOW_UP_DEPTH = 2;
+  const INPUT = "w-full px-2.5 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-lg focus:bg-white focus:outline-none focus:border-brand-500";
   let questions = [];
+  let leadFieldOptions = [];
+  let nextId = 1;
   try {
-    const raw = document.getElementById("qualification_questions_json").value;
-    questions = JSON.parse(raw) || [];
+    leadFieldOptions = JSON.parse(document.getElementById("lead-field-options").textContent) || [];
   } catch (e) {
-    questions = [];
+    leadFieldOptions = [];
+  }
+
+  // Load saved questions; give each an internal id so follow-ups stay attached while keys change
+  (function loadQuestions() {
+    let saved = [];
+    try {
+      saved = JSON.parse(document.getElementById("qualification_questions_json").value) || [];
+    } catch (e) {
+      saved = [];
+    }
+    const idByKey = {};
+    questions = saved.map(q => {
+      const id = nextId++;
+      idByKey[q.key] = id;
+      const cond = q.condition || {};
+      return {
+        _id: id, key: q.key, question: q.question || "", required: !!q.required,
+        step: String(q.step) === "2" ? 2 : 1, lead_field: q.lead_field || "",
+        rule: q.rule || "", rule_values: Array.isArray(q.rule_values) ? q.rule_values.join(", ") : (q.rule_values || ""),
+        _parentKey: q.parent || "", cond_op: cond.op === "is_not" ? "is_not" : "is",
+        cond_values: Array.isArray(cond.values) ? cond.values.join(", ") : (cond.values || ""),
+      };
+    });
+    questions.forEach(q => { q.parentId = q._parentKey ? (idByKey[q._parentKey] || null) : null; delete q._parentKey; });
+  })();
+
+  const byId = (id) => questions.find(q => q._id === id);
+  const childrenOf = (id) => questions.filter(q => q.parentId === id);
+  const rootOf = (q) => { let r = q; while (r.parentId && byId(r.parentId)) r = byId(r.parentId); return r; };
+  const depthOf = (q) => { let d = 0, r = q; while (r.parentId && byId(r.parentId)) { r = byId(r.parentId); d++; } return d; };
+
+  function escapeHtml(str) {
+    return String(str || "")
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  // Field keys are generated from the question text, so nobody has to type one.
+  function slugKey(text, selfId) {
+    let base = String(text || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
+    if (!base) base = "question";
+    let key = base, n = 2;
+    while (questions.some(q => q._id !== selfId && q.key === key)) key = `${base}_${n++}`;
+    return key;
+  }
+
+  function leadFieldSelect(q) {
+    const opts = [`<option value="">Always ask</option>`];
+    leadFieldOptions.forEach(o => {
+      const sel = (q.lead_field || "").toLowerCase() === o.label.toLowerCase() ? "selected" : "";
+      opts.push(`<option value="${escapeHtml(o.label)}" ${sel}>From lead: ${escapeHtml(o.label)}</option>`);
+    });
+    return `<select onchange="updateQ(${q._id}, 'lead_field', this.value)" class="${INPUT}" title="Answer this from the lead form when the lead has it">${opts.join("")}</select>`;
+  }
+
+  function questionRow(q, depth) {
+    const indent = depth === 0 ? "" : depth === 1 ? "ml-5 sm:ml-8" : "ml-10 sm:ml-16";
+    const ruleOn = q.rule === "not_fit_if" || q.rule === "only_fit_if";
+    const parent = q.parentId ? byId(q.parentId) : null;
+    const parentLabel = parent ? (parent.question || "the question above") : "";
+    return `
+      <div class="p-3 space-y-2 ${indent} ${depth ? "border-l-2 border-brand-100 pl-3" : ""}">
+        ${depth ? `
+        <div class="flex flex-col sm:flex-row sm:items-center gap-2 text-[11px] text-gray-500">
+          <span class="shrink-0">↳ Ask only if the answer to “${escapeHtml(parentLabel.slice(0, 50))}${parentLabel.length > 50 ? "…" : ""}”</span>
+          <div class="shrink-0 sm:w-28">
+            <select onchange="updateQ(${q._id}, 'cond_op', this.value)" class="${INPUT}" aria-label="Condition">
+              <option value="is" ${q.cond_op !== "is_not" ? "selected" : ""}>is</option>
+              <option value="is_not" ${q.cond_op === "is_not" ? "selected" : ""}>is not</option>
+            </select>
+          </div>
+          <div class="flex-1 min-w-0">
+            <input type="text" value="${escapeHtml(q.cond_values)}" aria-label="Condition answers"
+                   placeholder="Answers (e.g. GEICO, Allstate) or describe it (e.g. less than 6 months). Empty = any answer"
+                   oninput="updateQ(${q._id}, 'cond_values', this.value)" class="${INPUT}" />
+          </div>
+        </div>` : ""}
+        <div class="flex flex-col sm:flex-row sm:items-center gap-2">
+          <input type="text" value="${escapeHtml(q.question)}" placeholder="${depth ? "Follow-up question" : "Question to ask"}"
+                 oninput="updateQ(${q._id}, 'question', this.value)" class="${INPUT} sm:flex-1" />
+          <div class="sm:w-56">${leadFieldSelect(q)}</div>
+          <div class="flex items-center gap-3 shrink-0">
+            <label class="inline-flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none">
+              <input type="checkbox" ${q.required ? "checked" : ""} onchange="updateQ(${q._id}, 'required', this.checked)"
+                     class="rounded text-brand-600 focus:ring-brand-500" />
+              Required
+            </label>
+            <button type="button" onclick="removeQ(${q._id})" class="text-gray-400 hover:text-rose-600 p-1 cursor-pointer" title="Remove question${childrenOf(q._id).length ? " and its follow-ups" : ""}" aria-label="Remove question">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
+        </div>
+        ${ruleOn ? `
+        <div class="flex flex-col sm:flex-row sm:items-center gap-2">
+          <div class="shrink-0 sm:w-48">
+            <select onchange="updateQ(${q._id}, 'rule', this.value); renderQuestions();" class="${INPUT}" aria-label="Fit rule">
+              <option value="not_fit_if" ${q.rule === "not_fit_if" ? "selected" : ""}>Not a fit if answer is</option>
+              <option value="only_fit_if" ${q.rule === "only_fit_if" ? "selected" : ""}>Only a fit if answer is</option>
+            </select>
+          </div>
+          <div class="flex-1 min-w-0">
+            <input type="text" value="${escapeHtml(q.rule_values)}" aria-label="Matching answers"
+                   placeholder="${q.rule === "only_fit_if" ? "Answers that ARE a fit (e.g. CA, TX) or describe it (e.g. more than 1 year)" : "Answers that are NOT a fit (e.g. Allstate) or describe it (e.g. less than 6 months)"}"
+                   oninput="updateQ(${q._id}, 'rule_values', this.value)" class="${INPUT}" />
+          </div>
+          <button type="button" onclick="updateQ(${q._id}, 'rule', ''); renderQuestions();"
+                  class="shrink-0 self-end sm:self-auto text-gray-400 hover:text-rose-600 p-1 cursor-pointer" title="Remove fit rule" aria-label="Remove fit rule">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>` : ""}
+        <div class="flex items-center gap-4">
+          ${ruleOn ? "" : `<button type="button" onclick="updateQ(${q._id}, 'rule', 'not_fit_if'); renderQuestions();" class="text-[11px] text-gray-400 hover:text-brand-600 cursor-pointer">+ Fit rule</button>`}
+          ${depth < MAX_FOLLOW_UP_DEPTH ? `<button type="button" onclick="addQ(${q.step}, ${q._id})" class="text-[11px] text-gray-400 hover:text-brand-600 cursor-pointer">+ Follow-up</button>` : ""}
+        </div>
+      </div>`;
+  }
+
+  function renderTree(q, depth, out) {
+    out.push(questionRow(q, depth));
+    if (depth < MAX_FOLLOW_UP_DEPTH) childrenOf(q._id).forEach(c => renderTree(c, depth + 1, out));
   }
 
   function renderQuestions() {
-    const container = document.getElementById("questions-container");
-    container.innerHTML = "";
-
-    if (questions.length === 0) {
-      container.innerHTML = `
-        <div class="p-6 text-center text-xs text-gray-400">
-          No qualification questions added yet. Click <strong>+ Add Question</strong> to define questions for the AI to collect.
-        </div>
-      `;
-      syncQuestions();
-      return;
-    }
-
-    questions.forEach((q, idx) => {
-      const row = document.createElement("div");
-      row.className = "p-3.5 bg-white flex flex-col sm:flex-row items-start sm:items-center gap-3";
-      row.innerHTML = `
-        <div class="w-full sm:w-1/4">
-          <label class="block text-[10px] text-gray-400 font-bold mb-0.5">FIELD KEY</label>
-          <input
-            type="text"
-            value="${escapeHtml(q.key || '')}"
-            oninput="updateQuestion(${idx}, 'key', this.value)"
-            placeholder="e.g. service_type"
-            class="w-full px-2.5 py-1.5 text-xs font-mono bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-brand-500"
-          />
-        </div>
-        <div class="w-full sm:flex-1">
-          <label class="block text-[10px] text-gray-400 font-bold mb-0.5">QUESTION FOR THE AI TO ASK</label>
-          <input
-            type="text"
-            value="${escapeHtml(q.question || '')}"
-            oninput="updateQuestion(${idx}, 'question', this.value)"
-            placeholder="e.g. What type of service are you looking for?"
-            class="w-full px-2.5 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-brand-500"
-          />
-        </div>
-        <div class="flex items-center gap-4 shrink-0 pt-3 sm:pt-4">
-          <label class="inline-flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              ${q.required ? 'checked' : ''}
-              onchange="updateQuestion(${idx}, 'required', this.checked)"
-              class="rounded text-brand-600 focus:ring-brand-500"
-            />
-            <span>Required for Stage</span>
-          </label>
-          <button
-            type="button"
-            onclick="removeQuestionRow(${idx})"
-            class="text-gray-400 hover:text-rose-600 transition p-1"
-            title="Remove question"
-          >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-          </button>
-        </div>
-      `;
-      container.appendChild(row);
+    [1, 2].forEach(step => {
+      const out = [];
+      questions.filter(q => !q.parentId && q.step === step).forEach(r => renderTree(r, 0, out));
+      document.getElementById(`questions-step${step}`).innerHTML =
+        out.join("") || `<div class="p-4 text-center text-xs text-gray-400">No questions yet.</div>`;
     });
-
+    document.getElementById("not-fit-message-box").hidden = !questions.some(q => q.rule);
     syncQuestions();
   }
 
-  function addQuestionRow() {
-    questions.push({
-      key: `field_${questions.length + 1}`,
-      question: "",
-      required: false,
-    });
+  function addQ(step, parentId) {
+    const id = nextId++;
+    questions.push({ _id: id, key: "", question: "", required: false, step: step, lead_field: "", rule: "",
+                     rule_values: "", parentId: parentId || null, cond_op: "is", cond_values: "", _autoKey: true });
     renderQuestions();
-  }
-
-  function removeQuestionRow(idx) {
-    questions.splice(idx, 1);
-    renderQuestions();
-  }
-
-  function updateQuestion(idx, field, val) {
-    if (questions[idx]) {
-      questions[idx][field] = val;
-      syncQuestions();
+    const inputs = document.querySelectorAll(`#questions-step${step} input[type="text"]`);
+    for (const el of inputs) {
+      if (el.getAttribute("oninput") === `updateQ(${id}, 'question', this.value)`) { el.focus(); break; }
     }
+  }
+  // Kept for the "+ Add question" buttons in the markup
+  function addQuestionRow(step) { addQ(step, null); }
+
+  function removeQ(id) {
+    const drop = new Set([id]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      questions.forEach(q => { if (q.parentId && drop.has(q.parentId) && !drop.has(q._id)) { drop.add(q._id); grew = true; } });
+    }
+    questions = questions.filter(q => !drop.has(q._id));
+    renderQuestions();
+  }
+
+  function updateQ(id, field, val) {
+    const q = byId(id);
+    if (!q) return;
+    q[field] = val;
+    if (field === "question" && q._autoKey) q.key = slugKey(val, id);   // new questions only
+    if (field === "rule" && !val) q.rule_values = "";
+    if (field === "rule") document.getElementById("not-fit-message-box").hidden = !questions.some(x => x.rule);
+    syncQuestions();
   }
 
   function syncQuestions() {
-    document.getElementById("qualification_questions_json").value = JSON.stringify(questions);
+    const out = [];
+    const emit = (q, depth) => {
+      if (!(q.question || "").trim()) return;              // blank rows are not saved (nor their follow-ups)
+      if (!q.key) q.key = slugKey(q.question, q._id);
+      const item = { key: q.key, question: q.question.trim(), required: !!q.required };
+      const root = rootOf(q);
+      if (root.step === 2) item.step = 2;
+      if (q.lead_field) item.lead_field = q.lead_field;
+      if (q.rule) { item.rule = q.rule; item.rule_values = q.rule_values || ""; }
+      if (q.parentId && byId(q.parentId)) {
+        item.parent = byId(q.parentId).key;
+        const condValues = (q.cond_values || "").trim();
+        // Empty answers box = ask the follow-up after any answer
+        item.condition = condValues ? { op: q.cond_op === "is_not" ? "is_not" : "is", values: condValues } : { op: "any", values: "" };
+      }
+      out.push(item);
+      if (depth < MAX_FOLLOW_UP_DEPTH) childrenOf(q._id).forEach(c => emit(c, depth + 1));
+    };
+    [1, 2].forEach(step => questions.filter(q => !q.parentId && q.step === step).forEach(r => emit(r, 0)));
+    document.getElementById("qualification_questions_json").value = JSON.stringify(out);
   }
 
-  function escapeHtml(str) {
-    return (str || "").replace(/"/g, "&quot;");
-  }
-
-  // Initial render
   renderQuestions();
 
   // Engine Status Check

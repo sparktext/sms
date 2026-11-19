@@ -8,6 +8,9 @@
 <span class="font-semibold text-gray-800 truncate">{% if contact.first_name or contact.last_name %}{{ contact.first_name }} {{ contact.last_name }}{% else %}{{ contact.phone }}{% endif %}</span>
 {% endblock %}
 
+{% block main_width %}max-w-[1760px]{% endblock %}
+{% block main_overflow %}overflow-x-clip{% endblock %}
+
 {% block page_header %}
 <div class="space-y-3">
   <!-- Row 1: Back Arrow (left) & Contact Actions (right) -->
@@ -63,29 +66,19 @@
       <h1 class="text-xl sm:text-2xl font-bold text-gray-900 leading-tight truncate">
         {% if contact.first_name or contact.last_name %}{{ contact.first_name }} {{ contact.last_name }}{% else %}Contact Profile{% endif %}
       </h1>
-      {% if contact.sms_status == "opted_in" %}
-      <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 whitespace-nowrap shrink-0">
-        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-        Opted In
-      </span>
-      {% elif contact.sms_status == "opted_out" %}
-      <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200 whitespace-nowrap shrink-0">
-        <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
-        Opted Out
-      </span>
-      {% else %}
-      <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-600 border border-gray-200 whitespace-nowrap shrink-0">
-        <span class="w-1.5 h-1.5 rounded-full bg-gray-400"></span>
-        No Consent
-      </span>
-      {% endif %}
+      <button type="button" onclick="openAuditHistoryModal()" title="View consent history"
+              class="group inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border whitespace-nowrap shrink-0 cursor-pointer transition {% if contact.sms_status == 'opted_in' %}bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100{% elif contact.sms_status == 'opted_out' %}bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100{% else %}bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200{% endif %}">
+        <span class="w-1.5 h-1.5 rounded-full {% if contact.sms_status == 'opted_in' %}bg-emerald-500{% elif contact.sms_status == 'opted_out' %}bg-rose-500{% else %}bg-gray-400{% endif %}"></span>
+        {% if contact.sms_status == "opted_in" %}Opted In{% elif contact.sms_status == "opted_out" %}Opted Out{% else %}No Consent{% endif %}
+        <svg class="w-3 h-3 opacity-60 group-hover:opacity-100" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/></svg>
+      </button>
     </div>
     <p class="text-xs text-gray-500 mt-1 flex items-center gap-1.5 flex-wrap">
       <span class="font-mono font-medium text-gray-700">{{ contact.phone }}</span>
       <span class="text-gray-300">·</span>
       <span>Added {{ contact.created_at|date:"M d, Y" }}</span>
       <span class="text-gray-300">·</span>
-      <span>{{ contact.get_source_display }}</span>
+      <span>Source: <strong class="text-gray-800 font-semibold">{{ contact.source }}</strong></span>
     </p>
   </div>
 </div>
@@ -94,100 +87,57 @@
 {% block content %}
 {% csrf_token %}
 
-<div class="grid grid-cols-1 lg:grid-cols-3 lg:grid-rows-[auto_1fr] gap-6 items-start">
+<div id="contactSplit" class="relative grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_var(--contact-right-w)] lg:[--contact-right-w:360px] xl:[--contact-right-w:400px] 2xl:[--contact-right-w:460px] gap-6 items-start">
 
-  <!-- ================= ROW 1 LEFT (2 COLS): CONTACT DETAILS FORM ================= -->
-  <div class="bg-white border border-gray-200 rounded-2xl p-6 shadow-xs order-1 lg:order-none lg:col-span-2 lg:col-start-1 lg:row-start-1">
-      <div class="flex items-center justify-between pb-4 mb-4 border-b border-gray-100">
-        <div>
-          <h3 class="text-base font-bold text-gray-900">Contact Details</h3>
-          <p class="text-xs text-gray-500">Edit subscriber attributes and merge variables.</p>
-        </div>
-        <div class="flex items-center gap-2">
-          <span class="inline-flex items-center gap-1 text-[11px] font-mono bg-brand-50 text-brand-700 px-2 py-1 rounded-lg border border-brand-100">
-            {first_name}: <strong>{{ contact.first_name|default:"(empty)" }}</strong>
-          </span>
-          {% if contact.last_name %}
-          <span class="inline-flex items-center gap-1 text-[11px] font-mono bg-slate-50 text-slate-700 px-2 py-1 rounded-lg border border-slate-200">
-            {last_name}: <strong>{{ contact.last_name }}</strong>
-          </span>
-          {% endif %}
-        </div>
+  <!-- Drag handle between the two columns (lg+). Drag to resize, double-click to reset, arrow keys work too. -->
+  <div id="contactSplitHandle" role="separator" aria-orientation="vertical" tabindex="0"
+       aria-label="Resize panels: drag, or use the arrow keys. Double-click to reset."
+       title="Drag to resize · double-click to reset"
+       style="right: var(--contact-right-w)"
+       class="hidden lg:block absolute top-0 bottom-0 w-6 z-20 cursor-col-resize select-none touch-none group/split focus:outline-none">
+    <div class="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-transparent transition-colors group-hover/split:bg-brand-300 group-data-[dragging]/split:bg-brand-500"></div>
+    <div class="sticky top-[45vh] mx-auto w-1.5 h-14 rounded-full bg-gray-300 transition-colors group-hover/split:bg-brand-500 group-focus-visible/split:bg-brand-500 group-data-[dragging]/split:bg-brand-600"></div>
+  </div>
+
+
+  <!-- ================= LEFT COLUMN: CONTACT DETAILS FORM + LEAD DETAILS ================= -->
+  <div class="@container bg-white border border-gray-200 rounded-2xl p-5 shadow-xs order-1 lg:order-none lg:col-start-1 lg:row-start-1 min-w-0">
+      <div class="flex items-center justify-between gap-3 pb-3 mb-4 border-b border-gray-100">
+        <h3 class="text-sm font-bold text-gray-900">Contact details</h3>
       </div>
 
       <form id="editContactForm" method="post" action="{% url 'contacts:edit' contact.id %}" class="space-y-4">
         {% csrf_token %}
         <div id="editContactError" class="hidden p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 font-medium"></div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 @md:grid-cols-2 @2xl:grid-cols-3 gap-x-4 gap-y-3">
           <div>
-            <label class="block text-xs font-semibold text-gray-700 mb-1">
-              Phone Number <span class="text-rose-500">*</span>
-            </label>
-            <input
-              type="tel"
-              name="phone"
-              value="{{ contact.phone }}"
-              required
-              class="w-full px-3.5 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono"
-            />
-            <p class="text-[10px] text-gray-400 mt-1">Normalized to E.164 on save.</p>
+            <label class="block text-[11px] font-semibold text-gray-600 mb-1">Phone <span class="text-rose-500">*</span></label>
+            <input type="tel" name="phone" value="{{ contact.phone }}" required title="Normalized to E.164 on save" class="w-full px-3 py-1.5 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-300 font-mono" />
           </div>
-
           <div>
-            <label class="block text-xs font-semibold text-gray-700 mb-1">Email Address</label>
-            <input
-              type="email"
-              name="email"
-              value="{{ contact.email }}"
-              placeholder="name@example.com"
-              class="w-full px-3.5 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
-            />
+            <label class="block text-[11px] font-semibold text-gray-600 mb-1">Email</label>
+            <input type="email" name="email" value="{{ contact.email }}" placeholder="name@example.com" class="w-full px-3 py-1.5 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-300" />
           </div>
-        </div>
-
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label class="block text-xs font-semibold text-gray-700 mb-1">First Name</label>
-            <input
-              type="text"
-              name="first_name"
-              value="{{ contact.first_name }}"
-              placeholder="e.g. Antonio"
-              class="w-full px-3.5 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
-            />
+            <label class="block text-[11px] font-semibold text-gray-600 mb-1">Source <span class="text-rose-500">*</span></label>
+            <input type="text" name="source" value="{{ contact.source }}" required placeholder="e.g. Direct, LeadPoint" title="Lead source or provider (required)" class="w-full px-3 py-1.5 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-300 font-medium" />
           </div>
-
           <div>
-            <label class="block text-xs font-semibold text-gray-700 mb-1">Last Name</label>
-            <input
-              type="text"
-              name="last_name"
-              value="{{ contact.last_name }}"
-              placeholder="e.g. Schjang"
-              class="w-full px-3.5 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
-            />
+            <label class="block text-[11px] font-semibold text-gray-600 mb-1">First name</label>
+            <input type="text" name="first_name" value="{{ contact.first_name }}" placeholder="e.g. Antonio" class="w-full px-3 py-1.5 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-300" />
           </div>
-        </div>
-
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label class="block text-xs font-semibold text-gray-700 mb-1">Timezone</label>
-            <input
-              type="text"
-              name="timezone"
-              value="{{ contact.timezone }}"
-              placeholder="e.g. America/New_York"
-              class="w-full px-3.5 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 text-xs"
-            />
+            <label class="block text-[11px] font-semibold text-gray-600 mb-1">Last name</label>
+            <input type="text" name="last_name" value="{{ contact.last_name }}" placeholder="e.g. Schjang" class="w-full px-3 py-1.5 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-300" />
           </div>
         </div>
 
         <!-- Contact Lists Assignment -->
         <div class="pt-3 border-t border-gray-100">
           <input type="hidden" name="lists_submitted" value="1">
-          <label class="block text-xs font-semibold text-gray-700 mb-2">Contact Lists / Segments</label>
-          <div class="flex flex-wrap gap-2">
+          <label class="block text-[11px] font-semibold text-gray-600 mb-1.5">Contact lists</label>
+          <div id="detailListChips" class="flex flex-wrap gap-2">
             {% for cl in all_lists %}
             <label class="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-medium cursor-pointer transition {% if cl.id in contact_list_ids %}bg-brand-50 border-brand-200 text-brand-900{% else %}bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100{% endif %}">
               <input
@@ -200,35 +150,46 @@
               <span>{{ cl.name }}</span>
             </label>
             {% empty %}
-            <span class="text-xs text-gray-400 italic">No contact lists created yet. <a href="{% url 'contacts:lists' %}" class="text-brand-600 underline">Create your first list</a>.</span>
+            <span data-ql-empty class="text-xs text-gray-400 italic">No contact lists created yet. Create your first one below.</span>
             {% endfor %}
           </div>
+          {% include "contacts/partials/list_quick_create.html" with chips_id="detailListChips" %}
         </div>
 
         <!-- Custom Fields Section -->
         {% if all_fields %}
-        <div class="pt-4 border-t border-gray-100">
-          <div class="flex items-center justify-between mb-2">
-            <label class="block text-xs font-semibold text-gray-700">Approved Custom Fields</label>
-            <a href="{% url 'contacts:fields' %}" class="text-xs text-brand-600 hover:underline">Manage Fields →</a>
+        <div class="pt-5 border-t border-gray-100">
+          <div class="flex items-start justify-between gap-3 mb-3">
+            <div>
+              <h4 class="text-sm font-bold text-gray-900 leading-tight">Custom fields</h4>
+              <p class="text-[11px] text-gray-500 mt-0.5">Usable as merge tags in campaigns, e.g. <span class="font-mono">{{ "{{" }} city }}</span></p>
+            </div>
+            <a href="{% url 'contacts:fields' %}" class="shrink-0 text-xs font-medium text-brand-600 hover:underline">Manage fields →</a>
           </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-gray-50/70 p-4 rounded-xl border border-gray-200">
+          <div class="grid grid-cols-1 @md:grid-cols-2 @2xl:grid-cols-3 gap-x-4 gap-y-3">
             {% for cf in all_fields %}
             <div>
-              <label class="block text-[11px] font-medium text-gray-700 mb-1">
-                {{ cf.label }} <span class="text-gray-400 font-mono">({{ cf.key }})</span>
+              <label for="cf_{{ cf.key }}" class="flex items-baseline justify-between gap-2 text-[11px] font-semibold text-gray-600 mb-1">
+                <span>{{ cf.display_label }}</span>
+                <span class="text-[10px] font-mono font-normal text-gray-400 truncate" title="Merge tag">{{ cf.key }}</span>
               </label>
               <input
                 type="text"
+                id="cf_{{ cf.key }}"
                 name="custom_field_{{ cf.key }}"
-                value="{% for k, v in contact.custom_fields.items %}{% if k == cf.key %}{{ v }}{% endif %}{% endfor %}"
-                placeholder="Value for {{ cf.label }}"
-                class="w-full px-3 py-1.5 text-xs bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+                value="{{ cf.current_value }}"
+                placeholder="—"
+                class="w-full px-3 py-1.5 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-300 placeholder:text-gray-300"
               />
             </div>
             {% endfor %}
           </div>
         </div>
+        {% endif %}
+
+        {% if lead_editor %}
+        <!-- ================= LEAD DETAILS (every key of the lead payload, editable) ================= -->
+        {% include "contacts/partials/lead_editor.html" %}
         {% endif %}
 
         <div class="pt-4 border-t border-gray-100 flex items-center justify-end">
@@ -239,92 +200,19 @@
       </form>
   </div>
 
-  <!-- ================= RIGHT 1 COLUMN: CONSENT & SUMMARY (RENDERED BEFORE LONG CHAT STREAM) ================= -->
-  <div class="space-y-6 order-3 lg:order-none lg:col-start-3 lg:row-start-1 lg:row-span-2">
-
-    <!-- TCPA Consent Card (Compact Current Status + 1-Click History Modal) -->
-    <div class="bg-white border border-gray-200 rounded-2xl p-6 shadow-xs">
-      <div class="flex items-center justify-between pb-3 mb-4 border-b border-gray-100">
-        <div>
-          <h3 class="text-sm font-bold text-gray-900">Consent Status</h3>
-          <p class="text-[11px] text-gray-500">TCPA/CTIA compliance ledger</p>
-        </div>
-        <span class="inline-flex items-center text-[10px] font-semibold text-slate-500 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded">
-          🔒 Append-Only
-        </span>
-      </div>
-
-      <!-- Current status badge info -->
-      <div class="p-3.5 rounded-xl border {% if contact.sms_status == 'opted_in' %}bg-emerald-50/60 border-emerald-200 text-emerald-900{% elif contact.sms_status == 'opted_out' %}bg-rose-50/60 border-rose-200 text-rose-900{% else %}bg-gray-50 border-gray-200 text-gray-700{% endif %}">
-        <div class="text-[11px] font-semibold uppercase tracking-wider mb-0.5">Current Status</div>
-        <div class="text-sm font-bold flex items-center gap-1.5">
-          {% if contact.sms_status == "opted_in" %}
-          <span class="w-2 h-2 rounded-full bg-emerald-500"></span> Opted In (Active Consent)
-          {% elif contact.sms_status == "opted_out" %}
-          <span class="w-2 h-2 rounded-full bg-rose-500"></span> Opted Out (STOP / Blocked)
-          {% else %}
-          <span class="w-2 h-2 rounded-full bg-gray-400"></span> No consent (Awaiting Opt-In)
-          {% endif %}
-        </div>
-        <p class="text-[11px] mt-1 opacity-80">
-          {% if contact.sms_status == "opted_in" %}
-          Marketing and campaign messages are permitted to this contact.
-          {% elif contact.sms_status == "opted_out" %}
-          Outbound messaging is blocked by system-wide compliance safeguards.
-          {% else %}
-          Contact was imported or created without prior express consent proof.
-          {% endif %}
-        </p>
-      </div>
-
-      <!-- Latest Proof Footer + 1-Click Audit History Modal Trigger -->
-      {% if consent_events %}
-      {% with latest=consent_events.0 %}
-      <div class="mt-3.5 pt-3 border-t border-gray-100 flex items-center justify-between gap-2 text-[11px]">
-        <div class="text-gray-600 truncate" title="Last verified via {{ latest.get_source_display }} on {{ latest.created_at|date:'M d, Y H:i' }}">
-          <span class="font-semibold text-gray-800">Last verified:</span>
-          {{ latest.get_source_display }} · {{ latest.created_at|date:"M d, Y" }}
-        </div>
-        <button
-          type="button"
-          onclick="openAuditHistoryModal()"
-          class="inline-flex items-center gap-1 font-semibold text-brand-600 hover:text-brand-800 shrink-0 cursor-pointer"
-        >
-          <span>View History ({{ consent_events.count }})</span>
-          <span>↗</span>
-        </button>
-      </div>
-      {% endwith %}
-      {% else %}
-      <div class="mt-3.5 pt-3 border-t border-gray-100 flex items-center justify-between text-[11px]">
-        <span class="text-gray-500">No consent events recorded yet.</span>
-        <button type="button" onclick="openConsentModal()" class="font-semibold text-brand-600 hover:underline cursor-pointer">
-          + Record Consent
-        </button>
-      </div>
-      {% endif %}
-    </div>
+  <!-- ================= RIGHT COLUMN (sticky): CONVERSATION SUMMARY + CONVERSATION & REPLY ================= -->
+  <div class="flex flex-col gap-4 order-2 lg:order-none lg:col-start-2 lg:row-start-1 lg:sticky lg:top-[84px] lg:h-[calc(100vh-108px)]">
 
     <!-- ===================================================================== -->
-    <!-- CONVERSATION SUMMARY CARD (BELOW CONSENT & AUDIT LEDGER)              -->
+    <!-- CONVERSATION SUMMARY CARD                                             -->
     <!-- ===================================================================== -->
-    <div class="bg-white border border-gray-200 rounded-2xl p-6 shadow-xs space-y-4">
-      <div class="flex items-start justify-between gap-2 pb-3 border-b border-gray-100">
-        <div>
-          <h3 class="text-sm font-bold text-gray-900 flex items-center gap-1.5">
-            <span>📊</span>
-            <span>Conversation Summary</span>
-          </h3>
-          <p class="text-[11px] text-gray-500">At-a-glance activity &amp; qualification</p>
-        </div>
+    <div id="contact-summary-card" class="bg-white border border-gray-200 rounded-2xl p-4 shadow-xs space-y-3 shrink-0 lg:max-h-[45%] lg:overflow-y-auto">
+      <div class="flex items-center justify-between gap-2">
+        <h3 class="text-sm font-bold text-gray-900">Lead summary</h3>
         {% if active_conv and conv_summary.total > 0 %}
-        <button
-          type="button"
-          id="btn-generate-ai-summary"
-          onclick="generateContactAiSummary()"
-          class="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition cursor-pointer shrink-0"
-          title="Generate a concise AI executive summary of this conversation"
-        >
+        <button type="button" id="btn-generate-ai-summary" onclick="generateContactAiSummary()"
+                class="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition cursor-pointer shrink-0"
+                title="Generate a concise AI executive summary of this conversation">
           <span>✨</span>
           <span id="ai-summary-btn-text">AI Summary</span>
         </button>
@@ -374,23 +262,18 @@
         </div>
         {% endif %}
 
-        <!-- Key Metadata & Interactive Lead Controls -->
-        <div class="space-y-2.5 {% if conv_summary.qualification_items or active_conv.handoff_reason %}pt-2 border-t border-gray-100{% endif %} text-xs">
-          <!-- Lead Status / Stage Selector -->
-          <div class="space-y-1">
-            <div class="flex items-center justify-between">
-              <label for="contact-stage-select" class="text-gray-500 text-[11px] font-medium">Lead Status / Stage</label>
+        <div class="grid grid-cols-2 gap-2">
+          <div class="min-w-0">
+            <div class="flex items-center justify-between mb-1">
+              <label for="contact-stage-select" class="text-[11px] font-medium text-gray-500">Stage</label>
               <span id="contact-stage-saved-pill" class="text-[10px] font-semibold text-emerald-600 hidden">Saved ✓</span>
             </div>
-            <select
-              id="contact-stage-select"
-              onchange="updateContactLeadStage(this.value)"
-              class="w-full text-xs font-semibold px-3 py-1.5 rounded-xl border border-gray-200 bg-gray-50 hover:bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 cursor-pointer transition"
-            >
+            <select id="contact-stage-select" onchange="updateContactLeadStage(this.value)" class="w-full text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-gray-200 bg-gray-50 hover:bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 cursor-pointer transition">
               <option value="" {% if not conv_summary.stage %}selected{% endif %}>— Select Lead Stage —</option>
               <option value="New Lead" {% if conv_summary.stage == "New Lead" %}selected{% endif %}>🟢 New Lead</option>
               <option value="Contacted" {% if conv_summary.stage == "Contacted" %}selected{% endif %}>💬 Contacted</option>
               <option value="Qualified" {% if conv_summary.stage == "Qualified" %}selected{% endif %}>⭐ Qualified</option>
+              <option value="Not Qualified" {% if conv_summary.stage == "Not Qualified" %}selected{% endif %}>🚫 Not Qualified</option>
               <option value="Quote Sent" {% if conv_summary.stage == "Quote Sent" %}selected{% endif %}>📄 Quote Sent</option>
               <option value="Won" {% if conv_summary.stage == "Won" %}selected{% endif %}>🏆 Closed Won</option>
               <option value="Lost" {% if conv_summary.stage == "Lost" %}selected{% endif %}>❌ Closed Lost</option>
@@ -399,18 +282,12 @@
               {% endif %}
             </select>
           </div>
-
-          <!-- Assigned Team Member Selector -->
-          <div class="space-y-1">
-            <div class="flex items-center justify-between">
-              <label for="contact-assign-select" class="text-gray-500 text-[11px] font-medium">Assigned Rep</label>
+          <div class="min-w-0">
+            <div class="flex items-center justify-between mb-1">
+              <label for="contact-assign-select" class="text-[11px] font-medium text-gray-500">Assigned rep</label>
               <span id="contact-assign-saved-pill" class="text-[10px] font-semibold text-emerald-600 hidden">Updated ✓</span>
             </div>
-            <select
-              id="contact-assign-select"
-              onchange="updateContactAssignedRep(this.value)"
-              class="w-full text-xs font-semibold px-3 py-1.5 rounded-xl border border-gray-200 bg-gray-50 hover:bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 cursor-pointer transition"
-            >
+            <select id="contact-assign-select" onchange="updateContactAssignedRep(this.value)" class="w-full text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-gray-200 bg-gray-50 hover:bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 cursor-pointer transition">
               <option value="" {% if not active_conv.assigned_to %}selected{% endif %}>Unassigned</option>
               {% for member in org_members %}
               <option value="{{ member.id }}" {% if active_conv.assigned_to_id == member.id %}selected{% endif %}>
@@ -419,48 +296,28 @@
               {% endfor %}
             </select>
           </div>
-
-          <div class="flex items-center justify-between pt-1">
-            <span class="text-gray-500 text-[11px]">AI Assistant Mode:</span>
-            <span class="font-semibold text-gray-900">
-              {% if active_conv.ai_mode == 'off' %}🛑 Human Takeover
-              {% elif active_conv.ai_mode == 'suggest' %}✨ Suggest Only
-              {% elif active_conv.ai_mode == 'auto' %}🤖 Auto Reply
-              {% else %}⚙️ Business Default{% endif %}
-            </span>
-          </div>
-          <div class="flex items-center justify-between">
-            <span class="text-gray-500 text-[11px]">Last Inbound:</span>
-            <span class="font-mono text-[11px] text-gray-700">
-              {% if active_conv.last_inbound_at %}{{ active_conv.last_inbound_at|date:"M d, h:i A" }}{% else %}No reply yet{% endif %}
-            </span>
-          </div>
+        </div>
+        <div class="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-gray-500">
+          <span title="AI Assistant mode">{% if active_conv.ai_mode == 'off' %}🛑 Human takeover{% elif active_conv.ai_mode == 'suggest' %}✨ AI suggests{% elif active_conv.ai_mode == 'auto' %}🤖 AI auto-reply{% else %}⚙️ AI: business default{% endif %}</span>
+          <span class="text-gray-300">·</span>
+          <span title="Last inbound message">Last reply {% if active_conv.last_inbound_at %}<span class="font-medium text-gray-700">{{ active_conv.last_inbound_at|date:"M d, h:i A" }}</span>{% else %}none yet{% endif %}</span>
           {% if active_conv.last_campaign %}
-          <div class="flex items-center justify-between gap-2">
-            <span class="text-gray-500 text-[11px] shrink-0">Campaign:</span>
-            <a href="{% url 'campaigns:detail' active_conv.last_campaign.id %}" class="font-semibold text-brand-700 hover:underline truncate text-[11px]">
-              📢 {{ active_conv.last_campaign.name }}
-            </a>
-          </div>
+          <span class="text-gray-300">·</span>
+          <a href="{% url 'campaigns:detail' active_conv.last_campaign.id %}" class="font-medium text-brand-700 hover:underline truncate max-w-full" title="Campaign">📢 {{ active_conv.last_campaign.name }}</a>
           {% endif %}
         </div>
       {% else %}
-        <!-- Even with no messages yet, still let reps set Lead Status / Stage! -->
-        <div class="space-y-3">
-          <div class="space-y-1 text-xs">
-            <div class="flex items-center justify-between">
-              <label for="contact-stage-select" class="text-gray-500 text-[11px] font-medium">Lead Status / Stage</label>
+        <div class="min-w-0">
+            <div class="flex items-center justify-between mb-1">
+              <label for="contact-stage-select" class="text-[11px] font-medium text-gray-500">Stage</label>
               <span id="contact-stage-saved-pill" class="text-[10px] font-semibold text-emerald-600 hidden">Saved ✓</span>
             </div>
-            <select
-              id="contact-stage-select"
-              onchange="updateContactLeadStage(this.value)"
-              class="w-full text-xs font-semibold px-3 py-1.5 rounded-xl border border-gray-200 bg-gray-50 hover:bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 cursor-pointer transition"
-            >
+            <select id="contact-stage-select" onchange="updateContactLeadStage(this.value)" class="w-full text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-gray-200 bg-gray-50 hover:bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 cursor-pointer transition">
               <option value="" {% if not conv_summary.stage %}selected{% endif %}>— Select Lead Stage —</option>
               <option value="New Lead" {% if conv_summary.stage == "New Lead" %}selected{% endif %}>🟢 New Lead</option>
               <option value="Contacted" {% if conv_summary.stage == "Contacted" %}selected{% endif %}>💬 Contacted</option>
               <option value="Qualified" {% if conv_summary.stage == "Qualified" %}selected{% endif %}>⭐ Qualified</option>
+              <option value="Not Qualified" {% if conv_summary.stage == "Not Qualified" %}selected{% endif %}>🚫 Not Qualified</option>
               <option value="Quote Sent" {% if conv_summary.stage == "Quote Sent" %}selected{% endif %}>📄 Quote Sent</option>
               <option value="Won" {% if conv_summary.stage == "Won" %}selected{% endif %}>🏆 Closed Won</option>
               <option value="Lost" {% if conv_summary.stage == "Lost" %}selected{% endif %}>❌ Closed Lost</option>
@@ -469,29 +326,19 @@
               {% endif %}
             </select>
           </div>
-          <div class="p-3 bg-gray-50 border border-gray-200 rounded-xl text-center">
-            <p class="text-[11px] text-gray-500">No conversation summary yet. Send a message from the thread on the left to start chatting.</p>
-          </div>
-        </div>
+        <p class="text-[11px] text-gray-500">No messages yet. Start the conversation below.</p>
       {% endif %}
     </div>
 
-  </div>
-
   <!-- ===================================================================== -->
-  <!-- ROW 2 LEFT (2 COLS): CONVERSATION HISTORY & INLINE REPLY CARD         -->
+  <!-- CONVERSATION HISTORY & INLINE REPLY (fills the rest of the right column) -->
   <!-- ===================================================================== -->
-  <div class="bg-white border border-gray-200 rounded-2xl shadow-xs overflow-hidden flex flex-col order-2 lg:order-none lg:col-span-2 lg:col-start-1 lg:row-start-2">
+  <div id="contact-conversation-card" class="bg-white border border-gray-200 rounded-2xl shadow-xs overflow-hidden flex flex-col lg:flex-1 lg:min-h-0">
       <!-- Card Header -->
-      <div class="px-6 py-4 border-b border-gray-100 flex flex-wrap items-center justify-between gap-3 bg-white">
-        <div class="flex items-center gap-2.5 flex-wrap">
-          <h3 class="text-base font-bold text-gray-900 flex items-center gap-2">
-            <span>💬</span>
-            <span>Conversation History</span>
-          </h3>
-          <span id="contact-msg-count-pill" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-gray-100 text-gray-700 border border-gray-200">
-            {{ total_msg_count|default:0 }} message{{ total_msg_count|default:0|pluralize }}
-          </span>
+      <div class="px-4 py-2.5 border-b border-gray-100 flex flex-wrap items-center justify-between gap-2 bg-white shrink-0">
+        <div class="flex items-center gap-2 min-w-0">
+          <h3 class="text-sm font-bold text-gray-900">Conversation</h3>
+          <span id="contact-msg-count-pill" class="text-[11px] font-medium text-gray-400 whitespace-nowrap">{{ total_msg_count|default:0 }} message{{ total_msg_count|default:0|pluralize }}</span>
           {% if active_conv %}
           <span id="contact-ws-badge" class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-50 text-gray-500 border border-gray-200">
             <span id="contact-ws-dot" class="w-1.5 h-1.5 rounded-full bg-gray-400"></span>
@@ -499,39 +346,29 @@
           </span>
           {% endif %}
         </div>
-
-        <div class="flex items-center gap-2 flex-wrap">
-          {% if active_conv %}
+        {% if active_conv %}
+        <div class="flex items-center gap-1.5">
             <select
               id="contact-conv-status-select"
               onchange="updateContactConvStatus(this.value)"
-              class="text-xs font-semibold px-2.5 py-1 rounded-lg bg-gray-50 border border-gray-200 text-gray-700 focus:outline-none focus:ring-1 focus:ring-brand-500 cursor-pointer"
+              class="text-[11px] font-semibold pl-2 pr-6 py-1 rounded-lg bg-gray-50 border border-gray-200 text-gray-700 focus:outline-none focus:ring-1 focus:ring-brand-500 cursor-pointer"
               title="Update conversation status"
             >
               <option value="open" {% if active_conv.status == "open" %}selected{% endif %}>🟢 Open</option>
               <option value="needs_human" {% if active_conv.status == "needs_human" %}selected{% endif %}>🟡 Needs Human</option>
               <option value="closed" {% if active_conv.status == "closed" %}selected{% endif %}>⚪ Closed</option>
             </select>
-
-            <span id="contact-assigned-badge" class="{% if not active_conv.assigned_to %}hidden {% endif %}inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">
-              👤 <span id="contact-assigned-badge-name">{% if active_conv.assigned_to %}{{ active_conv.assigned_to.first_name|default:active_conv.assigned_to.email }}{% endif %}</span>
-            </span>
-
-            <a
-              id="contact-open-inbox-link"
-              href="{% url 'messaging:conversation_detail' active_conv.id %}"
-              class="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-200 transition"
-            >
-              <span>Open in Inbox</span>
-              <span>↗</span>
+            <a id="contact-open-inbox-link" href="{% url 'messaging:conversation_detail' active_conv.id %}" title="Open in Inbox"
+               class="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-200 transition whitespace-nowrap">
+              Inbox ↗
             </a>
-          {% endif %}
         </div>
+        {% endif %}
       </div>
 
       <!-- Multi-Line Switcher (shown if contact has chatted across multiple business numbers) -->
       {% if conversations|length > 1 %}
-      <div class="px-6 py-2 bg-gray-50 border-b border-gray-100 flex items-center gap-2 overflow-x-auto text-xs">
+      <div class="px-4 py-2 bg-gray-50 border-b border-gray-100 flex items-center gap-2 overflow-x-auto text-xs shrink-0">
         <span class="text-[11px] font-semibold text-gray-500 shrink-0">Business Line:</span>
         {% for conv in conversations %}
         <a
@@ -545,7 +382,7 @@
       {% endif %}
 
       <!-- Scrollable Messages Thread -->
-      <div id="contact-chat-window" class="max-h-[460px] min-h-[220px] overflow-y-auto p-4 sm:p-5 space-y-3 bg-[#f8fafc]/90">
+      <div id="contact-chat-window" class="max-h-[460px] min-h-[220px] lg:max-h-none lg:min-h-0 lg:flex-1 overflow-y-auto p-4 space-y-3 bg-[#f8fafc]/90">
         {% if chat_messages %}
           {% if has_older_messages %}
           <div id="contact-older-messages-banner" class="w-full flex justify-center py-1.5 select-none">
@@ -632,7 +469,7 @@
       </div>
 
       <!-- Inline Reply Composer Footer -->
-      <div class="p-4 bg-white border-t border-gray-200">
+      <div class="p-3 bg-white border-t border-gray-200 shrink-0">
         <!-- AI Draft Card (Suggest Mode) -->
         <div id="contact-ai-draft-card" class="{% if not active_conv or not active_conv.ai_draft_reply %}hidden{% endif %} mb-3 p-3 rounded-xl bg-gradient-to-r from-indigo-50/90 to-purple-50/90 border border-indigo-200 text-indigo-950 text-xs shadow-2xs space-y-2">
           <div class="flex items-center justify-between">
@@ -648,7 +485,7 @@
         </div>
 
         {% if not can_send %}
-          <div class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2.5">
+          <div id="contact-send-blocked" class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2.5">
             <span class="font-bold text-amber-700 text-sm leading-none">⚠️</span>
             <div>
               <strong class="font-bold block mb-0.5">Sending Currently Blocked</strong>
@@ -712,7 +549,77 @@
       </div>
   </div>
 
+  </div>
+
 </div>
+
+
+<script>
+// Resizable columns: the handle sets --contact-right-w on the grid; the width is remembered per browser.
+(function () {
+  const grid = document.getElementById("contactSplit");
+  const handle = document.getElementById("contactSplitHandle");
+  if (!grid || !handle) return;
+  const KEY = "contactRightPanelWidth";
+  const MIN_RIGHT = 300, MIN_LEFT = 440, GAP = 24, STEP = 24;
+  const wide = () => window.matchMedia("(min-width: 1024px)").matches;
+  const current = () => parseFloat(getComputedStyle(grid).getPropertyValue("--contact-right-w")) || 360;
+  const clamp = (w) => {
+    const max = Math.max(MIN_RIGHT, grid.clientWidth - GAP - MIN_LEFT);
+    return Math.round(Math.min(max, Math.max(MIN_RIGHT, w)));
+  };
+  function setWidth(w, save) {
+    w = clamp(w);
+    grid.style.setProperty("--contact-right-w", w + "px");
+    handle.setAttribute("aria-valuenow", String(w));
+    if (save) { try { localStorage.setItem(KEY, String(w)); } catch (_) {} }
+  }
+  function reset() {
+    grid.style.removeProperty("--contact-right-w");
+    try { localStorage.removeItem(KEY); } catch (_) {}
+  }
+
+  try {
+    const saved = parseFloat(localStorage.getItem(KEY));
+    if (saved && wide()) setWidth(saved, false);
+  } catch (_) {}
+
+  let dragging = false;
+  handle.addEventListener("pointerdown", (e) => {
+    if (!wide() || e.button !== 0) return;
+    dragging = true;
+    try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+    handle.setAttribute("data-dragging", "");
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+    e.preventDefault();
+  });
+  handle.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    setWidth(grid.getBoundingClientRect().right - e.clientX - GAP / 2, false);
+  });
+  const stop = () => {
+    if (!dragging) return;
+    dragging = false;
+    handle.removeAttribute("data-dragging");
+    document.body.style.userSelect = "";
+    document.body.style.cursor = "";
+    setWidth(current(), true);
+  };
+  handle.addEventListener("pointerup", stop);
+  handle.addEventListener("pointercancel", stop);
+  handle.addEventListener("dblclick", reset);
+  handle.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowLeft") { setWidth(current() + STEP, true); e.preventDefault(); }
+    else if (e.key === "ArrowRight") { setWidth(current() - STEP, true); e.preventDefault(); }
+    else if (e.key === "Home" || e.key === "Escape") { reset(); e.preventDefault(); }
+  });
+  // keep a saved width valid when the window gets smaller
+  window.addEventListener("resize", () => {
+    if (grid.style.getPropertyValue("--contact-right-w")) setWidth(current(), false);
+  });
+})();
+</script>
 
 
 <!-- ========================================================================= -->
@@ -791,6 +698,22 @@
         <button type="button" onclick="closeAuditHistoryModal()" class="text-gray-400 hover:text-gray-600 p-1 cursor-pointer">✕</button>
       </div>
 
+      <div class="p-3 rounded-xl border {% if contact.sms_status == 'opted_in' %}bg-emerald-50/60 border-emerald-200 text-emerald-900{% elif contact.sms_status == 'opted_out' %}bg-rose-50/60 border-rose-200 text-rose-900{% else %}bg-gray-50 border-gray-200 text-gray-700{% endif %}">
+        <div class="text-sm font-bold flex items-center gap-1.5">
+          {% if contact.sms_status == "opted_in" %}
+          <span class="w-2 h-2 rounded-full bg-emerald-500"></span> Opted In (Active Consent)
+          {% elif contact.sms_status == "opted_out" %}
+          <span class="w-2 h-2 rounded-full bg-rose-500"></span> Opted Out (STOP / Blocked)
+          {% else %}
+          <span class="w-2 h-2 rounded-full bg-gray-400"></span> No consent (Awaiting Opt-In)
+          {% endif %}
+        </div>
+        <p class="text-[11px] mt-0.5 opacity-80">
+          {% if contact.sms_status == "opted_in" %}Marketing and campaign messages are permitted to this contact.{% elif contact.sms_status == "opted_out" %}Outbound messaging is blocked by system-wide compliance safeguards.{% else %}Contact was imported or created without prior express consent proof.{% endif %}
+          {% if consent_events %}{% with latest=consent_events.0 %}Last verified: {{ latest.get_source_display }} · {{ latest.created_at|date:"M d, Y" }}.{% endwith %}{% endif %}
+        </p>
+      </div>
+
       {% if consent_events %}
       <div class="max-h-[60vh] overflow-y-auto pr-2 space-y-3 border-l-2 border-slate-100 pl-3 ml-1.5">
         {% for ev in consent_events %}
@@ -822,9 +745,14 @@
         <a href="{% url 'compliance:dashboard' %}?q={{ contact.phone|urlencode }}" class="text-xs font-semibold text-brand-600 hover:underline">
           Open in Compliance Ledger →
         </a>
-        <button type="button" onclick="closeAuditHistoryModal()" class="px-4 py-2 text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-xl cursor-pointer">
-          Close
-        </button>
+        <div class="flex items-center gap-2">
+          <button type="button" onclick="closeAuditHistoryModal(); openConsentModal();" class="px-4 py-2 text-xs font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 rounded-xl cursor-pointer">
+            {% if consent_events %}Update Consent{% else %}+ Record Consent{% endif %}
+          </button>
+          <button type="button" onclick="closeAuditHistoryModal()" class="px-4 py-2 text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-xl cursor-pointer">
+            Close
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -837,6 +765,7 @@
 {% endblock %}
 
 {% block extra_js %}
+{% include "contacts/partials/list_quick_create_js.html" %}
 <script>
   function openConsentModal() {
     document.getElementById('consentModal').classList.remove('hidden');
@@ -1059,6 +988,40 @@
       });
     };
 
+    // Snapshot the contact edit form so a live consent change never discards unsaved edits
+    const editFormEl = document.getElementById('editContactForm');
+    const serializeEditForm = () => editFormEl ? new URLSearchParams(new FormData(editFormEl)).toString() : '';
+    const editFormInitial = serializeEditForm();
+
+    function handleSendPermissionChange(data) {
+      // STOP/START or an inbound text changed whether we may reply. The composer is server-rendered,
+      // so reload to swap banner <-> composer, unless that would throw away unsaved contact edits.
+      const composerShown = !!document.getElementById('contact-reply-form');
+      if (composerShown === !!data.can_send) return;
+      if (serializeEditForm() === editFormInitial) {
+        window.location.reload();
+        return;
+      }
+      const banner = document.getElementById('contact-send-blocked');
+      if (banner && data.can_send) {
+        banner.innerHTML = '';
+        const msg = document.createElement('div');
+        msg.innerHTML = '<strong class="font-bold block mb-0.5">This contact can receive messages again</strong>';
+        const p = document.createElement('p');
+        p.className = 'text-amber-800 leading-relaxed';
+        p.textContent = 'Save your contact changes, then refresh to reply.';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'mt-1.5 px-2.5 py-1 text-[11px] font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-lg cursor-pointer';
+        btn.textContent = 'Refresh now';
+        btn.onclick = () => window.location.reload();
+        msg.append(p, btn);
+        banner.appendChild(msg);
+      } else if (window.showAppToast) {
+        window.showAppToast(data.block_reason || 'Sending to this contact is now blocked. Refresh to update.', 'error');
+      }
+    }
+
     function connectContactWebSocket(convId) {
       if (!convId) return;
       if (chatSocket && (chatSocket.readyState === WebSocket.OPEN || chatSocket.readyState === WebSocket.CONNECTING)) {
@@ -1084,6 +1047,8 @@
               appendMessageBubble(data.message);
             } else if (data.event === 'handoff' && data.message) {
               appendMessageBubble(data.message);
+            } else if (data.event === 'send_permission') {
+              handleSendPermissionChange(data);
             } else if (data.event === 'status_update' && data.message_id) {
               const statusEl = document.getElementById(`contact-msg-status-${data.message_id}`);
               if (statusEl) {

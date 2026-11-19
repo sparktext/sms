@@ -17,6 +17,9 @@ from compliance.models import ConsentEvent
 from compliance.services import classify_keyword, record_consent
 from .models import PhoneNumber, Conversation, Message, AIAssistantConfig, AIJob
 from .providers import get_sms_provider
+from .providers.telnyx_provider import verify_telnyx_webhook
+from .providers.twilio_provider import TwilioProvider
+from .providers.fake_provider import FakeProvider
 from .utils import get_public_base_url, format_chat_timestamp
 
 logger = logging.getLogger(__name__)
@@ -80,17 +83,48 @@ def _verify_twilio_signature(request) -> bool:
     else:
         target_url = request.build_absolute_uri()
 
-    provider = get_sms_provider()
+    # Validate Twilio webhooks with the Twilio validator whichever provider is active for sending,
+    # so e.g. MESSAGING_PROVIDER=telnyx can never swap in another provider's logic. The only
+    # exception is the in-memory FakeProvider used in tests/local dev (MESSAGING_PROVIDER=fake).
+    active = get_sms_provider()
+    validator = active if isinstance(active, FakeProvider) else TwilioProvider()
     post_params = dict(request.POST.items())
-    return provider.validate_signature(target_url, post_params, signature)
+    return validator.validate_signature(target_url, post_params, signature)
 
 
 def _verify_telnyx_signature(request) -> bool:
-    if not getattr(settings, "TELNYX_VALIDATE_WEBHOOKS", False):
-        return True
+    """
+    Verify the Telnyx Ed25519 webhook signature. Always enforced (there is no off-switch):
+    an unsigned, forged, stale or unverifiable request is rejected, because these endpoints
+    record STOP/START consent and create inbound messages.
+    """
+    return verify_telnyx_webhook(
+        raw_body=request.body,
+        signature_b64=request.headers.get("Telnyx-Signature-Ed25519", ""),
+        timestamp=request.headers.get("Telnyx-Timestamp", ""),
+    )
 
-    # Telnyx signature verification can be added here if public key is active
-    return True
+
+def _broadcast_send_permission(contact) -> None:
+    """Push {can_send, block_reason} to every conversation window open for this contact."""
+    try:
+        from .services import can_send_manual
+        from .ws_broadcast import broadcast_chat_event
+
+        contact.refresh_from_db(fields=["sms_status"])
+        for conv in Conversation.objects.filter(contact=contact):
+            can_send, reason = can_send_manual(contact, conv)
+            broadcast_chat_event(
+                conv.id,
+                {
+                    "event": "send_permission",
+                    "sms_status": contact.sms_status,
+                    "can_send": bool(can_send),
+                    "block_reason": str(reason or ""),
+                },
+            )
+    except Exception as exc:
+        logger.warning("Failed to broadcast send permission for contact %s: %s", getattr(contact, "id", None), exc)
 
 
 def _handle_inbound_sms(
@@ -267,6 +301,11 @@ def _handle_inbound_sms(
             )
     except Exception as exc:
         logger.exception("Error processing consent keyword on inbound message %s: %s", message_sid, exc)
+
+    # Tell open chat windows whether replying is now allowed. STOP/START change consent, and any
+    # inbound text opens the reply window for contacts without consent, so the "Sending Currently
+    # Blocked" banner / composer must update live instead of only after a page refresh.
+    _broadcast_send_permission(contact)
 
     # Queue or debounce AI job if AI Assistant is configured and applicable
     try:

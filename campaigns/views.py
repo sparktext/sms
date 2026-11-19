@@ -91,12 +91,46 @@ def campaign_list(request):
     return render(request, "campaigns/campaign_list.html", context)
 
 
+# Contact fields the campaign composer offers as extra merge tags (besides name / business / phone)
+_NON_TAG_FIELDS = {"stage", "not_qualified_reason", "detail", "assigned_to", "best_call_time"}
+
+
+def _lead_merge_tags(org, sample_size=400):
+    """
+    Lead fields usable as {{ tags }}: approved ContactFields plus the flat fields your leads actually
+    carry (e.g. current_insurer, city, zip_code), most common first, each with a sample value for the preview.
+    """
+    from collections import Counter
+    from contacts.lead_dossier import label_for
+    counts, samples, labels = Counter(), {}, {}
+    for f in ContactField.objects.filter(organization=org):
+        key = f.key.lower()
+        if key in _NON_TAG_FIELDS:
+            continue
+        labels[key] = f.label
+        counts[key] += 0
+    for cf in Contact.objects.filter(organization=org).order_by("-id").values_list("custom_fields", flat=True)[:sample_size]:
+        if not isinstance(cf, dict):
+            continue
+        for key, val in cf.items():
+            key = str(key).lower()
+            if key in _NON_TAG_FIELDS or not isinstance(val, (str, int, float)):
+                continue
+            text = str(val).strip()
+            if not text or len(text) > 60 or text.startswith(("{", "[")):
+                continue
+            counts[key] += 1
+            samples.setdefault(key, text)
+    return [{"key": k, "label": labels.get(k) or label_for(k), "count": n, "sample": samples.get(k, "")}
+            for k, n in counts.most_common()]
+
+
 @login_required
 @never_cache
 def campaign_create(request):
     """
     Campaign composer wizard:
-    - Multi-list audience targeting + custom field filter (e.g. stage="Intake")
+    - Multi-list audience targeting
     - Template text with live preview and segment estimation
     - Immediate dispatch or future scheduling
     """
@@ -114,20 +148,6 @@ def campaign_create(request):
     )
     custom_fields = ContactField.objects.filter(organization=org)
 
-    # Distinct values for 'stage' if stage field exists
-    stage_options = []
-    if custom_fields.filter(key="stage").exists():
-        # Get unique stages from contacts
-        contacts_with_stage = Contact.objects.filter(organization=org).exclude(custom_fields__stage__isnull=True)
-        raw_stages = set()
-        for c in contacts_with_stage[:300]:
-            st = c.custom_fields.get("stage")
-            if st:
-                raw_stages.add(str(st))
-        stage_options = sorted(list(raw_stages)) if raw_stages else ["Intake", "Qualified", "Unqualified"]
-    else:
-        stage_options = ["Intake", "Qualified"]
-
     if request.method == "POST":
         name = request.POST.get("name", "").strip()
         phone_number_id = request.POST.get("phone_number_id")
@@ -139,11 +159,8 @@ def campaign_create(request):
         selected_list_ids = request.POST.getlist("lists")
         selected_list_ids = [int(lid) for lid in selected_list_ids if str(lid).isdigit()]
 
-        # Filter criteria: stage and custom fields
+        # No audience filters beyond list selection (lead-stage filter removed)
         filter_criteria = {}
-        stage_val = request.POST.get("filter_stage", "").strip()
-        if stage_val and stage_val != "__all__":
-            filter_criteria["stage"] = stage_val
 
         # Campaign-specific AI Playbook settings
         ai_mode = request.POST.get("ai_mode", Campaign.AIMode.DEFAULT).strip()
@@ -274,7 +291,7 @@ def campaign_create(request):
         "phone_numbers": phone_numbers,
         "contact_lists": contact_lists,
         "custom_fields": custom_fields,
-        "stage_options": stage_options,
+        "lead_merge_tags": _lead_merge_tags(org),
         "saved_templates": saved_templates,
         "selected_template": selected_template,
         "now_iso": timezone.now().strftime("%Y-%m-%dT%H:%M"),
@@ -494,19 +511,6 @@ def campaign_edit(request, campaign_id):
     )
     custom_fields = ContactField.objects.filter(organization=org)
 
-    # Distinct values for 'stage' if stage field exists
-    stage_options = []
-    if custom_fields.filter(key="stage").exists():
-        contacts_with_stage = Contact.objects.filter(organization=org).exclude(custom_fields__stage__isnull=True)
-        raw_stages = set()
-        for c in contacts_with_stage[:300]:
-            st = c.custom_fields.get("stage")
-            if st:
-                raw_stages.add(str(st))
-        stage_options = sorted(list(raw_stages)) if raw_stages else ["Intake", "Qualified", "Unqualified"]
-    else:
-        stage_options = ["Intake", "Qualified"]
-
     if request.method == "POST":
         name = request.POST.get("name", "").strip()
         phone_number_id = request.POST.get("phone_number_id")
@@ -519,11 +523,8 @@ def campaign_edit(request, campaign_id):
         selected_list_ids = request.POST.getlist("lists")
         selected_list_ids = [int(lid) for lid in selected_list_ids if str(lid).isdigit()]
 
-        # Filter criteria: stage and custom fields
+        # No audience filters beyond list selection (lead-stage filter removed)
         filter_criteria = {}
-        stage_val = request.POST.get("filter_stage", "").strip()
-        if stage_val and stage_val != "__all__":
-            filter_criteria["stage"] = stage_val
 
         # Campaign-specific AI Playbook settings
         ai_mode = request.POST.get("ai_mode", Campaign.AIMode.DEFAULT).strip()
@@ -648,7 +649,7 @@ def campaign_edit(request, campaign_id):
         "phone_numbers": phone_numbers,
         "contact_lists": contact_lists,
         "custom_fields": custom_fields,
-        "stage_options": stage_options,
+        "lead_merge_tags": _lead_merge_tags(org),
         "saved_templates": saved_templates,
         "selected_template": None,
         "now_iso": timezone.now().strftime("%Y-%m-%dT%H:%M"),
@@ -673,15 +674,10 @@ def audience_preview_ajax(request):
     list_ids = request.GET.getlist("lists[]") or request.GET.getlist("lists")
     list_ids = [int(lid) for lid in list_ids if str(lid).isdigit()]
 
-    stage_val = request.GET.get("stage", "").strip()
-    filter_criteria = {}
-    if stage_val and stage_val != "__all__":
-        filter_criteria["stage"] = stage_val
-
     contacts = resolve_campaign_contacts(
         organization=org,
         list_ids=list_ids,
-        filter_criteria=filter_criteria,
+        filter_criteria={},
     )
 
     total = contacts.count()

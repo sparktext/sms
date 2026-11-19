@@ -1076,10 +1076,27 @@ def start_new_chat(request):
     phone = request.POST.get("phone", "").strip()
     first_name = request.POST.get("first_name", "").strip()
     last_name = request.POST.get("last_name", "").strip()
+    source = (request.POST.get("source") or request.POST.get("vendor") or "").strip()
+    consent = request.POST.get("consent") in ("1", "true", "on", True)
 
     if contact_id:
         contact = get_object_or_404(Contact, id=contact_id, organization=org)
+        if consent and contact.sms_status != Contact.SMSStatus.OPTED_IN:
+            from compliance.services import record_consent
+            from compliance.models import ConsentEvent
+            record_consent(
+                contact=contact,
+                event_type=ConsentEvent.EventType.OPT_IN,
+                source=ConsentEvent.Source.INBOX_MANUAL,
+                proof_text=f"Direct consent registered via Inbox New Chat (Source: {contact.source})",
+            )
     elif phone:
+        if not source:
+            return JsonResponse({
+                "status": "error",
+                "message": "Source is compulsory. Please specify a lead source.",
+            }, status=400)
+
         from contacts.services import save_contact
         try:
             contact, _ = save_contact(
@@ -1088,9 +1105,19 @@ def start_new_chat(request):
                     "phone": phone,
                     "first_name": first_name,
                     "last_name": last_name,
+                    "source": source,
                 },
                 source=Contact.Source.MANUAL,
             )
+            if consent:
+                from compliance.services import record_consent
+                from compliance.models import ConsentEvent
+                record_consent(
+                    contact=contact,
+                    event_type=ConsentEvent.EventType.OPT_IN,
+                    source=ConsentEvent.Source.INBOX_MANUAL,
+                    proof_text=f"Direct consent registered via Inbox New Chat (Source: {source})",
+                )
         except ValidationError as exc:
             msg = exc.message_dict.get("non_field_errors", [str(exc)])[0] if hasattr(exc, "message_dict") else str(exc)
             return JsonResponse({"status": "error", "message": str(msg)}, status=400)
@@ -1161,9 +1188,11 @@ def _get_or_create_ai_config(org):
             "mode": AIAssistantConfig.Mode.OFF,
             "tone": "friendly, professional, concise",
             "knowledge": "Hours: Monday-Friday 9am - 5pm.\nServices: Consultations, support, and services.\nLocation: Online / Nationwide.",
+            # Keep SMS short: two questions, each skipped when the lead form already answers it,
+            # then the AI offers a call from a licensed agent.
             "qualification_questions": [
-                {"key": "service_type", "question": "What type of service are you looking for?", "required": True},
-                {"key": "timeline", "question": "When are you hoping to get started?", "required": False},
+                {"key": "service_type", "question": "What can we help you with today?", "required": True, "lead_field": "Vertical"},
+                {"key": "zip", "question": "What's your ZIP code?", "required": True, "lead_field": "ZIP"},
             ],
             "never_say": "free guarantee\nrefund immediately\nwe promise 100%",
             "handoff_rules": "If the customer requests a phone call or mentions an emergency, hand off immediately.",
@@ -1172,6 +1201,43 @@ def _get_or_create_ai_config(org):
         },
     )
     return config
+
+
+def _clean_follow_ups(questions):
+    """
+    Keep follow-ups consistent: the parent must exist, chains stop at two levels
+    (question -> follow-up -> follow-up), and a follow-up always uses its top-level question's step.
+    """
+    from .ai.qualification import MAX_FOLLOW_UP_DEPTH, order_questions
+
+    by_key = {q["key"]: q for q in questions}
+
+    def depth_and_root(q, seen=()):
+        parent = q.get("parent")
+        if not parent:
+            return 0, q
+        if parent not in by_key or parent in seen or parent == q["key"]:
+            return None, None
+        d, root = depth_and_root(by_key[parent], seen + (q["key"],))
+        return (None, None) if d is None else (d + 1, root)
+
+    kept = []
+    for q in questions:
+        depth, root = depth_and_root(q)
+        if depth is None or depth > MAX_FOLLOW_UP_DEPTH:
+            continue
+        if q.get("parent"):
+            q = dict(q)
+            if root.get("step") == 2:
+                q["step"] = 2
+            else:
+                q.pop("step", None)
+        kept.append(q)
+    # Store in asking order (parent, its follow-ups, next question) without the helper "_depth"
+    return [
+        {k: v for k, v in q.items() if k != "_depth" and not (k == "step" and v != 2)}
+        for q in order_questions(kept)
+    ]
 
 
 def _apply_ai_config_form_data(config, data, strict_questions=False):
@@ -1195,6 +1261,8 @@ def _apply_ai_config_form_data(config, data, strict_questions=False):
         config.never_say = data.get("never_say", "").strip()
     if "handoff_rules" in data:
         config.handoff_rules = data.get("handoff_rules", "").strip()
+    if "not_qualified_message" in data:
+        config.not_qualified_message = data.get("not_qualified_message", "").strip()[:500]
 
     if "max_reply_chars" in data:
         try:
@@ -1218,15 +1286,61 @@ def _apply_ai_config_form_data(config, data, strict_questions=False):
                 clean_q = []
                 for item in parsed_q:
                     if isinstance(item, dict) and item.get("key") and item.get("question"):
-                        clean_q.append({
+                        entry = {
                             "key": str(item["key"]).strip().lower().replace(" ", "_"),
                             "question": str(item["question"]).strip(),
                             "required": bool(item.get("required", False)),
-                        })
-                config.qualification_questions = clean_q
+                        }
+                        # Optional: answer this question from a lead field when the lead has it
+                        lead_field = str(item.get("lead_field") or "").strip()[:100]
+                        if lead_field:
+                            entry["lead_field"] = lead_field
+                        # Optional fit rule: is the lead a fit for us based on this answer?
+                        from .ai.qualification import RULES, parse_rule_values
+                        rule = str(item.get("rule") or "").strip()
+                        rule_values = parse_rule_values(item.get("rule_values"))
+                        if rule in RULES and rule_values:
+                            entry["rule"] = rule
+                            entry["rule_values"] = rule_values
+                        # Step 2 = only asked to leads whose form already answered every step-1 question
+                        if str(item.get("step") or "1").strip() == "2":
+                            entry["step"] = 2
+                        # Follow-up: only asked when the parent's answer meets the condition
+                        parent = str(item.get("parent") or "").strip().lower().replace(" ", "_")
+                        if parent:
+                            from .ai.qualification import CONDITIONS, COND_ANY
+                            cond = item.get("condition") if isinstance(item.get("condition"), dict) else {}
+                            op = cond.get("op") if cond.get("op") in CONDITIONS else COND_ANY
+                            values = parse_rule_values(cond.get("values"))
+                            entry["parent"] = parent
+                            entry["condition"] = {"op": op if (values or op == COND_ANY) else COND_ANY, "values": values}
+                        clean_q.append(entry)
+                config.qualification_questions = _clean_follow_ups(clean_q)
         except Exception:
             if strict_questions:
                 raise
+
+
+def _lead_field_options(org, config, sample_size=300):
+    """
+    Lead fields that a qualification question can be answered from, most common first,
+    taken from the organisation's recent leads (plus any field already chosen).
+    """
+    from collections import Counter
+    from contacts.lead_dossier import lead_facts
+
+    counts = Counter()
+    for contact in Contact.objects.filter(organization=org).order_by("-id")[:sample_size]:
+        for label, _value in lead_facts(contact):
+            counts[label] += 1
+    options = [{"label": label, "count": n} for label, n in counts.most_common()]
+    known = {o["label"].lower() for o in options}
+    for q in config.qualification_questions or []:
+        lf = (q.get("lead_field") or "") if isinstance(q, dict) else ""
+        if lf and lf.lower() not in known:
+            options.append({"label": lf, "count": 0})
+            known.add(lf.lower())
+    return options
 
 
 @login_required
@@ -1257,6 +1371,7 @@ def ai_assistant_settings(request):
     context = {
         "config": config,
         "questions_json": questions_json_str,
+        "lead_field_options": _lead_field_options(org, config),
     }
     return render(request, "messaging/ai_assistant_settings.html", context)
 
