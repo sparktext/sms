@@ -13,6 +13,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'css/website.css' %}">
+  <link rel="icon" type="image/png" href="{% static 'img/favicon.png' %}">
+  <link rel="shortcut icon" href="{% static 'img/favicon.ico' %}">
 
   {% block extra_head %}{% endblock %}
 </head>
@@ -25,13 +27,8 @@
       <nav class="flex items-center justify-between h-20">
 
         <!-- Logo -->
-        <a href="/" id="nav-logo" class="flex items-center gap-2.5 group" aria-label="SparkText home">
-          <div class="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-xs group-hover:bg-blue-700 transition-colors">
-            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
-              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-            </svg>
-          </div>
-          <span class="text-lg font-medium tracking-tight text-gray-950">SparkText</span>
+        <a href="/" id="nav-logo" class="flex items-center group transition-opacity hover:opacity-90" aria-label="SparkText home">
+          <img src="{% static 'img/logo.png' %}" alt="SparkText" class="h-8 w-auto">
         </a>
 
         <!-- Desktop links -->
@@ -134,13 +131,8 @@
 
         <!-- Brand col -->
         <div class="lg:col-span-2">
-          <a href="/" class="flex items-center gap-2.5 mb-4 group inline-flex" aria-label="SparkText">
-            <div class="w-7 h-7 rounded-md bg-blue-600 flex items-center justify-center text-white">
-              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
-                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-              </svg>
-            </div>
-            <span class="text-lg font-medium tracking-tight text-white">SparkText</span>
+          <a href="/" class="flex items-center mb-4 group inline-flex transition-opacity hover:opacity-90" aria-label="SparkText">
+            <img src="{% static 'img/logo-dark.png' %}" alt="SparkText" class="h-8 w-auto">
           </a>
           <p class="text-sm font-light text-gray-400 leading-relaxed max-w-sm mb-6">
             Two-way business messaging platform built for deliverability, compliance, and effortless customer conversations.

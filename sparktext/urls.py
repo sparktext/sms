@@ -2,10 +2,12 @@ from django.contrib import admin
 from django.urls import path, include, re_path
 from django.conf import settings
 from django.views.static import serve
+from django.views.generic import RedirectView
 from contacts import views as contacts_views
 from campaigns import views as campaigns_views
 
 urlpatterns = [
+    path("favicon.ico", RedirectView.as_view(url="/static/img/favicon.ico", permanent=True)),
     path("admin/", admin.site.urls),
 
     # --- django-allauth (provides /accounts/login/, /accounts/signup/, etc.) ---
