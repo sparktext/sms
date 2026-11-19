@@ -104,23 +104,10 @@ class OnboardingForm(forms.Form):
         required=False,
         widget=forms.TextInput(attrs={"placeholder": "Acme Corp", "autocomplete": "organization"}),
     )
-    timezone = forms.ChoiceField(
-        label="Timezone",
-        required=False,
-        choices=[],  # populated in __init__
-    )
     marketing_opt_in = forms.BooleanField(
         label="Send me product updates and tips",
         required=False,
     )
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        import zoneinfo
-        tz_choices = [("", "— Select timezone —")] + [
-            (tz, tz) for tz in sorted(zoneinfo.available_timezones())
-        ]
-        self.fields["timezone"].choices = tz_choices
 
 
 class AccountDeleteForm(forms.Form):

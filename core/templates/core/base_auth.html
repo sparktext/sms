@@ -32,6 +32,14 @@
   .alert { background:#FEF3F2; color:var(--err); border-radius:10px; padding:12px 14px; font-size:14px; margin-bottom:16px; }
   .alt { text-align:center; margin:20px 0 0; font-size:14px; color:var(--muted); }
   .alt a { color:var(--brand-dark); font-weight:500; }
+  .pw-wrap { position:relative; }
+  .pw-wrap input { padding-right:46px; }
+  .pw-toggle { position:absolute; top:50%; right:6px; transform:translateY(-50%); width:36px; height:36px; display:flex;
+               align-items:center; justify-content:center; border:0; border-radius:8px; background:transparent; color:var(--muted); cursor:pointer; }
+  .pw-toggle:hover { color:var(--ink); background:#F2F4F7; }
+  .pw-toggle .eye-on { display:none; }
+  .pw-toggle[aria-pressed="true"] .eye-on { display:block; }
+  .pw-toggle[aria-pressed="true"] .eye-off { display:none; }
   @media (max-width:480px) { .row { grid-template-columns:1fr; } .card { padding:24px; } }
 </style>
 </head>
@@ -40,5 +48,18 @@
   <a class="logo" href="/"><img src="{% static 'img/logo-dark.png' %}" alt="SparkText" style="height:34px;width:auto;"></a>
   <div class="card">{% block content %}{% endblock %}</div>
 </div>
+<script>
+  // Show / hide password: <button class="pw-toggle" data-pw-toggle="input-id"> next to a password input
+  document.addEventListener("click", function (e) {
+    var btn = e.target.closest("[data-pw-toggle]");
+    if (!btn) return;
+    var input = document.getElementById(btn.getAttribute("data-pw-toggle"));
+    if (!input) return;
+    var show = input.type === "password";
+    input.type = show ? "text" : "password";
+    btn.setAttribute("aria-pressed", show ? "true" : "false");
+    btn.setAttribute("aria-label", show ? "Hide password" : "Show password");
+  });
+</script>
 </body>
 </html>

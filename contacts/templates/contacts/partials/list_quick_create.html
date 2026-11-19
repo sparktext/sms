@@ -1,0 +1,30 @@
+{% comment %}
+Inline "create a contact list" widget. Pair with partials/list_quick_create_js.html on the page.
+Context (one of):
+  select_id: id of a list-picker select; the new list is added as an option and selected
+  chips_id:  id of a checkbox-chip container; the new list is added as a checked chip (name="lists")
+{% endcomment %}
+<div class="mt-1.5" data-quick-list
+     {% if select_id %}data-select-id="{{ select_id }}"{% endif %}
+     {% if chips_id %}data-chips-id="{{ chips_id }}"{% endif %}>
+  <button type="button" data-ql-toggle
+          class="inline-flex items-center gap-1 text-[11px] font-semibold text-brand-600 hover:text-brand-800 cursor-pointer">
+    <span aria-hidden="true">+</span> Create new list
+  </button>
+  <div data-ql-row hidden class="mt-1.5">
+    <div class="flex items-center gap-2">
+      <input type="text" data-ql-input maxlength="200" placeholder="New list name"
+             aria-label="New contact list name"
+             class="flex-1 min-w-0 px-3 py-1.5 text-xs bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition">
+      <button type="button" data-ql-save
+              class="shrink-0 px-3 py-1.5 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed">
+        Create
+      </button>
+      <button type="button" data-ql-cancel
+              class="shrink-0 px-2 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-800 cursor-pointer">
+        Cancel
+      </button>
+    </div>
+  </div>
+  <p data-ql-error hidden class="mt-1 text-[11px] text-rose-600" role="alert"></p>
+</div>

@@ -31,7 +31,6 @@ env = environ.Env(
     TELNYX_API_KEY=(str, ""),
     TELNYX_PUBLIC_KEY=(str, ""),
     TELNYX_PHONE_NUMBER=(str, ""),
-    TELNYX_VALIDATE_WEBHOOKS=(bool, False),
     MESSAGING_PROVIDER=(str, "twilio"),
     MESSAGING_REPLY_WINDOW_HOURS=(int, 24),
     AI_CLIENT=(str, "openai"),
@@ -173,13 +172,22 @@ if TESTING:
         }
     }
 else:
+    _REDIS_URL = env("REDIS_URL", default="redis://localhost:6379")
     CHANNEL_LAYERS = {
         "default": {
             # Redis channel layer — shared across ALL processes (web server, AI worker, campaign worker).
             # This means WebSocket broadcasts from any process instantly reach connected browsers.
+            # socket_timeout=None is REQUIRED: channels_redis holds long-lived blocking pub/sub
+            # connections that wait indefinitely for messages. A finite timeout causes
+            # redis.exceptions.TimeoutError and WebSocket disconnects.
             "BACKEND": "channels_redis.core.RedisChannelLayer",
             "CONFIG": {
-                "hosts": [env("REDIS_URL", default="redis://localhost:6379")],
+                "hosts": [{
+                    "address": _REDIS_URL,
+                    "protocol": 2,
+                    "socket_timeout": None,
+                    "socket_connect_timeout": 5,
+                }],
             },
         }
     }
@@ -297,7 +305,6 @@ TWILIO_VALIDATE_WEBHOOKS = env("TWILIO_VALIDATE_WEBHOOKS", default=True)
 TELNYX_API_KEY = env("TELNYX_API_KEY", default="")
 TELNYX_PUBLIC_KEY = env("TELNYX_PUBLIC_KEY", default="")
 TELNYX_PHONE_NUMBER = env("TELNYX_PHONE_NUMBER", default="")
-TELNYX_VALIDATE_WEBHOOKS = env("TELNYX_VALIDATE_WEBHOOKS", default=False)
 
 MESSAGING_PROVIDER = env("MESSAGING_PROVIDER", default="twilio")
 MESSAGING_REPLY_WINDOW_HOURS = env("MESSAGING_REPLY_WINDOW_HOURS", default=24)
@@ -399,12 +406,8 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = False
 CELERY_BROKER_CONNECTION_TIMEOUT = 1
 
-# Update channel layer to use Redis when available (falls back to in-memory)
-CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels.layers.InMemoryChannelLayer",
-    }
-}
+# NOTE: CHANNEL_LAYERS is configured above (lines ~170-185) using Redis for multi-process support.
+# DO NOT redefine it here — InMemoryChannelLayer does not work across processes (web + AI worker).
 
 # =============================================================================
 # Turnstile CAPTCHA (disabled by default; enable in .env for production)

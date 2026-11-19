@@ -53,7 +53,6 @@ class SettingsAndTeamTests(TestCase):
             "website": "https://apexshield.com",
             "support_phone": "+16505550199",
             "notification_email": "alerts@apexshield.com",
-            "timezone": "America/New_York",
             "address_street": "100 Pine St, Suite 400",
             "address_city": "San Francisco",
             "address_state": "CA",
@@ -64,7 +63,6 @@ class SettingsAndTeamTests(TestCase):
         self.org.refresh_from_db()
         self.assertEqual(self.org.name, "Apex Auto Shield Inc")
         self.assertEqual(self.org.ein, "98-7654321")
-        self.assertEqual(self.org.timezone, "America/New_York")
         self.assertEqual(self.org.notification_email, "alerts@apexshield.com")
         self.assertEqual(self.org.address_city, "San Francisco")
 

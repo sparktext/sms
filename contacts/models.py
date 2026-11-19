@@ -6,7 +6,7 @@ from django.dispatch import receiver
 import re
 
 RESERVED_FIELD_NAMES = frozenset([
-    "phone", "first_name", "last_name", "email", "timezone", "source",
+    "phone", "first_name", "last_name", "email", "timezone", "vendor", "source",
     "custom_fields", "external_ids", "sms_status",
     "created_at", "updated_at", "id", "pk", "organization", "lists"
 ])
@@ -98,11 +98,11 @@ class Contact(models.Model):
     first_name = models.CharField(max_length=100, blank=True, default="")
     last_name = models.CharField(max_length=100, blank=True, default="")
     email = models.EmailField(blank=True, default="")
-    timezone = models.CharField(max_length=64, blank=True, default="")
     source = models.CharField(
-        max_length=20,
-        choices=Source.choices,
-        default=Source.MANUAL,
+        max_length=100,
+        blank=False,
+        default="Direct",
+        help_text=_("Lead source or provider (compulsory)"),
     )
     custom_fields = models.JSONField(default=dict, blank=True)
     external_ids = models.JSONField(
@@ -138,6 +138,17 @@ class Contact(models.Model):
         from .utils import normalize_phone
         if self.phone:
             self.phone = normalize_phone(self.phone)
+        if not self.source or not str(self.source).strip():
+            raise ValidationError({"source": _("Source is compulsory.")})
+
+    @property
+    def vendor(self):
+        """Backwards compatibility alias for source."""
+        return self.source
+
+    @vendor.setter
+    def vendor(self, value):
+        self.source = value
 
     def save(self, *args, **kwargs):
         if self.pk:

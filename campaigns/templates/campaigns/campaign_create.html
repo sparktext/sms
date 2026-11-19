@@ -97,7 +97,7 @@
           <span class="w-6 h-6 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center text-xs font-bold">2</span>
           <span>Target Audience & Filters</span>
         </h3>
-        <p class="text-xs text-gray-500 mt-0.5">Select subscriber lists and optionally filter by contact stage / tags</p>
+        <p class="text-xs text-gray-500 mt-0.5">Select the subscriber lists to send to</p>
       </div>
 
       <!-- Live Audience Counter Pill -->
@@ -139,49 +139,6 @@
         You can create lists under <a href="{% url 'contacts:lists' %}" class="font-bold underline text-brand-700">Contacts → Lists</a>.
       </div>
       {% endif %}
-    </div>
-
-    <!-- Stage / Custom Field Filter -->
-    <div class="pt-2 border-t border-gray-100 grid grid-cols-1 sm:grid-cols-2 gap-4">
-      <div>
-        <label for="filter-stage" class="block text-xs font-bold text-gray-700 mb-1">
-          Filter by Lead Stage
-        </label>
-        <select
-          id="filter-stage"
-          name="filter_stage"
-          onchange="recalculateAudience()"
-          class="w-full px-3 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900 bg-white"
-        >
-          <option value="__all__" {% if not campaign or not campaign.filter_criteria.stage %}selected{% endif %}>All Stages (No stage filter)</option>
-          {% for st in stage_options %}
-          <option value="{{ st }}" {% if campaign and campaign.filter_criteria.stage == st %}selected{% endif %}>{{ st }}</option>
-          {% endfor %}
-        </select>
-      </div>
-
-      <!-- Compliance Disclaimer Card -->
-      <div class="p-3 rounded-xl bg-brand-50/70 border border-brand-100 flex items-start gap-2 text-xs text-brand-900">
-        <span class="text-sm">🛡️</span>
-        <div>
-          <strong class="font-bold block">Opt-In Guard Active:</strong>
-          <p class="text-[11px] text-brand-800 leading-relaxed">
-            Contacts without express consent or who previously replied STOP will be <strong>automatically skipped</strong> to protect carrier reputation and TCPA compliance.
-          </p>
-        </div>
-      </div>
-    </div>
-
-    <!-- Live Detailed Breakdown Banner -->
-    <div id="audience-details-banner" class="p-3 bg-gray-50 border border-gray-200 rounded-xl flex items-center justify-between text-xs text-gray-600">
-      <div class="flex items-center gap-3">
-        <span>👥 Total in Segment: <strong id="val-total" class="text-gray-900 font-bold">0</strong></span>
-        <span>·</span>
-        <span>✅ Eligible (Opted In): <strong id="val-eligible" class="text-emerald-600 font-bold">0</strong></span>
-        <span>·</span>
-        <span>⚠️ Skipped (No Consent / STOP): <strong id="val-skipped" class="text-amber-700 font-bold">0</strong></span>
-      </div>
-      <div class="text-[11px] text-gray-400 font-medium">Updates live</div>
     </div>
   </div>
 
@@ -272,7 +229,20 @@
         >
           + Contact Phone
         </button>
+        {% for tag in lead_merge_tags %}
+        <button
+          type="button"
+          onclick="insertTag('{{ tag.key|escapejs }}')"
+          title="{% if tag.count %}{{ tag.count }} contact{{ tag.count|pluralize }} have this{% if tag.sample %} · e.g. {{ tag.sample }}{% endif %}{% else %}Custom field{% endif %}"
+          class="px-2.5 py-1 text-[11px] font-semibold text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg transition cursor-pointer"
+        >
+          + {{ tag.label }}
+        </button>
+        {% endfor %}
       </div>
+      {% if lead_merge_tags %}
+      <p class="text-[10.5px] text-gray-400 mt-1.5">Grey tags come from your leads' details. If a lead doesn't have that detail, the tag is left blank, so use them when your list has it filled.</p>
+      {% endif %}
     </div>
 
     <!-- Textarea -->
@@ -289,7 +259,7 @@
       >{% if campaign %}{{ campaign.message_template }}{% endif %}</textarea>
 
       <div class="flex items-center justify-between text-[11px] text-gray-400 font-mono mt-1 px-1">
-        <div id="char-counter">0 / 1600 characters · 1 segment</div>
+        <div id="char-counter">0 / 160 characters · 1 segment</div>
         <div class="text-[10px] text-gray-400 font-sans italic">
           Standard disclaimer ("Reply STOP to opt out") is auto-appended if omitted.
         </div>
@@ -532,6 +502,10 @@
     }
   }
 
+  const LEAD_TAG_SAMPLES = {
+    {% for tag in lead_merge_tags %}"{{ tag.key|escapejs }}": "{{ tag.sample|escapejs }}",{% endfor %}
+  };
+
   function insertTag(tagName) {
     const textarea = document.getElementById("message-template");
     if (!textarea) return;
@@ -561,7 +535,7 @@
       segments = Math.ceil(len / 153);
     }
     if (counter) {
-      counter.textContent = `${len} / 1600 characters · ${segments} segment${segments > 1 ? 's' : ''}`;
+      counter.textContent = `${len} / 160 characters · ${segments} segment${segments > 1 ? 's' : ''}`;
     }
 
     if (preview) {
@@ -574,7 +548,10 @@
           .replace(/\{\{\s*last_name\s*\}\}/gi, "Miller")
           .replace(/\{\{\s*full_name\s*\}\}/gi, "John Miller")
           .replace(/\{\{\s*phone\s*\}\}/gi, "+1 (650) 253-0000")
-          .replace(/\{\{\s*business_name\s*\}\}/gi, "{{ request.user.organization.name|default:'SparkText' }}");
+          .replace(/\{\{\s*business_name\s*\}\}/gi, "{{ request.user.organization.name|default:'SparkText'|escapejs }}");
+        for (const [key, value] of Object.entries(LEAD_TAG_SAMPLES)) {
+          sample = sample.replace(new RegExp("\\{\\{\\s*" + key + "\\s*\\}\\}", "gi"), value || "");
+        }
 
         if (!sample.toLowerCase().includes("stop")) {
           sample += "\n\nReply STOP to opt out";
@@ -607,11 +584,9 @@
   function recalculateAudience() {
     const checkedBoxes = document.querySelectorAll("input[name='lists']:checked");
     const listIds = Array.from(checkedBoxes).map(cb => cb.value);
-    const stage = document.getElementById("filter-stage")?.value || "";
 
     const params = new URLSearchParams();
     listIds.forEach(id => params.append("lists[]", id));
-    if (stage) params.append("stage", stage);
 
     fetch("{% url 'campaigns:audience_preview' %}?" + params.toString())
       .then(res => res.json())

@@ -166,7 +166,6 @@ class OnboardingViewTest(TestCase):
             "full_name": "Jane Smith",
             "phone": "+1555000000",
             "company": "Acme",
-            "timezone": "America/New_York",
             "marketing_opt_in": True,
         })
         self.assertEqual(response.status_code, 302)

@@ -1,5 +1,8 @@
+import base64
+import binascii
 import logging
-from typing import Optional, Dict, Any
+import time
+from typing import Optional, Dict, Any, Union
 from pathlib import Path
 import environ
 import requests
@@ -10,6 +13,82 @@ from .base import BaseSMSProvider, ProviderResult
 logger = logging.getLogger(__name__)
 
 TELNYX_MESSAGES_URL = "https://api.telnyx.com/v2/messages"
+
+# Reject webhooks whose signed timestamp is further than this from now (replay protection)
+TELNYX_WEBHOOK_TOLERANCE_SECONDS = 300
+
+
+def _load_telnyx_public_key(raw_key: str):
+    """
+    Load the Telnyx account public key (Mission Control -> Keys & Credentials -> Public Key).
+    Accepts the base64 form Telnyx shows (padded or unpadded, standard or URL-safe) or PEM.
+    Returns an Ed25519PublicKey, or None when the key is unusable.
+    """
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    from cryptography.hazmat.primitives.serialization import load_pem_public_key
+
+    key = (raw_key or "").strip()
+    if not key:
+        return None
+    try:
+        if key.startswith("-----BEGIN"):
+            loaded = load_pem_public_key(key.encode())
+            return loaded if isinstance(loaded, Ed25519PublicKey) else None
+        padded = key + "=" * (-len(key) % 4)
+        decoder = base64.urlsafe_b64decode if ("-" in key or "_" in key) else base64.b64decode
+        raw = decoder(padded)
+        if len(raw) != 32:
+            return None
+        return Ed25519PublicKey.from_public_bytes(raw)
+    except (ValueError, TypeError, binascii.Error):
+        return None
+
+
+def verify_telnyx_webhook(
+    raw_body: Union[bytes, str],
+    signature_b64: str,
+    timestamp: str,
+    public_key: Optional[str] = None,
+    now: Optional[float] = None,
+    tolerance: int = TELNYX_WEBHOOK_TOLERANCE_SECONDS,
+) -> bool:
+    """
+    Verify a Telnyx API v2 webhook. Fails closed: any missing or malformed input returns False.
+
+    Telnyx signs  f"{telnyx-timestamp}|{raw request body}"  with Ed25519 and sends the
+    base64 signature in the `telnyx-signature-ed25519` header.
+    """
+    from cryptography.exceptions import InvalidSignature
+
+    if public_key is None:
+        public_key = getattr(settings, "TELNYX_PUBLIC_KEY", "")
+    key = _load_telnyx_public_key(public_key)
+    if key is None:
+        logger.error("Telnyx webhook rejected: TELNYX_PUBLIC_KEY is missing or invalid.")
+        return False
+
+    if not signature_b64 or not timestamp:
+        return False
+    try:
+        ts = int(str(timestamp).strip())
+    except (TypeError, ValueError):
+        return False
+    current = time.time() if now is None else now
+    if abs(current - ts) > tolerance:
+        logger.warning("Telnyx webhook rejected: timestamp outside %ss tolerance.", tolerance)
+        return False
+
+    try:
+        signature = base64.b64decode(signature_b64.strip(), validate=True)
+    except (ValueError, binascii.Error):
+        return False
+
+    body = raw_body if isinstance(raw_body, bytes) else str(raw_body).encode("utf-8")
+    try:
+        key.verify(signature, f"{ts}|".encode("utf-8") + body)
+        return True
+    except InvalidSignature:
+        return False
 
 
 class TelnyxProvider(BaseSMSProvider):
@@ -138,22 +217,13 @@ class TelnyxProvider(BaseSMSProvider):
         signature: str,
     ) -> bool:
         """
-        Validates Telnyx webhook signature using ed25519 public key if enabled.
-        When TELNYX_VALIDATE_WEBHOOKS=False, returns True for local development.
+        Telnyx signatures cover the raw request body plus a timestamp header, which this
+        URL/params interface cannot provide. Always fails closed; webhook views must use
+        verify_telnyx_webhook(raw_body, signature, timestamp) instead.
         """
-        if not getattr(settings, "TELNYX_VALIDATE_WEBHOOKS", False):
-            return True
-
-        public_key = getattr(settings, "TELNYX_PUBLIC_KEY", "")
-        if not public_key:
-            logger.warning("TELNYX_VALIDATE_WEBHOOKS=True but TELNYX_PUBLIC_KEY is not set.")
-            return False
-
-        try:
-            import telnyx
-            # telnyx.Webhook.construct_event verifies ed25519 signature
-            return True
-        except Exception as exc:
-            logger.warning("Telnyx webhook signature verification failed: %s", exc)
-            return False
+        logger.error(
+            "TelnyxProvider.validate_signature() cannot verify Telnyx webhooks; "
+            "use verify_telnyx_webhook() with the raw body and headers."
+        )
+        return False
 

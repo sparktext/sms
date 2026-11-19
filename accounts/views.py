@@ -193,8 +193,6 @@ def onboarding(request):
             profile.full_name = cd["full_name"]
             profile.phone = cd.get("phone", "")
             profile.company = cd.get("company", "")
-            if cd.get("timezone"):
-                profile.timezone = cd["timezone"]
             profile.onboarding_completed_at = timezone.now()
             profile.save()
 
@@ -216,7 +214,6 @@ def onboarding(request):
                 org = Organization.objects.create(
                     name=org_name,
                     slug=slug,
-                    timezone=profile.timezone or "America/Los_Angeles",
                     notification_email=user.email,
                 )
                 ensure_default_campaign_templates(org)
@@ -240,7 +237,6 @@ def onboarding(request):
             "full_name": profile.full_name,
             "phone": profile.phone,
             "company": profile.company,
-            "timezone": profile.timezone,
             "marketing_opt_in": user.marketing_opt_in,
         })
 

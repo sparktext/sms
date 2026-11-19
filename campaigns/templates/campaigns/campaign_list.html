@@ -165,17 +165,9 @@
                     <span>{{ l.name }}</span>
                   </span>
                 {% empty %}
-                  {% if not c.filter_criteria %}
-                    <span class="text-gray-400 italic">All Organization Contacts</span>
-                  {% endif %}
+                  <span class="text-gray-400 italic">All Organization Contacts</span>
                 {% endfor %}
 
-                {% if c.filter_criteria.stage %}
-                  <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                    <svg class="w-3 h-3 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/></svg>
-                    <span>Stage: {{ c.filter_criteria.stage }}</span>
-                  </span>
-                {% endif %}
               </div>
             </td>
 
@@ -430,13 +422,8 @@ window.closeDeleteCampaignModal = function() {
     let listsHtml = "";
     if (c.lists && c.lists.length > 0) {
       listsHtml = c.lists.map(l => `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-gray-100 text-gray-700 border border-gray-200"><svg class="w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg><span>${esc(l)}</span></span>`).join(" ");
-    } else if (!c.stage) {
+    } else {
       listsHtml = '<span class="text-gray-400 italic">All Organization Contacts</span>';
-    }
-
-    let stageHtml = "";
-    if (c.stage) {
-      stageHtml = `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200"><svg class="w-3 h-3 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/></svg><span>Stage: ${esc(c.stage)}</span></span>`;
     }
 
     const editBtn = (c.status === "draft" || c.status === "scheduled") ? `
@@ -484,7 +471,6 @@ window.closeDeleteCampaignModal = function() {
       <td class="py-3.5 px-4">
         <div class="flex flex-wrap items-center gap-1 max-w-xs">
           ${listsHtml}
-          ${stageHtml}
         </div>
       </td>
       <td class="py-3.5 px-4 status-cell">

@@ -11,17 +11,6 @@ from django.db.models import Count
 
 from .models import Organization, User, OrganizationInvite
 
-US_TIMEZONES = [
-    ("America/New_York", "Eastern Time (US & Canada) — UTC-5 / UTC-4"),
-    ("America/Chicago", "Central Time (US & Canada) — UTC-6 / UTC-5"),
-    ("America/Denver", "Mountain Time (US & Canada) — UTC-7 / UTC-6"),
-    ("America/Phoenix", "Mountain Time (Arizona - No DST) — UTC-7"),
-    ("America/Los_Angeles", "Pacific Time (US & Canada) — UTC-8 / UTC-7"),
-    ("America/Anchorage", "Alaska — UTC-9 / UTC-8"),
-    ("Pacific/Honolulu", "Hawaii — UTC-10"),
-    ("UTC", "UTC (Coordinated Universal Time)"),
-]
-
 
 def _is_ajax(request) -> bool:
     if request.headers.get("X-Requested-With") == "XMLHttpRequest":
@@ -62,7 +51,6 @@ def company_profile(request):
         website = request.POST.get("website", "").strip()
         support_phone = request.POST.get("support_phone", "").strip()
         notification_email = request.POST.get("notification_email", "").strip()
-        tz_val = request.POST.get("timezone", "").strip()
         address_street = request.POST.get("address_street", "").strip()
         address_city = request.POST.get("address_city", "").strip()
         address_state = request.POST.get("address_state", "").strip()
@@ -78,8 +66,6 @@ def company_profile(request):
         org.website = website
         org.support_phone = support_phone
         org.notification_email = notification_email
-        if tz_val:
-            org.timezone = tz_val
         org.address_street = address_street
         org.address_city = address_city
         org.address_state = address_state
@@ -93,7 +79,6 @@ def company_profile(request):
     context = {
         "org": org,
         "is_admin": is_admin,
-        "timezones": US_TIMEZONES,
         "current_tab": "profile",
     }
     return render(request, "core/company_profile.html", context)
@@ -385,7 +370,8 @@ def accept_invite(request, token):
             invite.status = OrganizationInvite.Status.ACCEPTED
             invite.save(update_fields=["status"])
 
-        login(request, user)
+        # Several auth backends are configured (axes, Django, allauth): say which one logged them in
+        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         messages.success(request, f"Welcome to {invite.organization.name}! You are logged in as {invite.get_role_display()}.")
         return redirect("messaging:inbox")
 

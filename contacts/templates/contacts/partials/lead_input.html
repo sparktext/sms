@@ -1,0 +1,6 @@
+{# One editable lead value. Context: f = {name, value, hint} #}
+<span class="flex-1 min-w-0 flex items-center gap-1.5">
+  <input type="text" name="{{ f.name }}" value="{{ f.value }}" data-original="{{ f.value }}" placeholder="—" autocomplete="off"
+         class="w-full min-w-0 px-1.5 py-1 text-[13px] font-medium text-gray-900 bg-transparent border border-transparent rounded-md hover:border-gray-200 hover:bg-white focus:bg-white focus:border-brand-300 focus:ring-2 focus:ring-brand-500/20 focus:outline-none placeholder:text-gray-300 transition" />
+  {% if f.hint %}<span class="shrink-0 px-1.5 py-0.5 rounded-md bg-gray-100 text-[10px] font-semibold text-gray-500">{{ f.hint }}</span>{% endif %}
+</span>

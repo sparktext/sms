@@ -4,7 +4,6 @@ import difflib
 import logging
 import re
 from typing import Dict, Any, List, Optional, Tuple, Set
-from zoneinfo import available_timezones
 
 from django.conf import settings
 from django.db import transaction
@@ -21,19 +20,16 @@ MAX_NAME_LENGTH = 200
 MAX_FIRST_NAME_LENGTH = 100
 MAX_LAST_NAME_LENGTH = 100
 MAX_EMAIL_LENGTH = 254
-MAX_TIMEZONE_LENGTH = 64
-MAX_CUSTOM_VALUE_LENGTH = 1000
+MAX_CUSTOM_VALUE_LENGTH = 5000
 
 MAX_FILE_SIZE_BYTES = getattr(settings, "CSV_IMPORT_MAX_FILE_SIZE", 10 * 1024 * 1024)  # 10 MB default
 MAX_ROW_COUNT = getattr(settings, "CSV_IMPORT_MAX_ROWS", 50000)
 MAX_REPORTED_ERRORS = getattr(settings, "CSV_IMPORT_MAX_REPORTED_ERRORS", 500)
 
-ALL_TIMEZONES = available_timezones()
-
 
 def _canonical_header(header: str) -> str:
-    """Normalize string by removing spaces, underscores, and lowercasing."""
-    return re.sub(r"[\s_]+", "", str(header).strip().lower())
+    """Normalize string by removing spaces, underscores, hyphens and lowercasing."""
+    return re.sub(r"[\s_\-]+", "", str(header).strip().lower())
 
 
 def decode_csv_content(raw_bytes: bytes) -> Tuple[str, Optional[str]]:
@@ -110,7 +106,7 @@ def validate_custom_fields(
 
 def _validate_contact_attributes(data: Dict[str, Any]) -> None:
     """
-    Validates first_name, last_name, email, timezone length and formats.
+    Validates first_name, last_name and email length and formats.
     """
     first_name = data.get("first_name")
     if first_name is not None:
@@ -137,14 +133,12 @@ def _validate_contact_attributes(data: Dict[str, Any]) -> None:
         except ValidationError:
             raise ValidationError({"email": _("Enter a valid email address.")})
 
-    tz = data.get("timezone")
-    if tz:
-        if not isinstance(tz, str):
-            raise ValidationError({"timezone": _("Timezone must be a string.")})
-        if len(tz) > MAX_TIMEZONE_LENGTH:
-            raise ValidationError({"timezone": _("Timezone cannot exceed %(max)d characters.") % {"max": MAX_TIMEZONE_LENGTH}})
-        if tz.strip() not in ALL_TIMEZONES:
-            raise ValidationError({"timezone": _("'%(tz)s' is not a valid IANA timezone (e.g. 'America/Los_Angeles').") % {"tz": tz}})
+    source_val = data.get("source") or data.get("vendor")
+    if source_val is not None:
+        if not isinstance(source_val, str):
+            raise ValidationError({"source": _("Source must be a string.")})
+        if len(source_val) > 100:
+            raise ValidationError({"source": _("Source cannot exceed 100 characters.")})
 
 
 def save_contact(
@@ -175,7 +169,15 @@ def save_contact(
     first_name = data.get("first_name", "")
     last_name = data.get("last_name", "")
     email = data.get("email", "")
-    timezone = data.get("timezone", "")
+
+    # Priority: explicit source/vendor in data > source kwarg (if non-default) > "Direct"
+    data_source = (data.get("source") or data.get("vendor") or "").strip()
+    if data_source:
+        resolved_source = data_source
+    elif source and source != Contact.Source.MANUAL:
+        resolved_source = source
+    else:
+        resolved_source = "Direct"
 
     with transaction.atomic():
         contact, created = Contact.objects.select_for_update().get_or_create(
@@ -185,8 +187,7 @@ def save_contact(
                 "first_name": first_name,
                 "last_name": last_name,
                 "email": email,
-                "timezone": timezone,
-                "source": source,
+                "source": resolved_source,
                 "custom_fields": custom_fields,
                 "external_ids": external_ids,
                 "sms_status": Contact.SMSStatus.UNKNOWN,
@@ -194,15 +195,16 @@ def save_contact(
         )
 
         if not created:
-            # Overwrite only with non-empty values; preserve source and sms_status
+            # Overwrite only with non-empty values; preserve source and sms_status unless explicitly provided
             if "first_name" in data and data["first_name"]:
                 contact.first_name = data["first_name"]
             if "last_name" in data and data["last_name"]:
                 contact.last_name = data["last_name"]
             if "email" in data and data["email"]:
                 contact.email = data["email"]
-            if "timezone" in data and data["timezone"]:
-                contact.timezone = data["timezone"]
+            source_update = (data.get("source") or data.get("vendor") or "").strip()
+            if source_update:
+                contact.source = source_update
             if "custom_fields" in data and data["custom_fields"]:
                 updated_custom = dict(contact.custom_fields)
                 for k, v in data["custom_fields"].items():
@@ -256,8 +258,9 @@ def update_contact(
         contact.last_name = data["last_name"]
     if "email" in data:
         contact.email = data["email"]
-    if "timezone" in data:
-        contact.timezone = data["timezone"]
+    source_update = (data.get("source") or data.get("vendor") or "").strip()
+    if source_update:
+        contact.source = source_update
 
     if "custom_fields" in data:
         custom_fields = data["custom_fields"]
@@ -277,6 +280,57 @@ def update_contact(
 # =========================================================================
 # CSV Import Logic
 # =========================================================================
+
+_US_TEXT_DATE = re.compile(r"^\s*(\d{1,2})/(\d{1,2})/(\d{4})\s*$")
+
+
+def _us_format_spreadsheet_rows(raw_rows: List[List[Any]], width: int) -> List[List[str]]:
+    """
+    Convert spreadsheet cell values to strings for a US audience.
+
+    Real date cells are written as MM/DD/YYYY (plus HH:MM when there is a time),
+    instead of Python's ISO "1965-11-12 00:00:00".
+
+    It also repairs a common Excel problem: a file of US dates (MM/DD/YYYY) opened
+    on a computer set to day/month order. Excel then turns "12/11/1965" (Dec 11)
+    into the date 12 Nov 1965 and leaves "12/25/1965" as text, because there is
+    no month 25. When a column shows that signature (real dates mixed with text
+    dates whose second number is above 12, and no real date with a day above 12),
+    the converted dates are swapped back to their intended US month/day.
+    """
+    import datetime as _dt
+
+    swapped_cols = set()
+    for col in range(width):
+        has_dates = has_us_text_gt12 = has_date_day_gt12 = False
+        for row in raw_rows:
+            v = row[col] if col < len(row) else None
+            if isinstance(v, (_dt.datetime, _dt.date)):
+                has_dates = True
+                if v.day > 12:
+                    has_date_day_gt12 = True
+            elif isinstance(v, str):
+                m = _US_TEXT_DATE.match(v)
+                if m and int(m.group(2)) > 12:
+                    has_us_text_gt12 = True
+        if has_dates and has_us_text_gt12 and not has_date_day_gt12:
+            swapped_cols.add(col)
+
+    def fmt(v, col):
+        if v is None:
+            return ""
+        if isinstance(v, (_dt.datetime, _dt.date)):
+            month, day = (v.day, v.month) if col in swapped_cols else (v.month, v.day)
+            out = f"{month:02d}/{day:02d}/{v.year:04d}"
+            if isinstance(v, _dt.datetime) and (v.hour or v.minute):
+                out += f" {v.hour:02d}:{v.minute:02d}"
+            return out
+        if isinstance(v, float) and v.is_integer():
+            return str(int(v))
+        return str(v).strip()
+
+    return [[fmt(row[c] if c < len(row) else None, c) for c in range(width)] for row in raw_rows]
+
 
 def extract_tabular_data(
     file_or_content,
@@ -358,12 +412,13 @@ def extract_tabular_data(
 
             headers = [_cell_to_str(h) for h in first_row]
 
-            def xlsx_rows_gen():
-                for r in row_iter:
-                    if any(v is not None and str(v).strip() for v in r):
-                        yield [_cell_to_str(v) for v in r[:len(headers)]]
-
-            return headers, xlsx_rows_gen(), None
+            # Read every row first so date columns can be checked as a whole (see _us_format_spreadsheet_rows)
+            raw_rows = [
+                list(r[:len(headers)])
+                for r in row_iter
+                if any(v is not None and str(v).strip() for v in r)
+            ]
+            return headers, iter(_us_format_spreadsheet_rows(raw_rows, len(headers))), None
         except Exception as e:
             if fname.endswith(".xlsx"):
                 raise ValidationError(_("Could not read Excel file (.xlsx): %(error)s") % {"error": str(e)})
@@ -385,13 +440,21 @@ def extract_tabular_data(
 
             headers = [_xlrd_cell_to_str(sheet.cell_value(0, c), sheet.cell_type(0, c)) for c in range(sheet.ncols)]
 
-            def xls_rows_gen():
-                for r in range(1, sheet.nrows):
-                    row_vals = [_xlrd_cell_to_str(sheet.cell_value(r, c), sheet.cell_type(r, c)) for c in range(len(headers))]
-                    if any(row_vals):
-                        yield row_vals
+            def _xlrd_raw(r, c):
+                ctype = sheet.cell_type(r, c)
+                if ctype == xlrd.XL_CELL_DATE:
+                    try:
+                        return xlrd.xldate_as_datetime(sheet.cell_value(r, c), wb.datemode)
+                    except Exception:
+                        pass
+                return _xlrd_cell_to_str(sheet.cell_value(r, c), ctype)
 
-            return headers, xls_rows_gen(), None
+            raw_rows = []
+            for r in range(1, sheet.nrows):
+                row_vals = [_xlrd_raw(r, c) for c in range(len(headers))]
+                if any(v not in ("", None) for v in row_vals):
+                    raw_rows.append(row_vals)
+            return headers, iter(_us_format_spreadsheet_rows(raw_rows, len(headers))), None
         except Exception as e:
             if fname.endswith(".xls"):
                 raise ValidationError(_("Could not read Excel file (.xls): %(error)s") % {"error": str(e)})
@@ -450,15 +513,16 @@ def suggest_column_mappings(organization, headers: List[str]) -> Dict[str, Dict[
     """
     Auto-suggest a mapping when a column header matches an existing
     ContactField key or label (case-insensitive, ignoring spaces and underscores).
-    Recognizes standard core fields: phone, name, email, timezone.
+    Recognizes standard core fields: phone, name, email, source.
     """
     core_fields = {
         "phone": ["phone", "phonenumber", "mobile", "cell", "tel", "telephone"],
+        "source": ["source", "leadsource", "lead_source", "vendor", "leadvendor", "sourcevendor", "provider", "channel"],
+        "vendor": ["vendor", "leadvendor", "sourcevendor", "provider", "leadsource", "source"],
         "first_name": ["firstname", "first", "fname", "givenname"],
         "last_name": ["lastname", "last", "lname", "surname", "familyname"],
         "name": ["name", "fullname", "contactname", "customername"],
         "email": ["email", "emailaddress"],
-        "timezone": ["timezone", "tz"],
     }
 
     contact_fields = list(ContactField.objects.filter(organization=organization))
@@ -511,7 +575,7 @@ def validate_csv_mapping(organization, headers: List[str], column_mapping: Dict[
     """
     phone_targets = 0
     approved_keys = set(ContactField.objects.filter(organization=organization).values_list("key", flat=True))
-    core_targets = {"phone", "first_name", "last_name", "name", "email", "timezone"}
+    core_targets = {"phone", "first_name", "last_name", "name", "email", "source", "vendor"}
     added_keys = set()
 
     for header, mapping in column_mapping.items():
@@ -567,6 +631,8 @@ def import_contacts_csv(
     filename: str = "upload.csv",
     batch_size: int = 100,
     region: Optional[str] = None,
+    default_source: str = "Direct",
+    default_vendor: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Step 3 (Import):
@@ -669,8 +735,8 @@ def import_contacts_csv(
                                 contact_data["last_name"] = parts[1]
                     elif target == "email":
                         contact_data["email"] = cell_value
-                    elif target == "timezone":
-                        contact_data["timezone"] = cell_value
+                    elif target in ("source", "vendor"):
+                        contact_data["source"] = cell_value
                     elif decision in ("map", "add"):
                         field_key = resolved_custom_fields.get(header) or target
                         if cell_value:
@@ -683,6 +749,8 @@ def import_contacts_csv(
                     continue
 
                 contact_data["phone"] = phone_val
+                if not contact_data.get("source"):
+                    contact_data["source"] = (default_source or default_vendor or "").strip() or "Direct"
 
                 # Pre-normalize to check in-file duplicate phone
                 try:
@@ -772,6 +840,107 @@ def import_contacts_csv(
     }
 
 
+def _flatten_dict(d: Dict[str, Any], prefix: str = "") -> Dict[str, str]:
+    """
+    Recursively flatten a nested dict into snake_case keys with scalar string values.
+
+    Example:
+        {"person": {"firstName": "Jane", "address": {"city": "LA"}}}
+        → {"person_first_name": "Jane", "person_address_city": "LA"}
+
+    Lists are stringified. Null values are skipped.
+    """
+    items: Dict[str, str] = {}
+    for k, v in d.items():
+        # Convert camelCase to snake_case for the key segment
+        seg = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", str(k)).lower()
+        seg = re.sub(r"[^a-z0-9_]", "_", seg)
+        seg = re.sub(r"_+", "_", seg).strip("_")
+        full_key = f"{prefix}_{seg}" if prefix else seg
+        if v is None:
+            continue
+        elif isinstance(v, dict):
+            items.update(_flatten_dict(v, full_key))
+        elif isinstance(v, list):
+            # Stringify short lists; skip empty ones
+            str_vals = [str(x) for x in v if x is not None]
+            if str_vals:
+                items[full_key] = ", ".join(str_vals)
+        else:
+            items[full_key] = str(v).strip()
+    return items
+
+
+# Well-known nested payload shapes from lead vendors (e.g. insurance, real-estate)
+_PERSON_PHONE_KEYS = {"phone", "mobile", "cell", "tel", "contact_phone", "phone_number"}
+_PERSON_FIRST_NAME_KEYS = {"firstname", "first_name"}
+_PERSON_LAST_NAME_KEYS = {"lastname", "last_name"}
+_PERSON_EMAIL_KEYS = {"email", "e_mail"}
+_PERSON_NAME_KEYS = {"name", "full_name", "contact_name"}
+
+
+def _extract_person_fields(raw_dict: Dict[str, Any]):
+    """
+    Look for a 'person' (or similar) sub-object and extract core contact fields
+    (phone, first_name, last_name, email) from it. Returns extracted values and
+    the remaining nested dict for flattening into custom fields.
+    """
+    phone = ""
+    first_name = ""
+    last_name = ""
+    email = ""
+
+    person_keys = ["person", "contact", "lead", "customer", "subscriber"]
+    person_obj = None
+    for pk in person_keys:
+        candidate = raw_dict.get(pk)
+        if isinstance(candidate, dict):
+            person_obj = candidate
+            break
+
+    if not person_obj:
+        return phone, first_name, last_name, email
+
+    # Normalize keys to lower for matching
+    lower_map = {k.lower().replace("-", "_"): k for k in person_obj}
+
+    for pkey in _PERSON_PHONE_KEYS:
+        orig = lower_map.get(pkey)
+        if orig and person_obj.get(orig):
+            phone = str(person_obj[orig]).strip()
+            break
+
+    for pkey in _PERSON_FIRST_NAME_KEYS:
+        orig = lower_map.get(pkey)
+        if orig and person_obj.get(orig):
+            first_name = str(person_obj[orig]).strip()
+            break
+
+    for pkey in _PERSON_LAST_NAME_KEYS:
+        orig = lower_map.get(pkey)
+        if orig and person_obj.get(orig):
+            last_name = str(person_obj[orig]).strip()
+            break
+
+    if not first_name and not last_name:
+        for pkey in _PERSON_NAME_KEYS:
+            orig = lower_map.get(pkey)
+            if orig and person_obj.get(orig):
+                parts = str(person_obj[orig]).strip().split()
+                first_name = parts[0]
+                if len(parts) > 1:
+                    last_name = " ".join(parts[1:])
+                break
+
+    for pkey in _PERSON_EMAIL_KEYS:
+        orig = lower_map.get(pkey)
+        if orig and person_obj.get(orig):
+            email = str(person_obj[orig]).strip()
+            break
+
+    return phone, first_name, last_name, email
+
+
 def ingest_lead_data(
     organization,
     raw_dict: Dict[str, Any],
@@ -783,8 +952,18 @@ def ingest_lead_data(
     """
     Ingests a single lead dictionary from external API, webhook, or remote feed.
     Parses flexible field names (phone, phone_number, mobile, full_name, etc.),
-    auto-registers custom fields, handles list assignment, and records TCPA opt-in consent.
+    auto-flattens nested JSON structures (person, homePolicy, autoPolicy, etc.)
+    into proper custom field columns, auto-registers custom fields, handles list
+    assignment, and records TCPA opt-in consent.
     """
+    # -------------------------------------------------------------------
+    # 1) Extract core contact fields from nested "person" / "contact" objects
+    # -------------------------------------------------------------------
+    nested_phone, nested_fn, nested_ln, nested_email = _extract_person_fields(raw_dict)
+
+    # -------------------------------------------------------------------
+    # 2) Top-level core field extraction (takes priority over nested)
+    # -------------------------------------------------------------------
     phone_keys = ["phone", "phone_number", "mobile", "cell", "tel", "contact_phone"]
     raw_phone = ""
     for k in phone_keys:
@@ -792,6 +971,8 @@ def ingest_lead_data(
         if val is not None and str(val).strip():
             raw_phone = str(val).strip()
             break
+    if not raw_phone:
+        raw_phone = nested_phone
     if not raw_phone:
         raise ValidationError({"phone": _("Phone number is required.")})
 
@@ -807,11 +988,17 @@ def ingest_lead_data(
                 if len(parts) > 1:
                     last_name = " ".join(parts[1:])
                 break
+    # Fallback to nested person object fields
+    if not first_name:
+        first_name = nested_fn
+    if not last_name:
+        last_name = nested_ln
 
-    email = str(raw_dict.get("email", "")).strip()
-    timezone = str(raw_dict.get("timezone", "")).strip()
+    email = str(raw_dict.get("email", "")).strip() or nested_email
 
-    # Custom fields collection
+    # -------------------------------------------------------------------
+    # 3) Custom fields collection
+    # -------------------------------------------------------------------
     custom_fields = {}
     if isinstance(raw_dict.get("custom_fields"), dict):
         custom_fields.update(raw_dict["custom_fields"])
@@ -834,8 +1021,41 @@ def ingest_lead_data(
         "source", "stage", "lead_stage", "crm_stage", "form", "form_name",
         "source_name", "campaign_name",
     }
+
+    # Fields to skip when flattening nested person object (already extracted)
+    _person_extracted_keys = (
+        _PERSON_PHONE_KEYS | _PERSON_FIRST_NAME_KEYS |
+        _PERSON_LAST_NAME_KEYS | _PERSON_EMAIL_KEYS | _PERSON_NAME_KEYS
+    )
+
     for k, v in raw_dict.items():
-        if k not in reserved_top_level and v is not None and not isinstance(v, (dict, list)):
+        if k in reserved_top_level or v is None:
+            continue
+
+        if isinstance(v, dict):
+            # Flatten nested objects into prefixed custom fields
+            # For "person", skip already-extracted core fields
+            is_person_obj = k.lower() in ("person", "contact", "lead", "customer", "subscriber")
+            flattened = _flatten_dict(v, prefix=k.lower() if not is_person_obj else "")
+            for fk, fv in flattened.items():
+                if is_person_obj:
+                    # Skip keys that were already extracted as core fields
+                    fk_lower = fk.lower().replace("-", "_")
+                    if fk_lower in _person_extracted_keys:
+                        continue
+                clean_fk = re.sub(r"[^a-zA-Z0-9_]", "_", fk.strip().lower())
+                clean_fk = re.sub(r"^[^a-zA-Z]+", "", clean_fk)
+                clean_fk = re.sub(r"_+", "_", clean_fk).strip("_")
+                if clean_fk and clean_fk not in RESERVED_FIELD_NAMES and len(clean_fk) <= 64:
+                    custom_fields[clean_fk] = fv
+        elif isinstance(v, list):
+            str_vals = [str(x) for x in v if x is not None and not isinstance(x, (dict, list))]
+            if str_vals:
+                clean_k = re.sub(r"[^a-zA-Z0-9_]", "_", str(k).strip().lower())
+                clean_k = re.sub(r"^[^a-zA-Z]+", "", clean_k)
+                if clean_k and clean_k not in RESERVED_FIELD_NAMES:
+                    custom_fields[clean_k] = ", ".join(str_vals)
+        else:
             clean_k = re.sub(r"[^a-zA-Z0-9_]", "_", str(k).strip().lower())
             clean_k = re.sub(r"^[^a-zA-Z]+", "", clean_k)
             if clean_k and clean_k not in RESERVED_FIELD_NAMES:
@@ -855,12 +1075,22 @@ def ingest_lead_data(
                 except Exception:
                     pass
 
+    source_val = str(
+        raw_dict.get("source")
+        or raw_dict.get("lead_source")
+        or raw_dict.get("vendor")
+        or raw_dict.get("source_vendor")
+        or raw_dict.get("lead_vendor")
+        or raw_dict.get("provider")
+        or ""
+    ).strip() or source or Contact.Source.API
+
     data = {
         "phone": raw_phone,
         "first_name": first_name,
         "last_name": last_name,
         "email": email,
-        "timezone": timezone,
+        "source": source_val,
         "custom_fields": custom_fields,
     }
 

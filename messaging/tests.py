@@ -416,12 +416,25 @@ class MessagingTests(TestCase):
                 "phone": "+16505559876",
                 "first_name": "Jane",
                 "last_name": "Doe",
+                "source": "Direct",
             },
             HTTP_X_REQUESTED_WITH="XMLHttpRequest",
         )
         self.assertEqual(res.status_code, 200)
         data = res.json()
         self.assertEqual(data["status"], "success")
+
+        # Verify source is compulsory on new chat
+        res_fail = self.client.post(
+            "/inbox/new/",
+            {
+                "phone": "+16505559877",
+                "first_name": "No",
+                "last_name": "Source",
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(res_fail.status_code, 400)
 
         # Contact was created
         contact = Contact.objects.get(organization=self.org_a, phone="+16505559876")
@@ -1198,12 +1211,8 @@ class MessagingTests(TestCase):
             self.assertEqual(event_data3["toast"]["assigned_to_id"], self.user_a.id)
 
     @patch("messaging.ws_broadcast.broadcast_inbox_event")
-    @patch("messaging.views_webhooks.get_sms_provider")
-    def test_inbound_sms_toast_strictly_for_needs_human_and_lead_claim_broadcast(self, mock_get_provider, mock_broadcast):
+    def test_inbound_sms_toast_strictly_for_needs_human_and_lead_claim_broadcast(self, mock_broadcast):
         """Inbound SMS toasts strictly for needs_human; lead assignment broadcasts conversation_assigned."""
-        mock_provider = MagicMock()
-        mock_provider.validate_webhook.return_value = True
-        mock_get_provider.return_value = mock_provider
 
         contact = Contact.objects.create(
             organization=self.org_a,
@@ -1432,3 +1441,43 @@ class MessagingTests(TestCase):
 
 
 
+
+
+@override_settings(MESSAGING_PROVIDER="fake", TWILIO_VALIDATE_WEBHOOKS=True)
+class LiveSendPermissionTests(TestCase):
+    """STOP/START (and inbound texts) push the new reply permission so the inbox updates without a refresh."""
+
+    def setUp(self):
+        self.org = Organization.objects.create(name="Live Perm Org", slug="live-perm-org")
+        self.phone = PhoneNumber.objects.create(organization=self.org, e164="+16502530400", is_active=True)
+        self.contact = Contact.objects.create(
+            organization=self.org, phone="+16502530401", source="Direct",
+            sms_status=Contact.SMSStatus.OPTED_IN,
+        )
+
+    def _inbound(self, body, sid):
+        with patch("messaging.ws_broadcast.broadcast_chat_event") as chat_evt:
+            res = self.client.post("/webhooks/twilio/sms/", {
+                "From": self.contact.phone, "To": self.phone.e164, "Body": body, "MessageSid": sid,
+            }, HTTP_X_TWILIO_SIGNATURE="valid_test_signature")
+        self.assertEqual(res.status_code, 200)
+        perms = [c.args[1] for c in chat_evt.call_args_list if c.args[1].get("event") == "send_permission"]
+        self.assertTrue(perms, "no send_permission event was broadcast")
+        return perms[-1]
+
+    def test_stop_then_start_broadcasts_blocked_then_allowed(self):
+        stop = self._inbound("STOP", "SMperm1")
+        self.assertFalse(stop["can_send"])
+        self.assertEqual(stop["sms_status"], Contact.SMSStatus.OPTED_OUT)
+        self.assertIn("opted out", stop["block_reason"])
+
+        start = self._inbound("START", "SMperm2")
+        self.assertTrue(start["can_send"])
+        self.assertEqual(start["sms_status"], Contact.SMSStatus.OPTED_IN)
+        self.assertEqual(start["block_reason"], "")
+
+    def test_inbound_text_opens_reply_window_for_unknown_contact(self):
+        self.contact.sms_status = Contact.SMSStatus.UNKNOWN
+        self.contact.save(update_fields=["sms_status"])
+        evt = self._inbound("hi there", "SMperm3")
+        self.assertTrue(evt["can_send"])
