@@ -27,7 +27,15 @@
   </form>
 
   <script>
-    setTimeout(function() { document.getElementById('confirm-form').submit(); }, 1800);
+    // Auto-continue once. requestSubmit() fires the submit event, so the page's anti-double-submit guard
+    // also blocks a click on the button (form.submit() skipped it, which sent the link twice -> 404).
+    setTimeout(function () {
+      var form = document.getElementById('confirm-form');
+      var btn = form.querySelector('button[type="submit"]');
+      if (btn && btn.dataset.submitting === '1') return;   // already clicked
+      if (form.requestSubmit) { form.requestSubmit(btn); }
+      else { if (btn) { btn.dataset.submitting = '1'; btn.disabled = true; } form.submit(); }
+    }, 1800);
   </script>
 
 {% else %}

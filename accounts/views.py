@@ -40,7 +40,7 @@ def check_email(request):
 
     # Try multiple session keys that allauth uses to store the pending email
     email = (
-        request.session.get("account_verified_email")  # post-verification key
+        request.session.get("sparktext_check_email")    # set when the verification email is sent
         or _get_stashed_login_email(request)            # pre-verification stashed login
         or (request.user.email if request.user.is_authenticated else "")
     )
@@ -399,3 +399,53 @@ def account_delete(request):
 
     return render(request, "accounts/account_delete.html", {"form": form})
 
+
+
+# ---------------------------------------------------------------------------
+# Email confirmation: a link that was already used is not an error
+# ---------------------------------------------------------------------------
+from allauth.account.views import ConfirmEmailView as _AllauthConfirmEmailView  # noqa: E402
+from django.http import Http404  # noqa: E402
+
+
+def _email_already_confirmed(key: str) -> bool:
+    """True when this confirmation link belongs to an email address that is already verified."""
+    from django.core import signing
+    from allauth.account import app_settings as account_settings
+    from allauth.account.models import EmailAddress, EmailConfirmation
+    try:
+        max_age = 60 * 60 * 24 * account_settings.EMAIL_CONFIRMATION_EXPIRE_DAYS
+        pk = signing.loads(key, max_age=max_age, salt=account_settings.SALT)
+        return EmailAddress.objects.filter(pk=pk, verified=True).exists()
+    except (signing.BadSignature, signing.SignatureExpired, TypeError, ValueError):
+        pass
+    return EmailConfirmation.objects.filter(key=str(key).lower(), email_address__verified=True).exists()
+
+
+class ConfirmEmailView(_AllauthConfirmEmailView):
+    """
+    allauth answers 404 when a confirmation link is used a second time (the page auto-submits and
+    the button can be clicked too, or the link is opened again later). The email IS confirmed in
+    that case, so send the person to sign in instead of showing an error.
+    """
+
+    def _already_confirmed_response(self):
+        if self.request.user.is_authenticated:
+            return redirect("accounts:me_redirect")
+        messages.success(self.request, "Your email is already confirmed. Sign in to continue.")
+        return redirect("account_login")
+
+    def get(self, *args, **kwargs):
+        response = super().get(*args, **kwargs)
+        if self.object is None and _email_already_confirmed(self.kwargs["key"]):
+            return self._already_confirmed_response()
+        return response
+
+    def post(self, *args, **kwargs):
+        try:
+            return super().post(*args, **kwargs)
+        except Http404:
+            if _email_already_confirmed(self.kwargs["key"]):
+                return self._already_confirmed_response()
+            self.object = None   # expired / invalid link: show the "link expired" page, not a raw 404
+            return self.render_to_response(self.get_context_data())

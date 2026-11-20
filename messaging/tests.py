@@ -1481,3 +1481,52 @@ class LiveSendPermissionTests(TestCase):
         self.contact.save(update_fields=["sms_status"])
         evt = self._inbound("hi there", "SMperm3")
         self.assertTrue(evt["can_send"])
+
+
+class DashboardLeadReachTests(TestCase):
+    """The dashboard counts leads (not messages): how many leads we texted today and how many of them replied."""
+
+    def setUp(self):
+        self.org = Organization.objects.create(name="Reach Co", slug="reach-co")
+        self.owner = User.objects.create_user(
+            email="owner_reach@example.com", password="password123",
+            organization=self.org, role=User.Role.OWNER,
+        )
+        self.phone = PhoneNumber.objects.create(organization=self.org, e164="+12135550100", label="Main", is_active=True)
+
+    def _conv(self, phone):
+        contact = Contact.objects.create(organization=self.org, phone=phone, sms_status=Contact.SMSStatus.OPTED_IN)
+        return Conversation.objects.create(organization=self.org, contact=contact, phone_number=self.phone)
+
+    def _msg(self, conv, direction, status=Message.Status.DELIVERED):
+        return Message.objects.create(
+            organization=self.org, conversation=conv, direction=direction, body="hi", status=status,
+        )
+
+    def test_counts_leads_not_messages(self):
+        out, inn = Message.Direction.OUTBOUND, Message.Direction.INBOUND
+        a, b, c, d, e = (self._conv(f"+1650555010{i}") for i in range(5))
+        for _ in range(3):              # many texts to one lead count once
+            self._msg(a, out)
+            self._msg(a, inn)
+        self._msg(b, out)               # texted, no reply
+        self._msg(c, out, Message.Status.FAILED)   # failed send isn't "texted"
+        self._msg(d, inn)               # texted us first, we haven't texted them
+        self._msg(e, out)
+        self._msg(e, inn)
+
+        self.client.force_login(self.owner)
+        stats = self.client.get("/dashboard/?format=json", HTTP_X_REQUESTED_WITH="XMLHttpRequest").json()["stats"]
+        self.assertEqual(stats["leads_texted"], 3)    # a, b, e
+        self.assertEqual(stats["leads_replied"], 2)   # a, e
+        self.assertEqual(stats["reply_rate"], 67)
+
+        page = self.client.get("/dashboard/")
+        self.assertContains(page, "Leads Texted")
+        self.assertContains(page, "Leads Replied")
+        self.assertContains(page, "67% of leads texted today replied")
+
+    def test_no_leads_texted_yet(self):
+        self.client.force_login(self.owner)
+        page = self.client.get("/dashboard/")
+        self.assertContains(page, "No leads texted yet today")

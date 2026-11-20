@@ -87,7 +87,9 @@ class AccountAdapter(DefaultAccountAdapter):
     def respond_email_verification_sent(self, request, user=None):
         """After verification email is dispatched, redirect to styled check-email view."""
         if user and getattr(user, "email", None):
-            request.session["account_verified_email"] = user.email
+            # NOT allauth's "account_verified_email": that key tells allauth the address is ALREADY
+            # verified, so a second signup in the same browser skipped verification entirely.
+            request.session["sparktext_check_email"] = user.email
         from django.shortcuts import redirect
         return redirect("accounts:check_email")
 
