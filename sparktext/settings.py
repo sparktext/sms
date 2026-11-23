@@ -123,6 +123,9 @@ LOGOUT_REDIRECT_URL = "/accounts/login/"
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # Serves /static/ directly from the app (compressed + cache-forever hashed filenames).
+    # Must sit right after SecurityMiddleware and before everything else.
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -199,7 +202,7 @@ DATABASES["default"].setdefault("OPTIONS", {})["sslmode"] = env(
 )
 if not DEBUG:
     SECURE_SSL_REDIRECT = True                  # http:// → https://
-    SECURE_REDIRECT_EXEMPT = [r"^healthz$"]     # internal health checks use plain http
+    SECURE_REDIRECT_EXEMPT = [r"^healthz$", r"^readyz$"]  # internal health checks use plain http
     SESSION_COOKIE_SECURE = True                # session cookie only sent over HTTPS
     CSRF_COOKIE_SECURE = True
     SECURE_HSTS_SECONDS = env.int("SECURE_HSTS_SECONDS", default=3600)
@@ -247,7 +250,21 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
-STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATIC_ROOT = BASE_DIR / 'staticfiles'   # `collectstatic` gathers everything here (done at Docker build time)
+
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {
+        # Production: gzip/brotli-compressed files with content hashes in their names
+        # (app.css -> app.3f9a1c.css), so browsers can cache them forever and a deploy
+        # automatically busts the cache. Tests use plain storage (no collectstatic needed).
+        "BACKEND": (
+            "django.contrib.staticfiles.storage.StaticFilesStorage"
+            if TESTING
+            else "whitenoise.storage.CompressedManifestStaticFilesStorage"
+        ),
+    },
+}
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
@@ -403,3 +420,33 @@ CELERY_BROKER_CONNECTION_TIMEOUT = 1
 TURNSTILE_ENABLED = env('TURNSTILE_ENABLED', default=False)
 TURNSTILE_SITE_KEY = env('TURNSTILE_SITE_KEY', default='')
 TURNSTILE_SECRET_KEY = env('TURNSTILE_SECRET_KEY', default='')
+
+# =============================================================================
+# Logging: everything goes to stdout (12-factor rule XI: logs are event streams)
+# =============================================================================
+# Containers are disposable, so log FILES inside them vanish on every deploy.
+# Docker captures stdout (`docker compose logs web`) and ships it to any log collector.
+LOG_LEVEL = env("LOG_LEVEL", default="INFO")
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "console": {"format": "%(asctime)s %(levelname)s [%(name)s] %(message)s"},
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "stream": "ext://sys.stdout",
+            "formatter": "console",
+        },
+    },
+    "root": {"handlers": ["console"], "level": LOG_LEVEL},
+    "loggers": {
+        "django": {
+            "handlers": ["console"],
+            "level": env("DJANGO_LOG_LEVEL", default="INFO"),
+            "propagate": False,
+        },
+    },
+}

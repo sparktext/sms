@@ -35,6 +35,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+    # User uploads (e.g. custom notification sounds) live OUTSIDE the container,
+    # so they survive rebuilds and redeploys. Containers must be disposable.
+    volumes:
+      - media_data:/app/media
     restart: always
 
   ai_worker:
@@ -57,3 +61,4 @@ services:
 
 volumes:
   postgres_data:
+  media_data:

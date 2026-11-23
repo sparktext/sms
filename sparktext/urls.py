@@ -6,8 +6,13 @@ from django.views.static import serve
 from django.views.generic import RedirectView
 from contacts import views as contacts_views
 from campaigns import views as campaigns_views
+from core import health
 
 urlpatterns = [
+    # --- Health checks (Docker HEALTHCHECK + CD pipeline). Keep first: no auth, no redirects. ---
+    path("healthz", health.healthz, name="healthz"),
+    path("readyz", health.readyz, name="readyz"),
+
     path("favicon.ico", RedirectView.as_view(url="/static/img/favicon.ico", permanent=True)),
     path("admin/", admin.site.urls),
 
