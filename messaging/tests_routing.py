@@ -1,7 +1,7 @@
-from django.test import TestCase, Client
-from django.utils import timezone
-from core.models import Organization, User
+from django.test import Client, TestCase
+
 from contacts.models import Contact
+from core.models import Organization, User
 from messaging.models import Conversation, Message, PhoneNumber
 from messaging.routing import assign_qualified_lead
 

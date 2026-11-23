@@ -1,34 +1,33 @@
 import csv
 import json
 from datetime import datetime
-from django.shortcuts import render, get_object_or_404, redirect
-from django.contrib.auth.decorators import login_required
-from django.views.decorators.http import require_POST, require_GET, require_http_methods
-from django.views.decorators.cache import never_cache
-from django.http import JsonResponse, Http404, HttpResponse
-from django.core.exceptions import PermissionDenied, ValidationError
-from django.core.paginator import Paginator
-from django.utils import timezone
-from django.contrib import messages
-from django.db.models import Count, Q, Sum
 
-from core.models import Organization
-from contacts.models import Contact, ContactList, ContactField
-from compliance.services import can_send_marketing
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.core.exceptions import PermissionDenied
+from django.core.paginator import Paginator
+from django.db.models import Count, Q, Sum
+from django.http import HttpResponse, JsonResponse
+from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
+from django.views.decorators.cache import never_cache
+from django.views.decorators.http import require_GET, require_http_methods, require_POST
+
+from contacts.models import Contact, ContactField, ContactList
 from messaging.models import PhoneNumber
-from .models import Campaign, CampaignRecipient, CampaignTemplate, TemplateCategory, MessageTemplate
-from .ws_broadcast import broadcast_campaign_list_update
+
+from .models import Campaign, CampaignRecipient, CampaignTemplate, MessageTemplate, TemplateCategory
 from .services import (
-    render_campaign_message,
-    resolve_campaign_contacts,
+    DEFAULT_CAMPAIGN_TEMPLATES,
     build_campaign_recipients,
-    process_campaign_batch,
     cancel_campaign,
     check_and_dispatch_due_campaigns,
     ensure_default_campaign_templates,
     ensure_default_templates,
-    DEFAULT_CAMPAIGN_TEMPLATES,
+    process_campaign_batch,
+    resolve_campaign_contacts,
 )
+from .ws_broadcast import broadcast_campaign_list_update
 
 
 @login_required
@@ -68,7 +67,7 @@ def campaign_list(request):
     )
     total_sent = aggregates["total_sent"] or 0
     total_delivered = aggregates["total_delivered"] or 0
-    overall_delivery_rate = int((total_delivered / total_sent * 100)) if total_sent > 0 else 100
+    overall_delivery_rate = int(total_delivered / total_sent * 100) if total_sent > 0 else 100
 
     paginator = Paginator(campaigns_qs, 15)
     page_number = request.GET.get("page", 1)
@@ -101,6 +100,7 @@ def _lead_merge_tags(org, sample_size=400):
     carry (e.g. current_insurer, city, zip_code), most common first, each with a sample value for the preview.
     """
     from collections import Counter
+
     from contacts.lead_dossier import label_for
     counts, samples, labels = Counter(), {}, {}
     for f in ContactField.objects.filter(organization=org):

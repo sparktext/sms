@@ -1,7 +1,8 @@
-import re
 import json
 import logging
-from typing import Tuple, Optional, Dict, Any, List, Set
+import re
+from typing import Any
+
 from messaging.models import AIAssistantConfig
 
 logger = logging.getLogger(__name__)
@@ -15,7 +16,7 @@ GUARANTEE_TERMS = ["guarantee", "100% guaranteed", "money back", "warranty"]
 LEGAL_MEDICAL_TERMS = ["legal advice", "medical advice", "diagnosis", "prescription", "lawyer up", "sue them", "lawsuit"]
 
 
-def parse_ai_output(raw_text: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+def parse_ai_output(raw_text: str) -> tuple[dict[str, Any] | None, str | None]:
     """
     Parses LLM output into validated JSON dictionary.
     Handles markdown codeblocks (```json ... ```) and leading/trailing chatter.
@@ -65,10 +66,10 @@ def parse_ai_output(raw_text: str) -> Tuple[Optional[Dict[str, Any]], Optional[s
 
 
 def validate_reply_content(
-    data: Dict[str, Any],
+    data: dict[str, Any],
     config: AIAssistantConfig,
-    campaign: Optional[Any] = None,
-) -> Tuple[bool, Optional[str]]:
+    campaign: Any | None = None,
+) -> tuple[bool, str | None]:
     """
     Validates the generated reply string against negative rules, safety topics, length,
     and unknown URLs/phone numbers.
@@ -138,10 +139,10 @@ def validate_reply_content(
 
 
 def filter_collected_answers(
-    collected: Dict[str, Any],
+    collected: dict[str, Any],
     config: AIAssistantConfig,
-    campaign: Optional[Any] = None,
-) -> Dict[str, Any]:
+    campaign: Any | None = None,
+) -> dict[str, Any]:
     """
     Filters collected answers so only keys explicitly configured in qualification_questions
     (or campaign-specific qualification questions if active) are kept.
@@ -149,7 +150,7 @@ def filter_collected_answers(
     if not isinstance(collected, dict):
         return {}
 
-    allowed_keys: Set[str] = set()
+    allowed_keys: set[str] = set()
     if campaign and getattr(campaign, "ai_mode", None) == "custom" and getattr(campaign, "ai_qualification_questions", None):
         questions = campaign.ai_qualification_questions
     else:

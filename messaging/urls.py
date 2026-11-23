@@ -1,6 +1,6 @@
 from django.urls import path
-from . import views
-from . import views_webhooks
+
+from . import views, views_webhooks
 
 app_name = "messaging"
 

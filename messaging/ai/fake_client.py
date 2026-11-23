@@ -1,6 +1,7 @@
 import json
-from typing import Optional, Dict, Any, List
-from .base import BaseAIClient, AIResponse
+from typing import Any
+
+from .base import AIResponse, BaseAIClient
 
 
 class FakeAIClient(BaseAIClient):
@@ -9,9 +10,9 @@ class FakeAIClient(BaseAIClient):
     Never calls any real network endpoint or LLM.
     """
 
-    calls: List[Dict[str, Any]] = []
-    canned_responses: List[Any] = []
-    default_reply: Dict[str, Any] = {
+    calls: list[dict[str, Any]] = []
+    canned_responses: list[Any] = []
+    default_reply: dict[str, Any] = {
         "reply": "Thank you for reaching out! What kind of service do you need?",
         "intent": "inquiry",
         "collected": {},
@@ -39,8 +40,8 @@ class FakeAIClient(BaseAIClient):
     def generate(
         self,
         system_prompt: str,
-        messages: List[Dict[str, str]],
-        schema: Optional[Dict[str, Any]] = None,
+        messages: list[dict[str, str]],
+        schema: dict[str, Any] | None = None,
     ) -> AIResponse:
         self.calls.append({
             "system_prompt": system_prompt,

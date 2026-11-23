@@ -1,15 +1,16 @@
 from datetime import timedelta
-from unittest.mock import patch, MagicMock
-from django.test import TestCase, Client, override_settings
-from django.utils import timezone
-from django.core.exceptions import ValidationError, PermissionDenied
+from unittest.mock import MagicMock, patch
 
-from core.models import Organization, User
-from contacts.models import Contact
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.test import Client, TestCase, override_settings
+from django.utils import timezone
+
 from compliance.models import ConsentEvent
-from messaging.models import PhoneNumber, Conversation, Message
-from messaging.services import can_send_manual, send_message
+from contacts.models import Contact
+from core.models import Organization, User
+from messaging.models import Conversation, Message, PhoneNumber
 from messaging.providers import FakeProvider
+from messaging.services import can_send_manual, send_message
 
 
 @override_settings(MESSAGING_PROVIDER="fake", TWILIO_VALIDATE_WEBHOOKS=True)
@@ -351,7 +352,9 @@ class MessagingTests(TestCase):
         conv_a = Conversation.objects.create(organization=self.org_a, contact=contact_a, phone_number=self.phone_a)
 
         contact_b = Contact.objects.create(organization=self.org_b, phone="+16502539992")
-        conv_b = Conversation.objects.create(organization=self.org_b, contact=contact_b, phone_number=self.phone_b)
+        # TODO(team): conv_b is created but never asserted on - add a check that User A CANNOT open
+        # Org B's conversation (tenant isolation).
+        conv_b = Conversation.objects.create(organization=self.org_b, contact=contact_b, phone_number=self.phone_b)  # noqa: F841
 
         # User A can view Conversation A and renders successfully
         self.client.force_login(self.user_a)
@@ -1065,7 +1068,8 @@ class MessagingTests(TestCase):
 
     def test_dashboard_kpi_links_and_ai_assistant_sandbox(self):
         """Dashboard KPI cards link to actionable queues and AI sandbox simulates replies without persisting DB records."""
-        from unittest.mock import patch, MagicMock, MagicMock
+        from unittest.mock import patch
+
         from messaging.ai.base import AIResponse
 
         self.client.force_login(self.user_a)
@@ -1263,9 +1267,11 @@ class MessagingTests(TestCase):
 
     def test_notification_context_processor_targeted_routing(self):
         """Context processor only shows needs_human notifications for unassigned or assigned to current user."""
-        from messaging.context_processors import unread_inbox_count
-        from django.test import RequestFactory
         import json
+
+        from django.test import RequestFactory
+
+        from messaging.context_processors import unread_inbox_count
 
         rf = RequestFactory()
         user_b = User.objects.create_user(

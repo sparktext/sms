@@ -1,11 +1,12 @@
-from django.contrib import admin
-from accounts import views as accounts_views
-from django.urls import path, include, re_path
 from django.conf import settings
-from django.views.static import serve
+from django.contrib import admin
+from django.urls import include, path, re_path
 from django.views.generic import RedirectView
-from contacts import views as contacts_views
+from django.views.static import serve
+
+from accounts import views as accounts_views
 from campaigns import views as campaigns_views
+from contacts import views as contacts_views
 from core import health
 
 urlpatterns = [

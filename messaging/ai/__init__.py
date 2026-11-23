@@ -1,7 +1,8 @@
 from django.conf import settings
-from .base import BaseAIClient, AIResponse
-from .openai_client import OpenAICompatibleClient
+
+from .base import AIResponse, BaseAIClient
 from .fake_client import FakeAIClient
+from .openai_client import OpenAICompatibleClient
 
 
 def get_ai_client() -> BaseAIClient:

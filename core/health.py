@@ -14,12 +14,13 @@ so the endpoints don't leak hostnames or error messages to the internet.
 """
 import logging
 
-import redis
 from django.conf import settings
 from django.db import connection
 from django.http import JsonResponse
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET
+
+import redis
 
 logger = logging.getLogger(__name__)
 

@@ -1,8 +1,9 @@
-from django.core.management.base import BaseCommand
-from django.db import transaction
-from core.models import User, UserProfile, AccountEvent, EmailLog
 from allauth.account.models import EmailAddress, EmailConfirmation
 from allauth.socialaccount.models import SocialAccount, SocialToken
+from django.core.management.base import BaseCommand
+from django.db import transaction
+
+from core.models import AccountEvent, EmailLog, User, UserProfile
 
 
 class Command(BaseCommand):

@@ -1,6 +1,7 @@
 import json
 import logging
 import urllib.request
+
 from django.conf import settings
 from django.utils import timezone
 
@@ -17,6 +18,7 @@ def format_chat_timestamp(dt=None) -> str:
 def get_org_status_counts(org_or_id) -> dict:
     """Return conversation counts keyed by status (open, needs_human, closed) for an organization."""
     from django.db.models import Count
+
     from .models import Conversation
 
     org_id = getattr(org_or_id, "id", org_or_id)

@@ -21,8 +21,7 @@ vertical or a new vendor field shows up on the page without code changes.
 
 import json
 import re
-from datetime import datetime, timezone as dt_timezone
-from typing import List, Tuple
+from datetime import UTC, datetime
 
 # ---------------------------------------------------------------------------
 # Presentation hints
@@ -217,7 +216,7 @@ def _epoch_to_str(value):
     if ts > 10_000_000_000:  # milliseconds
         ts //= 1000
     try:
-        return datetime.fromtimestamp(ts, tz=dt_timezone.utc).strftime("%b %d, %Y %H:%M UTC")
+        return datetime.fromtimestamp(ts, tz=UTC).strftime("%b %d, %Y %H:%M UTC")
     except (ValueError, OverflowError, OSError):
         return None
 
@@ -305,7 +304,7 @@ def _age(birth):
     if not year:
         return None
     try:
-        today = datetime.now(dt_timezone.utc).date()
+        today = datetime.now(UTC).date()
         age = today.year - int(year)
         if month and day and (int(month), int(day)) > (today.month, today.day):
             age -= 1
@@ -721,7 +720,7 @@ def extract_contact_lead_details(contact):
 # Flat "facts" view of a lead (used to auto-answer AI qualification questions)
 # ---------------------------------------------------------------------------
 
-def lead_facts(contact) -> List[Tuple[str, str]]:
+def lead_facts(contact) -> list[tuple[str, str]]:
     """
     Ordered (label, value) pairs for everything known about a lead, first occurrence of
     each label wins: header facts (Vertical, Request For Quote ...), every section card
@@ -729,7 +728,7 @@ def lead_facts(contact) -> List[Tuple[str, str]]:
     repeating groups (each vehicle / driver) are skipped because they are not one value.
     Missing or blank values are simply absent.
     """
-    facts: List[Tuple[str, str]] = []
+    facts: list[tuple[str, str]] = []
     seen = set()
 
     def add(label, value):

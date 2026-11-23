@@ -1,26 +1,28 @@
 import json
 import logging
 from datetime import timedelta
-from typing import Optional, Dict, Any
+from typing import Any
+
 from django.conf import settings
-from django.http import HttpResponse, HttpResponseForbidden, JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST
 from django.db import transaction
 from django.db.models import F, Sum
+from django.http import HttpResponse, HttpResponseForbidden, JsonResponse
 from django.utils import timezone
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_POST
 
+from compliance.models import ConsentEvent
+from compliance.services import classify_keyword, record_consent
 from contacts.models import Contact
 from contacts.services import save_contact
 from contacts.utils import normalize_phone
-from compliance.models import ConsentEvent
-from compliance.services import classify_keyword, record_consent
-from .models import PhoneNumber, Conversation, Message, AIAssistantConfig, AIJob
+
+from .models import AIAssistantConfig, AIJob, Conversation, Message, PhoneNumber
 from .providers import get_sms_provider
+from .providers.fake_provider import FakeProvider
 from .providers.telnyx_provider import verify_telnyx_webhook
 from .providers.twilio_provider import TwilioProvider
-from .providers.fake_provider import FakeProvider
-from .utils import get_public_base_url, format_chat_timestamp
+from .utils import format_chat_timestamp, get_public_base_url
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +136,7 @@ def _handle_inbound_sms(
     message_sid: str,
     provider_name: str,
     num_media: int = 0,
-) -> Optional[Message]:
+) -> Message | None:
     """
     Unified inbound SMS ingestion pipeline:
     - Normalizes phone numbers
@@ -210,8 +212,8 @@ def _handle_inbound_sms(
 
     # Real-time WebSocket broadcast to open conversation windows
     try:
-        from .ws_broadcast import broadcast_chat_event, broadcast_inbox_event
         from .utils import get_org_status_counts
+        from .ws_broadcast import broadcast_chat_event, broadcast_inbox_event
         broadcast_chat_event(
             conversation.id,
             {
@@ -358,7 +360,7 @@ def _handle_inbound_sms(
     return message
 
 
-def _extract_telnyx_status_update(event_type: str, payload: Dict[str, Any]):
+def _extract_telnyx_status_update(event_type: str, payload: dict[str, Any]):
     """
     Normalizes Telnyx v2 messaging status events (including message.sent and
     message.finalized where carrier delivery outcomes live inside payload.to[0].status).

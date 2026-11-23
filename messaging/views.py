@@ -1,23 +1,28 @@
 import json
+import logging
 from datetime import timedelta
-from django.conf import settings
-from django.contrib.auth.decorators import login_required
-from django.core.exceptions import ValidationError, PermissionDenied
-from django.db.models import Q, Count, OuterRef, Subquery, Sum
-from django.http import JsonResponse, Http404, HttpResponse
-from django.shortcuts import render, get_object_or_404, redirect
-from django.urls import reverse
-from django.views.decorators.http import require_POST
-from django.utils import timezone
-from django.contrib import messages
 
-from contacts.models import Contact
-from core.models import User
+from django.conf import settings
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.db.models import Count, OuterRef, Q, Subquery, Sum
+from django.http import HttpResponse, JsonResponse
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
+from django.utils import timezone
+from django.views.decorators.http import require_POST
+
 from campaigns.models import Campaign, CampaignTemplate
 from campaigns.services import ensure_default_campaign_templates
-from .models import PhoneNumber, Conversation, Message
+from contacts.models import Contact
+from core.models import User
+
+from .models import Conversation, Message, PhoneNumber
 from .services import can_send_manual, send_message
 from .utils import format_chat_timestamp, get_org_status_counts
+
+logger = logging.getLogger(__name__)
 
 INITIAL_CHAT_LIMIT = 35
 
@@ -1107,8 +1112,8 @@ def start_new_chat(request):
     if contact_id:
         contact = get_object_or_404(Contact, id=contact_id, organization=org)
         if consent and contact.sms_status != Contact.SMSStatus.OPTED_IN:
-            from compliance.services import record_consent
             from compliance.models import ConsentEvent
+            from compliance.services import record_consent
             record_consent(
                 contact=contact,
                 event_type=ConsentEvent.EventType.OPT_IN,
@@ -1135,8 +1140,8 @@ def start_new_chat(request):
                 source=Contact.Source.MANUAL,
             )
             if consent:
-                from compliance.services import record_consent
                 from compliance.models import ConsentEvent
+                from compliance.services import record_consent
                 record_consent(
                     contact=contact,
                     event_type=ConsentEvent.EventType.OPT_IN,
@@ -1333,7 +1338,7 @@ def _apply_ai_config_form_data(config, data, strict_questions=False):
                         # Follow-up: only asked when the parent's answer meets the condition
                         parent = str(item.get("parent") or "").strip().lower().replace(" ", "_")
                         if parent:
-                            from .ai.qualification import CONDITIONS, COND_ANY
+                            from .ai.qualification import COND_ANY, CONDITIONS
                             cond = item.get("condition") if isinstance(item.get("condition"), dict) else {}
                             op = cond.get("op") if cond.get("op") in CONDITIONS else COND_ANY
                             values = parse_rule_values(cond.get("values"))
@@ -1352,6 +1357,7 @@ def _lead_field_options(org, config, sample_size=300):
     taken from the organisation's recent leads (plus any field already chosen).
     """
     from collections import Counter
+
     from contacts.lead_dossier import lead_facts
 
     counts = Counter()
@@ -1413,8 +1419,8 @@ def ai_assistant_sandbox_test(request):
     if not test_message:
         return JsonResponse({"status": "error", "error": "Please enter a sample customer message."}, status=400)
 
-    from .models import AIAssistantConfig
     from .ai.pipeline import simulate_ai_reply
+    from .models import AIAssistantConfig
 
     saved_config = _get_or_create_ai_config(org)
     temp_config = AIAssistantConfig(
@@ -1696,7 +1702,7 @@ def phone_numbers_settings(request):
                     if PhoneNumber.objects.filter(e164=norm_phone).exists():
                         messages.error(request, f"Phone number {norm_phone} is already registered in the system.")
                     else:
-                        num = PhoneNumber.objects.create(
+                        PhoneNumber.objects.create(
                             organization=org,
                             e164=norm_phone,
                             label=label,
@@ -1819,7 +1825,7 @@ def update_conversation_assigned_to(request, conversation_id):
     conversation.save(update_fields=["assigned_to"])
 
     try:
-        from .ws_broadcast import broadcast_inbox_event, broadcast_chat_event
+        from .ws_broadcast import broadcast_chat_event, broadcast_inbox_event
         broadcast_inbox_event(
             org.id,
             {
@@ -1838,7 +1844,7 @@ def update_conversation_assigned_to(request, conversation_id):
                 "assigned_to_name": assigned_name,
             },
         )
-    except Exception as exc:
+    except Exception:
         pass
 
     return JsonResponse({

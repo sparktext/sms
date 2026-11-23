@@ -1,11 +1,12 @@
-from django.contrib import admin
-from django import forms
-from django.db.models import Count
-from django.core.exceptions import ValidationError
-from django.utils.translation import gettext_lazy as _
 import json
 
-from .models import Contact, ContactList, ContactField, ImportBatch
+from django import forms
+from django.contrib import admin
+from django.core.exceptions import ValidationError
+from django.db.models import Count
+from django.utils.translation import gettext_lazy as _
+
+from .models import Contact, ContactField, ContactList, ImportBatch
 from .services import save_contact, update_contact, validate_custom_fields
 
 
@@ -50,7 +51,7 @@ class ContactAdminForm(forms.ModelForm):
                 raise ValidationError(_("Must be a valid JSON object/dict."))
             return parsed
         except json.JSONDecodeError as exc:
-            raise ValidationError(_("Invalid JSON: %(error)s"), params={"error": str(exc)})
+            raise ValidationError(_("Invalid JSON: %(error)s"), params={"error": str(exc)}) from exc
 
     def clean(self):
         cleaned_data = super().clean()

@@ -1,9 +1,10 @@
-from django.shortcuts import render
-from django.http import JsonResponse
-from django.views.decorators.http import require_http_methods
-from django.core.mail import EmailMessage
-from django.conf import settings
 import logging
+
+from django.conf import settings
+from django.core.mail import EmailMessage
+from django.http import JsonResponse
+from django.shortcuts import render
+from django.views.decorators.http import require_http_methods
 
 logger = logging.getLogger(__name__)
 

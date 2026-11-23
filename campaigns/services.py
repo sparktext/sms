@@ -1,15 +1,16 @@
-import re
 import logging
-from typing import Dict, Any, List, Tuple
+import re
+from typing import Any
+
 from django.db import transaction
 from django.utils import timezone
-from django.core.exceptions import ValidationError
 
-from core.models import Organization
-from contacts.models import Contact, ContactList
 from compliance.services import can_send_marketing
+from contacts.models import Contact
+from core.models import Organization
 from messaging.models import Conversation, Message
 from messaging.services import send_message
+
 from .models import Campaign, CampaignRecipient
 
 logger = logging.getLogger(__name__)
@@ -65,8 +66,8 @@ def render_campaign_message(
 
 def resolve_campaign_contacts(
     organization: Organization,
-    list_ids: List[int] = None,
-    filter_criteria: Dict[str, Any] = None,
+    list_ids: list[int] = None,
+    filter_criteria: dict[str, Any] = None,
 ):
     """
     Resolves the targeted contact queryset based on selected contact lists
@@ -90,7 +91,7 @@ def resolve_campaign_contacts(
 
 
 @transaction.atomic
-def build_campaign_recipients(campaign: Campaign) -> Tuple[int, int]:
+def build_campaign_recipients(campaign: Campaign) -> tuple[int, int]:
     """
     Populates CampaignRecipient rows for a campaign:
     - Renders personalized message for each contact.
@@ -364,7 +365,7 @@ def check_and_dispatch_due_campaigns(organization: Organization = None, limit: i
     return total_dispatched
 
 
-DEFAULT_CAMPAIGN_TEMPLATES: List[Dict[str, Any]] = [
+DEFAULT_CAMPAIGN_TEMPLATES: list[dict[str, Any]] = [
     {
         "name": "Auto Insurance Annual Review",
         "category": "marketing",
@@ -409,8 +410,9 @@ def ensure_default_campaign_templates(organization):
     If the organization later deletes or renames any categories (including defaults),
     we respect those changes permanently instead of resurrecting deleted defaults.
     """
-    from .models import CampaignTemplate, TemplateCategory
     from core.models import Organization
+
+    from .models import CampaignTemplate, TemplateCategory
 
     # Check fresh DB flag to avoid stale in-memory instances re-seeding
     is_seeded = Organization.objects.filter(id=organization.id, templates_seeded=True).exists()

@@ -1,9 +1,10 @@
-from django.db import models
+import re
+
 from django.core.exceptions import ValidationError
-from django.utils.translation import gettext_lazy as _
+from django.db import models
 from django.db.models.signals import m2m_changed
 from django.dispatch import receiver
-import re
+from django.utils.translation import gettext_lazy as _
 
 RESERVED_FIELD_NAMES = frozenset([
     "phone", "first_name", "last_name", "email", "timezone", "vendor", "source",

@@ -41,3 +41,34 @@ exclude_also = [
     "raise NotImplementedError",
     "if __name__ == .__main__.:",
 ]
+
+# -----------------------------------------------------------------------------
+# Ruff: linter + formatter (replaces flake8, isort, pyupgrade, black)
+# -----------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py315"      # match the Python in the Docker image / venv
+line-length = 120
+extend-exclude = ["*/migrations/*", "staticfiles", "node_modules", "redis"]
+
+[tool.ruff.lint]
+# Explicit selection: we decide what is enforced, not the tool's changing defaults.
+select = [
+    "E4", "E7", "E9",  # pycodestyle: real errors (bad imports, statements, syntax)
+    "F",               # pyflakes: undefined names, unused imports/variables  -> real bugs
+    "B",               # flake8-bugbear: likely bugs and design problems
+    "I",               # isort: consistent import order (auto-fixed)
+    "UP",              # pyupgrade: modern syntax for our Python version (auto-fixed)
+    "DJ",              # flake8-django: Django-specific pitfalls
+]
+ignore = [
+    "DJ012",           # model inner-class ordering: style only, not worth the churn
+]
+# Next ratchet steps (enable once the team has reviewed the findings):
+#   "S"   (security, partly covered by bandit in CI)  - 70 findings
+#   "BLE" (blind `except Exception`)                    - 94 findings
+
+[tool.ruff.lint.isort]
+known-first-party = ["accounts", "campaigns", "compliance", "contacts", "core", "messaging", "sparktext", "website"]
+
+[tool.ruff.format]
+quote-style = "double"

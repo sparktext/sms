@@ -6,8 +6,6 @@ for more than INACTIVITY_TIMEOUT seconds (default: 1800 = 30 minutes).
 """
 from __future__ import annotations
 
-import datetime
-
 from django.conf import settings
 from django.contrib.auth import logout
 from django.shortcuts import redirect

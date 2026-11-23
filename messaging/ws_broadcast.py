@@ -1,13 +1,14 @@
 import asyncio
 import logging
-from typing import Any, Dict
+from typing import Any
+
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 
 logger = logging.getLogger(__name__)
 
 
-def broadcast_chat_event(conversation_id: int, payload: Dict[str, Any]) -> None:
+def broadcast_chat_event(conversation_id: int, payload: dict[str, Any]) -> None:
     """
     Broadcasts a real-time event to all WebSocket clients connected to `chat_<conversation_id>`.
     Works seamlessly from both synchronous code (Django views, workers) and async event loops.
@@ -66,7 +67,7 @@ def broadcast_chat_event(conversation_id: int, payload: Dict[str, Any]) -> None:
         )
 
 
-async def async_broadcast_chat_event(conversation_id: int, payload: Dict[str, Any]) -> None:
+async def async_broadcast_chat_event(conversation_id: int, payload: dict[str, Any]) -> None:
     """
     Direct coroutine broadcast for async views and consumers.
     """
@@ -91,7 +92,7 @@ async def async_broadcast_chat_event(conversation_id: int, payload: Dict[str, An
         )
 
 
-def broadcast_inbox_event(org_id: int, payload: Dict[str, Any]) -> None:
+def broadcast_inbox_event(org_id: int, payload: dict[str, Any]) -> None:
     """
     Broadcasts an inbox update event to all connected sidebar clients in `inbox_<org_id>`.
     """
@@ -126,7 +127,7 @@ def broadcast_inbox_event(org_id: int, payload: Dict[str, Any]) -> None:
         )
 
 
-async def async_broadcast_inbox_event(org_id: int, payload: Dict[str, Any]) -> None:
+async def async_broadcast_inbox_event(org_id: int, payload: dict[str, Any]) -> None:
     """
     Direct coroutine broadcast for inbox updates.
     """
@@ -151,7 +152,7 @@ async def async_broadcast_inbox_event(org_id: int, payload: Dict[str, Any]) -> N
         )
 
 
-def broadcast_user_event(user_id: int, payload: Dict[str, Any]) -> None:
+def broadcast_user_event(user_id: int, payload: dict[str, Any]) -> None:
     """
     Broadcasts a personal notification event directly to a specific user across any of their open browser tabs.
     Delivered via group `user_<user_id>`.
@@ -187,7 +188,7 @@ def broadcast_user_event(user_id: int, payload: Dict[str, Any]) -> None:
         )
 
 
-async def async_broadcast_user_event(user_id: int, payload: Dict[str, Any]) -> None:
+async def async_broadcast_user_event(user_id: int, payload: dict[str, Any]) -> None:
     """
     Async coroutine broadcast for personal user events.
     """

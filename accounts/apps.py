@@ -25,8 +25,9 @@ def _sync_site_domain_once(**kwargs) -> None:
     """
     request_started.disconnect(dispatch_uid="accounts_sync_site_domain")
 
-    from django.conf import settings
     from urllib.parse import urlparse
+
+    from django.conf import settings
 
     base_url = getattr(settings, "PUBLIC_BASE_URL", "")
     if not base_url:

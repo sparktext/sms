@@ -1,14 +1,14 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Optional, Dict, Any
+from typing import Any
 
 
 @dataclass
 class ProviderResult:
     success: bool
-    provider_message_sid: Optional[str] = None
+    provider_message_sid: str | None = None
     status: str = "queued"
-    num_segments: Optional[int] = None
+    num_segments: int | None = None
     error_code: str = ""
     error_message: str = ""
 
@@ -24,7 +24,7 @@ class BaseSMSProvider(ABC):
         from_number: str,
         to_number: str,
         body: str,
-        status_callback_url: Optional[str] = None,
+        status_callback_url: str | None = None,
     ) -> ProviderResult:
         """
         Dispatch an SMS via the provider.
@@ -36,7 +36,7 @@ class BaseSMSProvider(ABC):
     def validate_signature(
         self,
         url: str,
-        params: Dict[str, Any],
+        params: dict[str, Any],
         signature: str,
     ) -> bool:
         """

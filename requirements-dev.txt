@@ -14,3 +14,6 @@ execnet==2.1.2
 iniconfig==2.3.1
 pluggy==1.7.0
 Pygments==2.21.0
+
+# --- Lint & format ---
+ruff==0.17.6               # config in pyproject.toml: ruff check . / ruff format .

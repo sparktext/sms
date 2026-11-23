@@ -1,14 +1,15 @@
-from django.test import SimpleTestCase, override_settings
-from django.contrib.auth.models import AnonymousUser
 from channels.testing import WebsocketCommunicator
+from django.contrib.auth.models import AnonymousUser
+from django.test import SimpleTestCase, override_settings
+
+from campaigns.consumers import CampaignConsumer
+from campaigns.ws_broadcast import async_broadcast_campaign_progress
 from messaging.consumers import ChatConsumer, InboxConsumer
 from messaging.ws_broadcast import (
     async_broadcast_chat_event,
     async_broadcast_inbox_event,
     async_broadcast_user_event,
 )
-from campaigns.consumers import CampaignConsumer
-from campaigns.ws_broadcast import async_broadcast_campaign_progress
 
 TEST_CHANNEL_LAYERS = {
     "default": {

@@ -1,8 +1,9 @@
 from django.conf import settings
+
 from .base import BaseSMSProvider, ProviderResult
-from .twilio_provider import TwilioProvider
-from .telnyx_provider import TelnyxProvider
 from .fake_provider import FakeProvider
+from .telnyx_provider import TelnyxProvider
+from .twilio_provider import TwilioProvider
 
 
 def get_sms_provider() -> BaseSMSProvider:
@@ -20,6 +21,7 @@ def get_sms_provider() -> BaseSMSProvider:
     if not is_testing:
         try:
             from pathlib import Path
+
             import environ
             env_file = Path(settings.BASE_DIR) / ".env"
             if env_file.exists():

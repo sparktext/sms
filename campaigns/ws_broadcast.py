@@ -1,6 +1,7 @@
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 
@@ -9,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 def broadcast_campaign_progress(
     campaign,
-    recipient_updates: Optional[List[Dict[str, Any]]] = None,
+    recipient_updates: list[dict[str, Any]] | None = None,
 ) -> None:
     """
     Broadcasts real-time campaign progress events to all WebSocket clients watching `campaign_<campaign_id>`.
@@ -79,7 +80,7 @@ def broadcast_campaign_list_update(
         if not channel_layer or not getattr(campaign, "organization_id", None):
             return
 
-        lists_summary = [l.name for l in campaign.lists.all()] if hasattr(campaign, "lists") else []
+        lists_summary = [lst.name for lst in campaign.lists.all()] if hasattr(campaign, "lists") else []
         phone_e164 = campaign.phone_number.e164 if campaign.phone_number else ""
         phone_label = campaign.phone_number.label if campaign.phone_number and campaign.phone_number.label else ""
 
@@ -130,7 +131,7 @@ def broadcast_campaign_list_update(
 
 async def async_broadcast_campaign_progress(
     campaign_id: int,
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
 ) -> None:
     """
     Direct async broadcast helper for coroutines, consumers, and tests.

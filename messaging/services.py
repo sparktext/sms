@@ -1,16 +1,17 @@
 import logging
 from datetime import timedelta
-from typing import Tuple, Optional
+
 from django.conf import settings
-from django.core.exceptions import ValidationError, PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
-from contacts.models import Contact
 from compliance.models import ConsentEvent
 from compliance.services import record_consent
+from contacts.models import Contact
+
 from .models import Conversation, Message
 from .providers import get_sms_provider
 from .utils import get_public_base_url
@@ -18,7 +19,7 @@ from .utils import get_public_base_url
 logger = logging.getLogger(__name__)
 
 
-def can_send_manual(contact: Contact, conversation: Optional[Conversation]) -> Tuple[bool, str]:
+def can_send_manual(contact: Contact, conversation: Conversation | None) -> tuple[bool, str]:
     """
     Enforces compliance guards for manual two-way texting:
     - opted_out: BLOCKED ALWAYS.
@@ -157,8 +158,8 @@ def send_message(
 
     # Real-time WebSocket broadcast to open conversation windows
     try:
-        from .ws_broadcast import broadcast_chat_event, broadcast_inbox_event
         from .utils import format_chat_timestamp
+        from .ws_broadcast import broadcast_chat_event, broadcast_inbox_event
         broadcast_chat_event(
             conversation.id,
             {

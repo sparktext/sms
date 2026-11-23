@@ -189,7 +189,6 @@ class DashboardShellTest(TestCase):
     """Tests for the /app/<uuid>/ dashboard shell."""
 
     def setUp(self):
-        from core.models import UserProfile
         self.user = User.objects.create_user(
             email="dash@example.com", password="TestPass1234!",
         )
@@ -208,8 +207,6 @@ class DashboardShellTest(TestCase):
 
     def test_other_user_dashboard_redirects_to_own(self):
         """Accessing another user's /app/<uuid>/ redirects to own."""
-        import uuid
-        other_id = uuid.uuid4()
         # Create another user just to have a different UUID
         other_user = User.objects.create_user(email="other@example.com", password="TestPass1234!")
         url = reverse("accounts_shell:dashboard_shell", kwargs={"public_id": other_user.public_id})
@@ -286,8 +283,8 @@ class SignupAgainSameBrowserTest(TestCase):
         })
 
     def test_second_signup_sends_a_new_verification_email(self):
-        from django.core import mail
         from allauth.account.models import EmailAddress
+        from django.core import mail
         self._signup()
         self.assertEqual(len(mail.outbox), 1)
         self.assertFalse(self.client.session.get("account_verified_email"))   # never marks the address verified

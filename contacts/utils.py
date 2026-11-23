@@ -3,6 +3,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.utils.translation import gettext_lazy as _
 
+
 def get_default_region() -> str:
     return getattr(settings, "DEFAULT_PHONE_REGION", "US")
 
@@ -27,7 +28,7 @@ def normalize_phone(phone_input: str, default_region: str = None) -> str:
             _("Invalid phone number format: %(error)s"),
             params={"error": str(exc)},
             code="invalid_phone",
-        )
+        ) from exc
 
     # Reject numbers with extensions
     if parsed.extension:

@@ -1,19 +1,19 @@
-import re
 import string
-from typing import Optional
-from django.db import transaction
+
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 
-from .models import ConsentEvent
 from contacts.models import Contact
+
+from .models import ConsentEvent
 
 STOP_KEYWORDS = frozenset(["STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"])
 START_KEYWORDS = frozenset(["START", "UNSTOP"])
 HELP_KEYWORDS = frozenset(["HELP"])
 
 
-def classify_keyword(text: Optional[str]) -> Optional[str]:
+def classify_keyword(text: str | None) -> str | None:
     """
     Classify incoming text into STOP, START, HELP or None.
     - Case-insensitive.

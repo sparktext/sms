@@ -1,5 +1,6 @@
 from django.contrib import admin
-from .models import PhoneNumber, Conversation, Message, AIAssistantConfig, AIJob, AIReply
+
+from .models import AIAssistantConfig, AIJob, AIReply, Conversation, Message, PhoneNumber
 
 
 @admin.register(PhoneNumber)

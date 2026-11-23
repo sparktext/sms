@@ -1,11 +1,10 @@
-import json
-from django.test import TestCase, Client
+from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import Organization, User
 from contacts.models import Contact
-from messaging.models import PhoneNumber, Conversation, Message
+from core.models import Organization, User
+from messaging.models import Conversation, PhoneNumber
 
 
 class MultiNumberRoutingTests(TestCase):
