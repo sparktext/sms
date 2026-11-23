@@ -1,4 +1,5 @@
 from datetime import timedelta
+from unittest.mock import patch, MagicMock
 from django.test import TestCase, Client, override_settings
 from django.utils import timezone
 from django.core.exceptions import ValidationError, PermissionDenied
@@ -415,12 +416,25 @@ class MessagingTests(TestCase):
                 "phone": "+16505559876",
                 "first_name": "Jane",
                 "last_name": "Doe",
+                "source": "Direct",
             },
             HTTP_X_REQUESTED_WITH="XMLHttpRequest",
         )
         self.assertEqual(res.status_code, 200)
         data = res.json()
         self.assertEqual(data["status"], "success")
+
+        # Verify source is compulsory on new chat
+        res_fail = self.client.post(
+            "/inbox/new/",
+            {
+                "phone": "+16505559877",
+                "first_name": "No",
+                "last_name": "Source",
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(res_fail.status_code, 400)
 
         # Contact was created
         contact = Contact.objects.get(organization=self.org_a, phone="+16505559876")
@@ -624,9 +638,10 @@ class MessagingTests(TestCase):
         conv.refresh_from_db()
         self.assertEqual(conv.status, Conversation.Status.CLOSED)
 
-        # 3. AJAX resume AI
+        # 3. AJAX resume AI enables AI without changing conversation status or handoff reason
         conv.status = Conversation.Status.NEEDS_HUMAN
         conv.handoff_reason = "Human needed"
+        conv.ai_mode = Conversation.AIMode.OFF
         conv.save()
 
         resume_res = self.client.post(
@@ -635,9 +650,11 @@ class MessagingTests(TestCase):
         )
         self.assertEqual(resume_res.status_code, 200)
         self.assertEqual(resume_res.json().get("status"), "success")
+        self.assertEqual(resume_res.json().get("ai_mode"), Conversation.AIMode.DEFAULT)
         conv.refresh_from_db()
-        self.assertEqual(conv.status, Conversation.Status.OPEN)
-        self.assertEqual(conv.handoff_reason, "")
+        self.assertEqual(conv.ai_mode, Conversation.AIMode.DEFAULT)
+        self.assertEqual(conv.status, Conversation.Status.NEEDS_HUMAN)
+        self.assertEqual(conv.handoff_reason, "Human needed")
 
     def test_inbox_latest_35_messages_and_before_id_pagination(self):
         """Initial inbox open renders only the latest 35 messages and loads older chunks via ?before_id=."""
@@ -935,11 +952,12 @@ class MessagingTests(TestCase):
         self.assertEqual(sdata["total_count"], 36)
         self.assertEqual([c["phone"] for c in sdata["contacts"]], ["+16505556036"])
 
-        # 4. Mark conversation unread endpoint sets unread_count >= 1 & header button exists
+        # 4. Header buttons for mark-unread and sound-toggle are removed per design
         target_conv = convs[-1]
         detail_res = self.client.get(f"/inbox/{target_conv.id}/")
         self.assertEqual(detail_res.status_code, 200)
-        self.assertContains(detail_res, 'id="btn-mark-unread"')
+        self.assertNotContains(detail_res, 'id="btn-mark-unread"')
+        self.assertNotContains(detail_res, 'id="btn-sound-toggle"')
 
         unread_res = self.client.post(
             f"/inbox/{target_conv.id}/unread/",
@@ -1006,7 +1024,10 @@ class MessagingTests(TestCase):
             },
         )
 
-        # Resume AI moves conv_1 Needs Human -> Open and returns live counts
+        # Resume AI re-enables AI model without altering Needs Human status
+        conv_1.refresh_from_db()
+        conv_1.ai_mode = Conversation.AIMode.OFF
+        conv_1.save(update_fields=["ai_mode"])
         resume_res = self.client.post(
             f"/inbox/{conv_1.id}/resume-ai/",
             HTTP_X_REQUESTED_WITH="XMLHttpRequest",
@@ -1016,10 +1037,15 @@ class MessagingTests(TestCase):
             resume_res.json(),
             {
                 "status": "success",
-                "new_status": "open",
-                "counts": {"open": 2, "needs_human": 0, "closed": 0},
+                "ai_mode": "default",
+                "ai_mode_label": "Default (Use Business Settings)",
+                "new_status": "needs_human",
+                "counts": {"open": 1, "needs_human": 1, "closed": 0},
             },
         )
+        conv_1.refresh_from_db()
+        self.assertEqual(conv_1.ai_mode, Conversation.AIMode.DEFAULT)
+        self.assertEqual(conv_1.status, Conversation.Status.NEEDS_HUMAN)
 
         # Switch conv_2 Open -> Closed returns live counts
         to_closed_res = self.client.post(
@@ -1033,13 +1059,13 @@ class MessagingTests(TestCase):
             {
                 "status": "success",
                 "new_status": "closed",
-                "counts": {"open": 1, "needs_human": 0, "closed": 1},
+                "counts": {"open": 0, "needs_human": 1, "closed": 1},
             },
         )
 
     def test_dashboard_kpi_links_and_ai_assistant_sandbox(self):
         """Dashboard KPI cards link to actionable queues and AI sandbox simulates replies without persisting DB records."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import patch, MagicMock, MagicMock
         from messaging.ai.base import AIResponse
 
         self.client.force_login(self.user_a)
@@ -1110,3 +1136,397 @@ class MessagingTests(TestCase):
         self.assertEqual(bdata["status"], "validation_blocked")
         self.assertFalse(bdata["validation_ok"])
         self.assertTrue(bdata["needs_human"])
+
+    def test_inbound_sms_notification_toast_only_for_needs_human(self):
+        """Inbound SMS broadcasts toast ONLY when conversation is needs_human, otherwise silent."""
+        with patch("messaging.ws_broadcast.broadcast_inbox_event") as mock_broadcast:
+            # 1. Inbound SMS to an open conversation (AI handled)
+            payload = {
+                "From": "+16502538888",
+                "To": "+12137997090",
+                "Body": "Hello there",
+                "MessageSid": "SM_open_test_1",
+            }
+            res = self.client.post(
+                "/webhooks/twilio/sms/",
+                payload,
+                HTTP_X_TWILIO_SIGNATURE="valid_test_signature",
+            )
+            self.assertEqual(res.status_code, 200)
+            self.assertTrue(mock_broadcast.called)
+            org_id, event_data = mock_broadcast.call_args[0]
+            self.assertEqual(event_data.get("event"), "inbox_update")
+            # Routine message must NOT have an alert toast
+            self.assertIsNone(event_data.get("toast"))
+
+            # 2. Conversation is in needs_human status
+            conv = Conversation.objects.get(contact__phone="+16502538888", organization=self.org_a)
+            conv.status = Conversation.Status.NEEDS_HUMAN
+            conv.save(update_fields=["status"])
+
+            mock_broadcast.reset_mock()
+
+            # 3. Inbound SMS to a needs_human conversation
+            payload_needs_human = {
+                "From": "+16502538888",
+                "To": "+12137997090",
+                "Body": "I need help with my account right now",
+                "MessageSid": "SM_needs_human_test_2",
+            }
+            res2 = self.client.post(
+                "/webhooks/twilio/sms/",
+                payload_needs_human,
+                HTTP_X_TWILIO_SIGNATURE="valid_test_signature",
+            )
+            self.assertEqual(res2.status_code, 200)
+            self.assertTrue(mock_broadcast.called)
+            _, event_data2 = mock_broadcast.call_args[0]
+            self.assertEqual(event_data2.get("event"), "inbox_update")
+            # Must attach needs_human alert toast
+            self.assertIsNotNone(event_data2.get("toast"))
+            self.assertEqual(event_data2["toast"]["type"], "needs_human")
+            self.assertEqual(event_data2["toast"]["title"], "Needs Human Attention")
+            self.assertEqual(event_data2["toast"]["conversation_id"], conv.id)
+            self.assertIsNone(event_data2["toast"]["assigned_to_id"])
+
+            # 4. Inbound SMS when assigned to user_a
+            conv.assigned_to = self.user_a
+            conv.save(update_fields=["assigned_to"])
+            mock_broadcast.reset_mock()
+
+            payload_assigned = {
+                "From": "+16502538888",
+                "To": "+12137997090",
+                "Body": "Follow up message",
+                "MessageSid": "SM_needs_human_test_3",
+            }
+            res3 = self.client.post(
+                "/webhooks/twilio/sms/",
+                payload_assigned,
+                HTTP_X_TWILIO_SIGNATURE="valid_test_signature",
+            )
+            self.assertEqual(res3.status_code, 200)
+            self.assertTrue(mock_broadcast.called)
+            _, event_data3 = mock_broadcast.call_args[0]
+            self.assertEqual(event_data3["toast"]["assigned_to_id"], self.user_a.id)
+
+    @patch("messaging.ws_broadcast.broadcast_inbox_event")
+    def test_inbound_sms_toast_strictly_for_needs_human_and_lead_claim_broadcast(self, mock_broadcast):
+        """Inbound SMS toasts strictly for needs_human; lead assignment broadcasts conversation_assigned."""
+
+        contact = Contact.objects.create(
+            organization=self.org_a,
+            phone="+16502537777",
+            first_name="Alice",
+            last_name="Smith",
+        )
+
+        # 1. OPEN conversation must NEVER generate an alert toast in notification center
+        conv = Conversation.objects.create(
+            organization=self.org_a,
+            contact=contact,
+            phone_number=self.phone_a,
+            status=Conversation.Status.OPEN,
+            ai_mode=Conversation.AIMode.OFF,
+        )
+
+        payload = {
+            "From": contact.phone,
+            "To": self.phone_a.e164,
+            "Body": "Can we schedule a call for tomorrow morning?",
+            "MessageSid": "SM_open_human_1",
+        }
+        res = self.client.post(
+            "/webhooks/twilio/sms/",
+            payload,
+            HTTP_X_TWILIO_SIGNATURE="valid_test_signature",
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(mock_broadcast.called)
+        _, event_data = mock_broadcast.call_args[0]
+        self.assertEqual(event_data.get("event"), "inbox_update")
+        self.assertIsNone(event_data.get("toast"))
+
+        # 2. Claiming or assigning conversation broadcasts conversation_assigned event
+        mock_broadcast.reset_mock()
+        self.client.force_login(self.user_a)
+        res_assign = self.client.post(
+            f"/inbox/{conv.id}/assign/",
+            {"assigned_to_id": self.user_a.id},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(res_assign.status_code, 200)
+        self.assertTrue(mock_broadcast.called)
+        _, assign_event = mock_broadcast.call_args[0]
+        self.assertEqual(assign_event.get("event"), "conversation_assigned")
+        self.assertEqual(assign_event.get("assigned_to_id"), self.user_a.id)
+
+    def test_notification_context_processor_targeted_routing(self):
+        """Context processor only shows needs_human notifications for unassigned or assigned to current user."""
+        from messaging.context_processors import unread_inbox_count
+        from django.test import RequestFactory
+        import json
+
+        rf = RequestFactory()
+        user_b = User.objects.create_user(
+            email="agent_b@example.com",
+            password="password123",
+            organization=self.org_a,
+            role=User.Role.AGENT,
+        )
+
+        contact1 = Contact.objects.create(organization=self.org_a, phone="+16505550001", first_name="Unassigned", last_name="Lead")
+        c_unassigned = Conversation.objects.create(
+            organization=self.org_a,
+            contact=contact1,
+            phone_number=self.phone_a,
+            status=Conversation.Status.NEEDS_HUMAN,
+            handoff_reason="Customer needs pricing help",
+        )
+
+        contact2 = Contact.objects.create(organization=self.org_a, phone="+16505550002", first_name="Assigned", last_name="ToUserA")
+        c_user_a = Conversation.objects.create(
+            organization=self.org_a,
+            contact=contact2,
+            phone_number=self.phone_a,
+            status=Conversation.Status.NEEDS_HUMAN,
+            assigned_to=self.user_a,
+            handoff_reason="Assigned to user A",
+        )
+
+        contact3 = Contact.objects.create(organization=self.org_a, phone="+16505550003", first_name="Assigned", last_name="ToUserB")
+        c_user_b = Conversation.objects.create(
+            organization=self.org_a,
+            contact=contact3,
+            phone_number=self.phone_a,
+            status=Conversation.Status.NEEDS_HUMAN,
+            assigned_to=user_b,
+            handoff_reason="Assigned to user B",
+        )
+
+        # Request as user_a: should see unassigned and user_a's, but NOT user_b's
+        req_a = rf.get("/dashboard/")
+        req_a.user = self.user_a
+        ctx_a = unread_inbox_count(req_a)
+        notifs_a = json.loads(ctx_a["initial_notifications_json"])
+        conv_ids_a = [n["conversation_id"] for n in notifs_a]
+        self.assertIn(c_unassigned.id, conv_ids_a)
+        self.assertIn(c_user_a.id, conv_ids_a)
+        self.assertNotIn(c_user_b.id, conv_ids_a)
+
+        # Request as user_b: should see unassigned and user_b's, but NOT user_a's
+        req_b = rf.get("/dashboard/")
+        req_b.user = user_b
+        ctx_b = unread_inbox_count(req_b)
+        notifs_b = json.loads(ctx_b["initial_notifications_json"])
+        conv_ids_b = [n["conversation_id"] for n in notifs_b]
+        self.assertIn(c_unassigned.id, conv_ids_b)
+        self.assertIn(c_user_b.id, conv_ids_b)
+        self.assertNotIn(c_user_a.id, conv_ids_b)
+
+        # Request viewing c_user_a's conversation directly: should mark that conversation as read=True
+        req_viewing = rf.get(f"/inbox/{c_user_a.id}/")
+        req_viewing.user = self.user_a
+        ctx_viewing = unread_inbox_count(req_viewing)
+        notifs_viewing = json.loads(ctx_viewing["initial_notifications_json"])
+        user_a_notif = next(n for n in notifs_viewing if n["conversation_id"] == c_user_a.id)
+        self.assertTrue(user_a_notif["read"])
+        unassigned_notif = next(n for n in notifs_viewing if n["conversation_id"] == c_unassigned.id)
+        self.assertFalse(unassigned_notif["read"])
+
+    @patch("messaging.ws_broadcast.broadcast_inbox_event")
+    def test_assign_qualified_lead_broadcasts_conversation_assigned(self, mock_broadcast):
+        """assign_qualified_lead broadcasts conversation_assigned so other reps remove it from drawer."""
+        from messaging.routing import assign_qualified_lead
+        self.org_a.lead_routing_strategy = Organization.LeadRoutingStrategy.WORKLOAD_BALANCED
+        self.org_a.save(update_fields=["lead_routing_strategy"])
+
+        contact = Contact.objects.create(organization=self.org_a, phone="+16505559988", first_name="Routed", last_name="Lead")
+        conv = Conversation.objects.create(
+            organization=self.org_a,
+            contact=contact,
+            phone_number=self.phone_a,
+            status=Conversation.Status.NEEDS_HUMAN,
+            handoff_reason="Needs human agent",
+        )
+
+        chosen = assign_qualified_lead(conv, trigger_reason="Test routing")
+        self.assertIsNotNone(chosen)
+        self.assertTrue(mock_broadcast.called)
+        assigned_events = [
+            call_arg[0][1]
+            for call_arg in mock_broadcast.call_args_list
+            if call_arg[0][1].get("event") == "conversation_assigned"
+        ]
+        self.assertTrue(len(assigned_events) > 0)
+        self.assertEqual(assigned_events[0]["conversation_id"], conv.id)
+        self.assertEqual(assigned_events[0]["assigned_to_id"], chosen.id)
+
+    def test_agent_command_center_dashboard(self):
+        """Agents must NOT see the 'Finish setting up' checklist and should see the Agent Command Center."""
+        agent = User.objects.create_user(
+            email="agent_test@example.com",
+            password="password123",
+            organization=self.org_a,
+            role=User.Role.AGENT,
+            is_available_for_leads=True,
+        )
+
+        contact = Contact.objects.create(organization=self.org_a, phone="+16505553322", first_name="Takeover", last_name="Customer")
+        conv = Conversation.objects.create(
+            organization=self.org_a,
+            contact=contact,
+            phone_number=self.phone_a,
+            status=Conversation.Status.NEEDS_HUMAN,
+            handoff_reason="Customer requested quote",
+            assigned_to=agent,
+        )
+        Message.objects.create(
+            organization=self.org_a,
+            conversation=conv,
+            direction=Message.Direction.INBOUND,
+            body="Can I get pricing please?",
+        )
+
+        # 1. Agent visits dashboard: setup is hidden, Agent Command Center is rendered
+        self.client.force_login(agent)
+        resp = self.client.get("/dashboard/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.context["is_agent"])
+        self.assertFalse(resp.context["show_setup"])
+        self.assertNotContains(resp, "Finish setting up")
+        self.assertContains(resp, "Priority Takeover Queue")
+        self.assertContains(resp, "Available for Leads")
+        self.assertContains(resp, "Takeover Customer")
+
+        # 2. Owner visits dashboard: setup IS shown if onboarding incomplete
+        self.client.force_login(self.user_a)
+        owner_resp = self.client.get("/dashboard/")
+        self.assertEqual(owner_resp.status_code, 200)
+        self.assertFalse(owner_resp.context["is_agent"])
+        self.assertTrue(owner_resp.context["show_setup"])
+        self.assertContains(owner_resp, "Finish setting up")
+
+        # 3. Agent requests live JSON sync endpoint
+        self.client.force_login(agent)
+        json_resp = self.client.get("/dashboard/?format=json")
+        self.assertEqual(json_resp.status_code, 200)
+        data = json_resp.json()
+        self.assertEqual(data["status"], "success")
+        self.assertTrue(data["is_agent"])
+        self.assertEqual(data["my_active_leads_count"], 1)
+        self.assertEqual(data["my_needs_human_count"], 1)
+        self.assertEqual(len(data["urgent_conversations"]), 1)
+        self.assertEqual(data["urgent_conversations"][0]["id"], conv.id)
+        self.assertEqual(data["urgent_conversations"][0]["contact_name"], "Takeover Customer")
+
+        # 4. Agent claims an unassigned lead via direct AJAX claim
+        contact2 = Contact.objects.create(organization=self.org_a, phone="+16505553323", first_name="Unassigned", last_name="Lead")
+        unassigned_conv = Conversation.objects.create(
+            organization=self.org_a,
+            contact=contact2,
+            phone_number=self.phone_a,
+            status=Conversation.Status.NEEDS_HUMAN,
+            handoff_reason="Lead waiting for rep",
+            assigned_to=None,
+        )
+        claim_resp = self.client.post(
+            f"/inbox/{unassigned_conv.id}/assign/",
+            {"assigned_to_id": str(agent.id)},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(claim_resp.status_code, 200)
+        unassigned_conv.refresh_from_db()
+        self.assertEqual(unassigned_conv.assigned_to_id, agent.id)
+
+
+
+
+
+@override_settings(MESSAGING_PROVIDER="fake", TWILIO_VALIDATE_WEBHOOKS=True)
+class LiveSendPermissionTests(TestCase):
+    """STOP/START (and inbound texts) push the new reply permission so the inbox updates without a refresh."""
+
+    def setUp(self):
+        self.org = Organization.objects.create(name="Live Perm Org", slug="live-perm-org")
+        self.phone = PhoneNumber.objects.create(organization=self.org, e164="+16502530400", is_active=True)
+        self.contact = Contact.objects.create(
+            organization=self.org, phone="+16502530401", source="Direct",
+            sms_status=Contact.SMSStatus.OPTED_IN,
+        )
+
+    def _inbound(self, body, sid):
+        with patch("messaging.ws_broadcast.broadcast_chat_event") as chat_evt:
+            res = self.client.post("/webhooks/twilio/sms/", {
+                "From": self.contact.phone, "To": self.phone.e164, "Body": body, "MessageSid": sid,
+            }, HTTP_X_TWILIO_SIGNATURE="valid_test_signature")
+        self.assertEqual(res.status_code, 200)
+        perms = [c.args[1] for c in chat_evt.call_args_list if c.args[1].get("event") == "send_permission"]
+        self.assertTrue(perms, "no send_permission event was broadcast")
+        return perms[-1]
+
+    def test_stop_then_start_broadcasts_blocked_then_allowed(self):
+        stop = self._inbound("STOP", "SMperm1")
+        self.assertFalse(stop["can_send"])
+        self.assertEqual(stop["sms_status"], Contact.SMSStatus.OPTED_OUT)
+        self.assertIn("opted out", stop["block_reason"])
+
+        start = self._inbound("START", "SMperm2")
+        self.assertTrue(start["can_send"])
+        self.assertEqual(start["sms_status"], Contact.SMSStatus.OPTED_IN)
+        self.assertEqual(start["block_reason"], "")
+
+    def test_inbound_text_opens_reply_window_for_unknown_contact(self):
+        self.contact.sms_status = Contact.SMSStatus.UNKNOWN
+        self.contact.save(update_fields=["sms_status"])
+        evt = self._inbound("hi there", "SMperm3")
+        self.assertTrue(evt["can_send"])
+
+
+class DashboardLeadReachTests(TestCase):
+    """The dashboard counts leads (not messages): how many leads we texted today and how many of them replied."""
+
+    def setUp(self):
+        self.org = Organization.objects.create(name="Reach Co", slug="reach-co")
+        self.owner = User.objects.create_user(
+            email="owner_reach@example.com", password="password123",
+            organization=self.org, role=User.Role.OWNER,
+        )
+        self.phone = PhoneNumber.objects.create(organization=self.org, e164="+12135550100", label="Main", is_active=True)
+
+    def _conv(self, phone):
+        contact = Contact.objects.create(organization=self.org, phone=phone, sms_status=Contact.SMSStatus.OPTED_IN)
+        return Conversation.objects.create(organization=self.org, contact=contact, phone_number=self.phone)
+
+    def _msg(self, conv, direction, status=Message.Status.DELIVERED):
+        return Message.objects.create(
+            organization=self.org, conversation=conv, direction=direction, body="hi", status=status,
+        )
+
+    def test_counts_leads_not_messages(self):
+        out, inn = Message.Direction.OUTBOUND, Message.Direction.INBOUND
+        a, b, c, d, e = (self._conv(f"+1650555010{i}") for i in range(5))
+        for _ in range(3):              # many texts to one lead count once
+            self._msg(a, out)
+            self._msg(a, inn)
+        self._msg(b, out)               # texted, no reply
+        self._msg(c, out, Message.Status.FAILED)   # failed send isn't "texted"
+        self._msg(d, inn)               # texted us first, we haven't texted them
+        self._msg(e, out)
+        self._msg(e, inn)
+
+        self.client.force_login(self.owner)
+        stats = self.client.get("/dashboard/?format=json", HTTP_X_REQUESTED_WITH="XMLHttpRequest").json()["stats"]
+        self.assertEqual(stats["leads_texted"], 3)    # a, b, e
+        self.assertEqual(stats["leads_replied"], 2)   # a, e
+        self.assertEqual(stats["reply_rate"], 67)
+
+        page = self.client.get("/dashboard/")
+        self.assertContains(page, "Leads Texted")
+        self.assertContains(page, "Leads Replied")
+        self.assertContains(page, "67% of leads texted today replied")
+
+    def test_no_leads_texted_yet(self):
+        self.client.force_login(self.owner)
+        page = self.client.get("/dashboard/")
+        self.assertContains(page, "No leads texted yet today")

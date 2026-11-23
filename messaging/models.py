@@ -119,6 +119,9 @@ class Conversation(models.Model):
     last_inbound_at = models.DateTimeField(null=True, blank=True)
     unread_count = models.PositiveIntegerField(default=0)
     qualification_answers = models.JSONField(default=dict, blank=True)
+    # Gemma's verdicts on plain-language fit rules / follow-up conditions:
+    # {"rule:<key>": {"result": "fit"|"not_fit", "reason", "answer"}, "cond:<key>": {"met": bool, "reason", "answer"}}
+    qualification_checks = models.JSONField(default=dict, blank=True)
     ai_draft_reply = models.TextField(blank=True, default="")
     handoff_reason = models.TextField(blank=True, default="")
     ai_mode = models.CharField(
@@ -316,7 +319,15 @@ class AIAssistantConfig(models.Model):
     qualification_questions = models.JSONField(
         default=list,
         blank=True,
-        help_text=_("List of qualification questions: [{key, question, required}]"),
+        help_text=_(
+            "List of qualification questions: [{key, question, required, lead_field?, rule?, rule_values?}]. "
+            "rule is 'not_fit_if' or 'only_fit_if'; rule_values are the answers it matches."
+        ),
+    )
+    not_qualified_message = models.TextField(
+        blank=True,
+        default="Thanks so much for the info! Unfortunately we're not able to offer you a quote right now, but we really appreciate you reaching out.",
+        help_text=_("Final SMS the AI sends when a qualification rule shows the lead is not a fit"),
     )
     never_say = models.TextField(
         blank=True,

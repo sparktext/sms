@@ -1,0 +1,22 @@
+{# One editable lead card. card = {title, badge, is_primary, fields: [{label, name, value, empty, hint}]}; wide=True spans the row, fields in columns #}
+<div data-lead-card data-title="{{ card.title|lower }}" class="rounded-xl border bg-white shadow-xs overflow-hidden {% if wide %}@2xl:col-span-2{% endif %} {% if card.is_primary %}border-brand-300{% else %}border-gray-200/80{% endif %}">
+  {% if card.title or card.badge %}
+  <div class="flex items-center justify-between gap-2 px-3.5 pt-3 pb-1.5">
+    <div class="text-[13px] font-semibold text-gray-900 leading-tight break-words min-w-0">{{ card.title }}</div>
+    {% if card.badge %}
+    <span class="px-2 py-0.5 rounded-md text-[10px] font-semibold shrink-0 {% if card.is_primary %}bg-brand-50 text-brand-700{% else %}bg-gray-100 text-gray-600{% endif %}">{{ card.badge }}</span>
+    {% endif %}
+  </div>
+  {% endif %}
+  <div class="p-1.5 {% if not card.title and not card.badge %}pt-2{% endif %} {% if wide %}@2xl:grid @2xl:grid-cols-2 @5xl:grid-cols-3 @2xl:gap-x-3{% endif %}">
+    {% for f in card.fields %}
+    <label data-lead-row data-lead-cell data-label="{{ f.label|lower }}"
+           class="flex items-center gap-2 px-2 rounded-lg transition-colors hover:bg-gray-50 data-[match]:bg-brand-50 data-[changed]:bg-amber-50">
+      <span class="w-[40%] shrink-0 py-1.5 text-[11px] leading-tight break-words text-gray-500">{{ f.label }}</span>
+      {% include "contacts/partials/lead_input.html" %}
+    </label>
+    {% empty %}
+    <div class="px-2 py-1.5 text-[11px] text-gray-400 italic">No details</div>
+    {% endfor %}
+  </div>
+</div>

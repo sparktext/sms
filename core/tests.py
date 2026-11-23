@@ -1,6 +1,8 @@
 from datetime import timedelta
+from unittest.mock import patch
 from django.test import TestCase, Client
 from django.utils import timezone
+from django.core.files.uploadedfile import SimpleUploadedFile
 from core.models import Organization, User, OrganizationInvite
 
 
@@ -51,7 +53,6 @@ class SettingsAndTeamTests(TestCase):
             "website": "https://apexshield.com",
             "support_phone": "+16505550199",
             "notification_email": "alerts@apexshield.com",
-            "timezone": "America/New_York",
             "address_street": "100 Pine St, Suite 400",
             "address_city": "San Francisco",
             "address_state": "CA",
@@ -62,7 +63,6 @@ class SettingsAndTeamTests(TestCase):
         self.org.refresh_from_db()
         self.assertEqual(self.org.name, "Apex Auto Shield Inc")
         self.assertEqual(self.org.ein, "98-7654321")
-        self.assertEqual(self.org.timezone, "America/New_York")
         self.assertEqual(self.org.notification_email, "alerts@apexshield.com")
         self.assertEqual(self.org.address_city, "San Francisco")
 
@@ -74,6 +74,61 @@ class SettingsAndTeamTests(TestCase):
         self.assertRedirects(resp, "/settings/profile/")
         self.org.refresh_from_db()
         self.assertNotEqual(self.org.name, "Hacked Name")
+
+    def test_notification_sounds_view_by_owner(self):
+        self.client.force_login(self.owner)
+        resp = self.client.get("/settings/sounds/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Agency Alert Chime")
+        self.assertContains(resp, "Cash Register")
+        self.assertContains(resp, "Sales Flourish")
+        self.assertContains(resp, "Custom Audio Sound")
+
+    @patch("messaging.ws_broadcast.broadcast_inbox_event")
+    def test_notification_sound_update_by_owner(self, mock_broadcast):
+        self.client.force_login(self.owner)
+        resp = self.client.post("/settings/sounds/", {
+            "notification_sound": Organization.NotificationSound.CASH_REGISTER,
+        })
+        self.assertRedirects(resp, "/settings/sounds/")
+        self.org.refresh_from_db()
+        self.assertEqual(self.org.notification_sound, Organization.NotificationSound.CASH_REGISTER)
+        mock_broadcast.assert_called()
+        call_args = mock_broadcast.call_args[0]
+        self.assertEqual(call_args[0], self.org.id)
+        self.assertEqual(call_args[1]["event"], "notification_sound_update")
+        self.assertEqual(call_args[1]["notification_sound"], Organization.NotificationSound.CASH_REGISTER)
+
+    def test_notification_sound_update_forbidden_for_agent(self):
+        self.client.force_login(self.agent)
+        resp = self.client.post("/settings/sounds/", {
+            "notification_sound": Organization.NotificationSound.BRIGHT_POP,
+        })
+        self.assertRedirects(resp, "/settings/sounds/")
+        self.org.refresh_from_db()
+        self.assertNotEqual(self.org.notification_sound, Organization.NotificationSound.BRIGHT_POP)
+
+    def test_custom_notification_sound_upload_and_removal(self):
+        self.client.force_login(self.owner)
+        dummy_audio = SimpleUploadedFile("chime.mp3", b"ID3\x03\x00\x00\x00\x00\x00\x00dummy audio content", content_type="audio/mpeg")
+        resp = self.client.post("/settings/sounds/", {
+            "notification_sound": "custom",
+            "custom_notification_sound": dummy_audio,
+        })
+        self.assertRedirects(resp, "/settings/sounds/")
+        self.org.refresh_from_db()
+        self.assertEqual(self.org.notification_sound, Organization.NotificationSound.CUSTOM)
+        self.assertTrue(bool(self.org.custom_notification_sound))
+        self.assertTrue(self.org.custom_notification_sound.name.endswith(".mp3"))
+
+        # Test remove custom sound
+        resp2 = self.client.post("/settings/sounds/", {
+            "action": "remove_custom",
+        })
+        self.assertRedirects(resp2, "/settings/sounds/")
+        self.org.refresh_from_db()
+        self.assertEqual(self.org.notification_sound, Organization.NotificationSound.SALES_FLOURISH)
+        self.assertFalse(bool(self.org.custom_notification_sound))
 
     def test_team_members_view(self):
         self.client.force_login(self.owner)
@@ -275,6 +330,7 @@ class SettingsAndTeamTests(TestCase):
             "/settings/team/",
             "/settings/routing/",
             "/settings/phone-numbers/",
+            "/settings/sounds/",
         ):
             aligned_html = self.client.get(aligned_url).content.decode("utf-8")
             self.assertIn("max-w-5xl w-full mx-auto", aligned_html[aligned_html.index("<main"):], aligned_url)

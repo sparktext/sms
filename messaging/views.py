@@ -123,11 +123,179 @@ def _setup_steps(org):
     ]
 
 
+def _get_admin_dashboard_data(org):
+    if not org:
+        return {
+            "team_members": [],
+            "available_reps_count": 0,
+            "total_reps_count": 0,
+            "org_urgent_conversations": [],
+        }
+
+    team_members = list(
+        User.objects.filter(organization=org).order_by("role", "first_name", "email")
+    )
+    available_reps_count = sum(1 for u in team_members if u.is_available_for_leads)
+    total_reps_count = len(team_members)
+
+    active_leads_map = dict(
+        Conversation.objects.filter(
+            organization=org,
+            status__in=[Conversation.Status.OPEN, Conversation.Status.NEEDS_HUMAN],
+            assigned_to__isnull=False,
+        )
+        .values("assigned_to_id")
+        .annotate(cnt=Count("id"))
+        .values_list("assigned_to_id", "cnt")
+    )
+    for m in team_members:
+        m.active_leads_count = active_leads_map.get(m.id, 0)
+
+    urgent_qs = _with_last_msg_id(
+        Conversation.objects.filter(
+            organization=org,
+            status=Conversation.Status.NEEDS_HUMAN,
+        ).select_related("contact", "phone_number", "assigned_to")
+    ).order_by("-last_message_at")[:10]
+    org_urgent_conversations = list(urgent_qs)
+    _attach_latest_messages(org_urgent_conversations, attr_name="last_msg")
+
+    return {
+        "team_members": team_members,
+        "available_reps_count": available_reps_count,
+        "total_reps_count": total_reps_count,
+        "urgent_conversations": org_urgent_conversations,
+        "org_urgent_conversations": org_urgent_conversations,
+    }
+
+
+def _get_agent_dashboard_data(user, org):
+    today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    active_statuses = [Conversation.Status.OPEN, Conversation.Status.NEEDS_HUMAN]
+
+    my_assigned_qs = (
+        Conversation.objects.filter(organization=org, assigned_to=user)
+        if org
+        else Conversation.objects.none()
+    )
+    my_active_leads_count = my_assigned_qs.filter(status__in=active_statuses).count()
+    my_needs_human_count = my_assigned_qs.filter(status=Conversation.Status.NEEDS_HUMAN).count()
+    unassigned_needs_human_count = (
+        Conversation.objects.filter(
+            organization=org, assigned_to__isnull=True, status=Conversation.Status.NEEDS_HUMAN
+        ).count()
+        if org
+        else 0
+    )
+    total_needs_human = (
+        Conversation.objects.filter(organization=org, status=Conversation.Status.NEEDS_HUMAN).count()
+        if org
+        else 0
+    )
+
+    my_sent_today = (
+        Message.objects.filter(
+            organization=org,
+            sent_by=user,
+            direction=Message.Direction.OUTBOUND,
+            created_at__gte=today_start,
+        ).count()
+        if org
+        else 0
+    )
+    my_replies_today = (
+        Message.objects.filter(
+            organization=org,
+            conversation__assigned_to=user,
+            direction=Message.Direction.INBOUND,
+            created_at__gte=today_start,
+        ).count()
+        if org
+        else 0
+    )
+
+    max_leads = org.max_leads_per_agent if org else 0
+    is_at_cap = bool(max_leads > 0 and my_active_leads_count >= max_leads)
+
+    urgent_conversations = []
+    my_recent = []
+
+    if org:
+        # Priority Takeover Queue: conversations in needs_human state
+        # Order: assigned to this user first, then unassigned
+        urgent_qs = _with_last_msg_id(
+            Conversation.objects.filter(
+                organization=org,
+                status=Conversation.Status.NEEDS_HUMAN,
+            )
+            .filter(Q(assigned_to=user) | Q(assigned_to__isnull=True))
+            .select_related("contact", "phone_number", "assigned_to")
+        ).order_by("-last_message_at")[:10]
+        urgent_conversations = list(urgent_qs)
+        _attach_latest_messages(urgent_conversations, attr_name="last_msg")
+
+        # Agent recent conversations
+        my_recent_qs = _with_last_msg_id(
+            my_assigned_qs.select_related("contact", "phone_number", "assigned_to")
+        ).order_by("-last_message_at")[:6]
+        my_recent = list(my_recent_qs)
+        if not my_recent:
+            fallback_qs = _with_last_msg_id(
+                Conversation.objects.filter(organization=org).select_related(
+                    "contact", "phone_number", "assigned_to"
+                )
+            ).order_by("-last_message_at")[:6]
+            my_recent = list(fallback_qs)
+        _attach_latest_messages(my_recent, attr_name="last_msg")
+
+    return {
+        "my_active_leads_count": my_active_leads_count,
+        "my_needs_human_count": my_needs_human_count,
+        "unassigned_needs_human_count": unassigned_needs_human_count,
+        "total_needs_human": total_needs_human,
+        "my_sent_today": my_sent_today,
+        "my_replies_today": my_replies_today,
+        "max_leads": max_leads,
+        "is_at_cap": is_at_cap,
+        "urgent_conversations": urgent_conversations,
+        "org_urgent_conversations": urgent_conversations,
+        "my_recent_conversations": my_recent,
+        "recent_conversations": my_recent,
+        "team_members": [],
+        "available_reps_count": 0,
+        "total_reps_count": 0,
+    }
+
+
+def _lead_reach(org, since):
+    """How many leads we texted since `since`, and how many of those leads texted back."""
+    if not org:
+        return 0, 0
+    msgs = Message.objects.filter(organization=org, created_at__gte=since)
+    texted = (
+        msgs.filter(direction=Message.Direction.OUTBOUND)
+        .exclude(status__in=[Message.Status.FAILED, Message.Status.UNDELIVERED])
+        .values("conversation__contact_id")
+    )
+    leads_texted = texted.distinct().count()
+    leads_replied = (
+        msgs.filter(direction=Message.Direction.INBOUND, conversation__contact_id__in=texted)
+        .values("conversation__contact_id")
+        .distinct()
+        .count()
+    )
+    return leads_texted, leads_replied
+
+
 @login_required
 def dashboard(request):
     org = request.user.organization
-    steps = _setup_steps(org)
-    done = sum(1 for s in steps if s["done"])
+    is_admin = request.user.role in [User.Role.OWNER, User.Role.ADMIN]
+    is_agent = not is_admin
+
+    steps = _setup_steps(org) if is_admin else []
+    done = sum(1 for s in steps if s["done"]) if is_admin else 0
+    next_step = next((s for s in steps if not s["done"]), None) if is_admin else None
 
     # Real counts now that models exist
     today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -137,6 +305,56 @@ def dashboard(request):
         "needs_human": Conversation.objects.filter(organization=org, status=Conversation.Status.NEEDS_HUMAN).count() if org else 0,
         "opt_outs": Contact.objects.filter(organization=org, sms_status=Contact.SMSStatus.OPTED_OUT).count() if org else 0,
     }
+    # Leads, not messages: how many leads we texted today and how many of them replied
+    leads_texted, leads_replied = _lead_reach(org, today_start)
+    stats["leads_texted"] = leads_texted
+    stats["leads_replied"] = leads_replied
+    stats["reply_rate"] = round(100 * leads_replied / leads_texted) if leads_texted else 0
+
+    # AJAX endpoint for real-time live dashboard sync (zero full page reloads)
+    if _is_ajax_request(request) or request.GET.get("format") == "json":
+        agent_data = _get_agent_dashboard_data(request.user, org) if is_agent else {}
+        admin_data = _get_admin_dashboard_data(org) if is_admin else {}
+        urgent_list = (
+            agent_data.get("urgent_conversations", [])
+            if is_agent
+            else admin_data.get("org_urgent_conversations", [])
+        )
+        urgent_serialized = []
+        for c in urgent_list:
+            contact_name = f"{c.contact.first_name} {c.contact.last_name}".strip() if (c.contact.first_name or c.contact.last_name) else c.contact.phone
+            last_body = c.last_msg.body if c.last_msg else ""
+            urgent_serialized.append({
+                "id": c.id,
+                "contact_name": contact_name,
+                "contact_phone": c.contact.phone,
+                "handoff_reason": c.handoff_reason or "Customer inquiry requires assistance",
+                "assigned_to_id": c.assigned_to_id,
+                "assigned_to_name": (c.assigned_to.first_name or c.assigned_to.email) if c.assigned_to else None,
+                "is_assigned_to_me": bool(c.assigned_to_id == request.user.id),
+                "is_unassigned": bool(c.assigned_to_id is None),
+                "last_message": last_body,
+                "last_message_direction": c.last_msg.direction if c.last_msg else "inbound",
+                "last_message_time": _timesince_short(c.last_message_at) if c.last_message_at else "just now",
+                "direct_url": f"/inbox/{c.id}/",
+            })
+        return JsonResponse({
+            "status": "success",
+            "is_agent": is_agent,
+            "is_admin": is_admin,
+            "stats": stats,
+            "available_reps_count": admin_data.get("available_reps_count", 0),
+            "total_reps_count": admin_data.get("total_reps_count", 0),
+            "my_active_leads_count": agent_data.get("my_active_leads_count", 0),
+            "my_needs_human_count": agent_data.get("my_needs_human_count", 0),
+            "unassigned_needs_human_count": agent_data.get("unassigned_needs_human_count", 0),
+            "total_needs_human": agent_data.get("total_needs_human", 0) if is_agent else stats["needs_human"],
+            "my_replies_today": agent_data.get("my_replies_today", 0),
+            "my_sent_today": agent_data.get("my_sent_today", 0),
+            "is_available_for_leads": request.user.is_available_for_leads,
+            "is_at_cap": agent_data.get("is_at_cap", False),
+            "urgent_conversations": urgent_serialized,
+        })
 
     recent_conversations = []
     if org:
@@ -147,14 +365,23 @@ def dashboard(request):
         _attach_latest_messages(recent_conversations, attr_name="last_msg")
 
     context = {
+        "is_admin": is_admin,
+        "is_agent": is_agent,
+        "show_setup": is_admin and (done < len(steps)),
         "steps": steps,
         "steps_done": done,
         "steps_total": len(steps),
-        "percent": int(done / len(steps) * 100) if steps else 0,
-        "setup_complete": done == len(steps),
+        "next_step": next_step,
+        "percent": int(done / len(steps) * 100) if (steps and is_admin) else 0,
+        "setup_complete": done == len(steps) if is_admin else True,
         "stats": stats,
         "recent_conversations": recent_conversations,
     }
+    if is_agent:
+        context.update(_get_agent_dashboard_data(request.user, org))
+    else:
+        context.update(_get_admin_dashboard_data(org))
+
     return render(request, "messaging/dashboard.html", context)
 
 
@@ -874,10 +1101,27 @@ def start_new_chat(request):
     phone = request.POST.get("phone", "").strip()
     first_name = request.POST.get("first_name", "").strip()
     last_name = request.POST.get("last_name", "").strip()
+    source = (request.POST.get("source") or request.POST.get("vendor") or "").strip()
+    consent = request.POST.get("consent") in ("1", "true", "on", True)
 
     if contact_id:
         contact = get_object_or_404(Contact, id=contact_id, organization=org)
+        if consent and contact.sms_status != Contact.SMSStatus.OPTED_IN:
+            from compliance.services import record_consent
+            from compliance.models import ConsentEvent
+            record_consent(
+                contact=contact,
+                event_type=ConsentEvent.EventType.OPT_IN,
+                source=ConsentEvent.Source.INBOX_MANUAL,
+                proof_text=f"Direct consent registered via Inbox New Chat (Source: {contact.source})",
+            )
     elif phone:
+        if not source:
+            return JsonResponse({
+                "status": "error",
+                "message": "Source is compulsory. Please specify a lead source.",
+            }, status=400)
+
         from contacts.services import save_contact
         try:
             contact, _ = save_contact(
@@ -886,9 +1130,19 @@ def start_new_chat(request):
                     "phone": phone,
                     "first_name": first_name,
                     "last_name": last_name,
+                    "source": source,
                 },
                 source=Contact.Source.MANUAL,
             )
+            if consent:
+                from compliance.services import record_consent
+                from compliance.models import ConsentEvent
+                record_consent(
+                    contact=contact,
+                    event_type=ConsentEvent.EventType.OPT_IN,
+                    source=ConsentEvent.Source.INBOX_MANUAL,
+                    proof_text=f"Direct consent registered via Inbox New Chat (Source: {source})",
+                )
         except ValidationError as exc:
             msg = exc.message_dict.get("non_field_errors", [str(exc)])[0] if hasattr(exc, "message_dict") else str(exc)
             return JsonResponse({"status": "error", "message": str(msg)}, status=400)
@@ -959,9 +1213,11 @@ def _get_or_create_ai_config(org):
             "mode": AIAssistantConfig.Mode.OFF,
             "tone": "friendly, professional, concise",
             "knowledge": "Hours: Monday-Friday 9am - 5pm.\nServices: Consultations, support, and services.\nLocation: Online / Nationwide.",
+            # Keep SMS short: two questions, each skipped when the lead form already answers it,
+            # then the AI offers a call from a licensed agent.
             "qualification_questions": [
-                {"key": "service_type", "question": "What type of service are you looking for?", "required": True},
-                {"key": "timeline", "question": "When are you hoping to get started?", "required": False},
+                {"key": "service_type", "question": "What can we help you with today?", "required": True, "lead_field": "Vertical"},
+                {"key": "zip", "question": "What's your ZIP code?", "required": True, "lead_field": "ZIP"},
             ],
             "never_say": "free guarantee\nrefund immediately\nwe promise 100%",
             "handoff_rules": "If the customer requests a phone call or mentions an emergency, hand off immediately.",
@@ -970,6 +1226,43 @@ def _get_or_create_ai_config(org):
         },
     )
     return config
+
+
+def _clean_follow_ups(questions):
+    """
+    Keep follow-ups consistent: the parent must exist, chains stop at two levels
+    (question -> follow-up -> follow-up), and a follow-up always uses its top-level question's step.
+    """
+    from .ai.qualification import MAX_FOLLOW_UP_DEPTH, order_questions
+
+    by_key = {q["key"]: q for q in questions}
+
+    def depth_and_root(q, seen=()):
+        parent = q.get("parent")
+        if not parent:
+            return 0, q
+        if parent not in by_key or parent in seen or parent == q["key"]:
+            return None, None
+        d, root = depth_and_root(by_key[parent], seen + (q["key"],))
+        return (None, None) if d is None else (d + 1, root)
+
+    kept = []
+    for q in questions:
+        depth, root = depth_and_root(q)
+        if depth is None or depth > MAX_FOLLOW_UP_DEPTH:
+            continue
+        if q.get("parent"):
+            q = dict(q)
+            if root.get("step") == 2:
+                q["step"] = 2
+            else:
+                q.pop("step", None)
+        kept.append(q)
+    # Store in asking order (parent, its follow-ups, next question) without the helper "_depth"
+    return [
+        {k: v for k, v in q.items() if k != "_depth" and not (k == "step" and v != 2)}
+        for q in order_questions(kept)
+    ]
 
 
 def _apply_ai_config_form_data(config, data, strict_questions=False):
@@ -993,6 +1286,8 @@ def _apply_ai_config_form_data(config, data, strict_questions=False):
         config.never_say = data.get("never_say", "").strip()
     if "handoff_rules" in data:
         config.handoff_rules = data.get("handoff_rules", "").strip()
+    if "not_qualified_message" in data:
+        config.not_qualified_message = data.get("not_qualified_message", "").strip()[:500]
 
     if "max_reply_chars" in data:
         try:
@@ -1016,15 +1311,61 @@ def _apply_ai_config_form_data(config, data, strict_questions=False):
                 clean_q = []
                 for item in parsed_q:
                     if isinstance(item, dict) and item.get("key") and item.get("question"):
-                        clean_q.append({
+                        entry = {
                             "key": str(item["key"]).strip().lower().replace(" ", "_"),
                             "question": str(item["question"]).strip(),
                             "required": bool(item.get("required", False)),
-                        })
-                config.qualification_questions = clean_q
+                        }
+                        # Optional: answer this question from a lead field when the lead has it
+                        lead_field = str(item.get("lead_field") or "").strip()[:100]
+                        if lead_field:
+                            entry["lead_field"] = lead_field
+                        # Optional fit rule: is the lead a fit for us based on this answer?
+                        from .ai.qualification import RULES, parse_rule_values
+                        rule = str(item.get("rule") or "").strip()
+                        rule_values = parse_rule_values(item.get("rule_values"))
+                        if rule in RULES and rule_values:
+                            entry["rule"] = rule
+                            entry["rule_values"] = rule_values
+                        # Step 2 = only asked to leads whose form already answered every step-1 question
+                        if str(item.get("step") or "1").strip() == "2":
+                            entry["step"] = 2
+                        # Follow-up: only asked when the parent's answer meets the condition
+                        parent = str(item.get("parent") or "").strip().lower().replace(" ", "_")
+                        if parent:
+                            from .ai.qualification import CONDITIONS, COND_ANY
+                            cond = item.get("condition") if isinstance(item.get("condition"), dict) else {}
+                            op = cond.get("op") if cond.get("op") in CONDITIONS else COND_ANY
+                            values = parse_rule_values(cond.get("values"))
+                            entry["parent"] = parent
+                            entry["condition"] = {"op": op if (values or op == COND_ANY) else COND_ANY, "values": values}
+                        clean_q.append(entry)
+                config.qualification_questions = _clean_follow_ups(clean_q)
         except Exception:
             if strict_questions:
                 raise
+
+
+def _lead_field_options(org, config, sample_size=300):
+    """
+    Lead fields that a qualification question can be answered from, most common first,
+    taken from the organisation's recent leads (plus any field already chosen).
+    """
+    from collections import Counter
+    from contacts.lead_dossier import lead_facts
+
+    counts = Counter()
+    for contact in Contact.objects.filter(organization=org).order_by("-id")[:sample_size]:
+        for label, _value in lead_facts(contact):
+            counts[label] += 1
+    options = [{"label": label, "count": n} for label, n in counts.most_common()]
+    known = {o["label"].lower() for o in options}
+    for q in config.qualification_questions or []:
+        lf = (q.get("lead_field") or "") if isinstance(q, dict) else ""
+        if lf and lf.lower() not in known:
+            options.append({"label": lf, "count": 0})
+            known.add(lf.lower())
+    return options
 
 
 @login_required
@@ -1055,6 +1396,7 @@ def ai_assistant_settings(request):
     context = {
         "config": config,
         "questions_json": questions_json_str,
+        "lead_field_options": _lead_field_options(org, config),
     }
     return render(request, "messaging/ai_assistant_settings.html", context)
 
@@ -1157,16 +1499,16 @@ def handle_ai_draft_action(request, conversation_id):
 @require_POST
 def resume_ai_conversation(request, conversation_id):
     """
-    Clears the needs_human handoff status and re-opens the conversation for AI replies.
+    Resumes the AI model for this conversation by setting ai_mode to default,
+    leaving the lead status and handoff reason unchanged.
     """
     org = request.user.organization
     if not org:
         raise PermissionDenied("User is not associated with an organization.")
 
     conversation = get_object_or_404(Conversation, id=conversation_id, organization=org)
-    conversation.status = Conversation.Status.OPEN
-    conversation.handoff_reason = ""
-    conversation.save(update_fields=["status", "handoff_reason"])
+    conversation.ai_mode = Conversation.AIMode.DEFAULT
+    conversation.save(update_fields=["ai_mode"])
 
     # Log system note
     sys_msg = Message.objects.create(
@@ -1185,10 +1527,10 @@ def resume_ai_conversation(request, conversation_id):
         broadcast_chat_event(
             conversation.id,
             {
-                "event": "status_change",
+                "event": "ai_mode_change",
                 "conversation_id": conversation.id,
-                "status": "open",
-                "counts": counts,
+                "ai_mode": conversation.ai_mode,
+                "ai_mode_label": conversation.get_ai_mode_display(),
                 "message": {
                     "id": sys_msg.id,
                     "body": sys_msg.body,
@@ -1205,7 +1547,8 @@ def resume_ai_conversation(request, conversation_id):
                 "event": "inbox_update",
                 "conversation": {
                     "id": conversation.id,
-                    "status": "open",
+                    "status": conversation.status,
+                    "ai_mode": conversation.ai_mode,
                     "last_body": sys_msg.body,
                     "direction": sys_msg.direction,
                     "last_message_at_display": "just now",
@@ -1214,12 +1557,18 @@ def resume_ai_conversation(request, conversation_id):
             },
         )
     except Exception as exc:
-        logger.warning("Failed to broadcast resume AI status change: %s", exc)
+        logger.warning("Failed to broadcast resume AI mode change: %s", exc)
 
     if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.content_type == "application/json":
-        return JsonResponse({"status": "success", "new_status": conversation.status, "counts": counts})
+        return JsonResponse({
+            "status": "success",
+            "ai_mode": conversation.ai_mode,
+            "ai_mode_label": conversation.get_ai_mode_display(),
+            "new_status": conversation.status,
+            "counts": counts,
+        })
 
-    messages.success(request, "Conversation marked Open and resumed with AI Assistant.")
+    messages.success(request, "AI Assistant resumed for this conversation.")
     return redirect("messaging:conversation_detail", conversation_id=conversation.id)
 
 
@@ -1243,9 +1592,9 @@ def update_conversation_ai_mode(request, conversation_id):
         conversation.save(update_fields=["ai_mode"])
 
         label = conversation.get_ai_mode_display()
+        sys_msg = None
         if new_mode == Conversation.AIMode.OFF:
-            # When human takes over, log a small system note in the thread
-            Message.objects.create(
+            sys_msg = Message.objects.create(
                 conversation=conversation,
                 organization=org,
                 direction=Message.Direction.OUTBOUND,
@@ -1253,6 +1602,51 @@ def update_conversation_ai_mode(request, conversation_id):
                 body=f"Human agent {request.user.first_name or request.user.email} took over. AI paused for this chat.",
                 status=Message.Status.DELIVERED,
             )
+        else:
+            sys_msg = Message.objects.create(
+                conversation=conversation,
+                organization=org,
+                direction=Message.Direction.OUTBOUND,
+                sender_type=Message.SenderType.SYSTEM,
+                body=f"AI mode updated to {label} by {request.user.first_name or request.user.email}.",
+                status=Message.Status.DELIVERED,
+            )
+
+        try:
+            from messaging.ws_broadcast import broadcast_chat_event, broadcast_inbox_event
+            broadcast_chat_event(
+                conversation.id,
+                {
+                    "event": "ai_mode_change",
+                    "conversation_id": conversation.id,
+                    "ai_mode": conversation.ai_mode,
+                    "label": label,
+                    "message": {
+                        "id": sys_msg.id,
+                        "body": sys_msg.body,
+                        "direction": sys_msg.direction,
+                        "sender_type": sys_msg.sender_type,
+                        "created_at": format_chat_timestamp(sys_msg.created_at),
+                        "status": sys_msg.status,
+                    } if sys_msg else None,
+                },
+            )
+            broadcast_inbox_event(
+                org.id,
+                {
+                    "event": "inbox_update",
+                    "conversation": {
+                        "id": conversation.id,
+                        "status": conversation.status,
+                        "ai_mode": conversation.ai_mode,
+                        "last_body": sys_msg.body if sys_msg else "",
+                        "direction": "outbound",
+                        "last_message_at_display": "just now",
+                    },
+                },
+            )
+        except Exception:
+            pass
 
         if _is_ajax_request(request):
             return JsonResponse({
@@ -1423,6 +1817,29 @@ def update_conversation_assigned_to(request, conversation_id):
         assigned_name = "Unassigned"
 
     conversation.save(update_fields=["assigned_to"])
+
+    try:
+        from .ws_broadcast import broadcast_inbox_event, broadcast_chat_event
+        broadcast_inbox_event(
+            org.id,
+            {
+                "event": "conversation_assigned",
+                "conversation_id": conversation.id,
+                "assigned_to_id": conversation.assigned_to_id,
+                "assigned_to_name": assigned_name,
+            },
+        )
+        broadcast_chat_event(
+            conversation.id,
+            {
+                "event": "assignment_change",
+                "conversation_id": conversation.id,
+                "assigned_to_id": conversation.assigned_to_id,
+                "assigned_to_name": assigned_name,
+            },
+        )
+    except Exception as exc:
+        pass
 
     return JsonResponse({
         "status": "success",

@@ -1,0 +1,759 @@
+{% load i18n static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}SparkText{% endblock %}</title>
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="{% static 'img/favicon.png' %}" />
+  <link rel="shortcut icon" href="{% static 'img/favicon.ico' %}" />
+
+  <!-- Inter font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+          },
+          colors: {
+            brand: {
+              50:  '#eef2ff',
+              100: '#e0e7ff',
+              200: '#c7d2fe',
+              300: '#a5b4fc',
+              400: '#818cf8',
+              500: '#6366f1',
+              600: '#4f46e5',
+              700: '#4338ca',
+              800: '#3730a3',
+              900: '#312e81',
+            },
+          },
+        },
+      },
+    };
+  </script>
+
+  <style>
+    /* ─────────────────────────────────────────────
+       GLOBAL RESET / BASE
+    ───────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; }
+    html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+    body {
+      font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+      background-color: #060a14;
+      min-height: 100vh;
+      margin: 0;
+    }
+
+    /* ─────────────────────────────────────────────
+       BACKGROUND ORBS
+    ───────────────────────────────────────────── */
+    .bg-orbs {
+      position: fixed;
+      inset: 0;
+      overflow: hidden;
+      pointer-events: none;
+      z-index: 0;
+    }
+    .bg-orbs::before,
+    .bg-orbs::after {
+      content: '';
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(100px);
+      opacity: 0.22;
+      animation: orbDrift 20s ease-in-out infinite alternate;
+    }
+    .bg-orbs::before {
+      width: 650px; height: 650px;
+      background: radial-gradient(circle, #4f46e5 0%, transparent 70%);
+      top: -160px; left: -180px;
+      animation-delay: 0s;
+    }
+    .bg-orbs::after {
+      width: 520px; height: 520px;
+      background: radial-gradient(circle, #7c3aed 0%, transparent 70%);
+      bottom: -120px; right: -120px;
+      animation-delay: -10s;
+    }
+    @keyframes orbDrift {
+      0%   { transform: translate(0, 0) scale(1); }
+      50%  { transform: translate(45px, 35px) scale(1.09); }
+      100% { transform: translate(-25px, 55px) scale(0.94); }
+    }
+
+    /* ─────────────────────────────────────────────
+       PAGE LAYOUT
+    ───────────────────────────────────────────── */
+    .page-wrap {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+      padding: 2.5rem 1rem 2rem;
+      min-height: 100vh;
+      justify-content: center;
+      gap: 0;
+    }
+
+    /* ─────────────────────────────────────────────
+       BRAND / LOGO
+    ───────────────────────────────────────────── */
+    .brand-link {
+      display: inline-flex;
+      align-items: center;
+      text-decoration: none;
+      margin-bottom: 1.75rem;
+      transition: transform 0.15s ease, opacity 0.15s ease;
+    }
+    .brand-link:hover {
+      opacity: 0.92;
+      transform: translateY(-1px);
+    }
+    .brand-logo-img {
+      height: 38px;
+      width: auto;
+      display: block;
+    }
+
+    /* ─────────────────────────────────────────────
+       CARD
+    ───────────────────────────────────────────── */
+    .auth-card {
+      background: #fff;
+      border-radius: 1rem;
+      box-shadow: 0 0 0 1px rgba(0,0,0,.05),
+                  0 4px 6px -1px rgba(0,0,0,.08),
+                  0 24px 60px -8px rgba(0,0,0,.22);
+      width: 100%;
+      max-width: 448px;
+      overflow: hidden;
+    }
+    .card-body {
+      padding: 2rem 2rem 1.5rem;
+    }
+
+    /* ─────────────────────────────────────────────
+       CARD FOOTER
+    ───────────────────────────────────────────── */
+    .card-footer {
+      border-top: 1px solid #f1f5f9;
+      padding: 1rem 2rem;
+      text-align: center;
+      font-size: 0.8125rem;
+      color: #64748b;
+      background: #f8fafc;
+    }
+
+    /* ─────────────────────────────────────────────
+       PAGE FOOTER (below card)
+    ───────────────────────────────────────────── */
+    .page-footer {
+      margin-top: 1.5rem;
+      font-size: 0.75rem;
+      color: rgba(255,255,255,0.22);
+      text-align: center;
+    }
+
+    /* ─────────────────────────────────────────────
+       TYPOGRAPHY HELPERS
+    ───────────────────────────────────────────── */
+    .page-title {
+      font-size: 1.375rem;
+      font-weight: 700;
+      color: #0f172a;
+      letter-spacing: -0.02em;
+      margin: 0 0 0.25rem;
+      line-height: 1.25;
+    }
+    .page-subtitle {
+      font-size: 0.875rem;
+      color: #64748b;
+      margin: 0 0 1.5rem;
+      line-height: 1.5;
+    }
+    .text-center { text-align: center; }
+
+    /* ─────────────────────────────────────────────
+       FORM GROUPS
+    ───────────────────────────────────────────── */
+    .form-group {
+      margin-bottom: 1rem;
+    }
+    .form-group label {
+      display: block;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: #334155;
+      margin-bottom: 0.375rem;
+    }
+    .label-hint {
+      font-size: 0.6875rem;
+      color: #94a3b8;
+      margin-left: 4px;
+      font-weight: 400;
+    }
+    .checkbox-row {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+    }
+    .checkbox-row input[type="checkbox"] {
+      margin-top: 2px;
+      accent-color: #4f46e5;
+      flex-shrink: 0;
+    }
+
+    /* ─────────────────────────────────────────────
+       INPUT
+    ───────────────────────────────────────────── */
+    .auth-input {
+      display: block;
+      width: 100%;
+      height: 2.625rem;
+      padding: 0 0.875rem;
+      font-size: 0.9375rem;
+      font-family: inherit;
+      color: #0f172a;
+      background: #fff;
+      border: 1px solid #cbd5e1;
+      border-radius: 0.5rem;
+      outline: none;
+      transition: border-color .15s, box-shadow .15s;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+    .auth-input::placeholder { color: #94a3b8; }
+    .auth-input:focus {
+      border-color: #4f46e5;
+      box-shadow: 0 0 0 3px rgba(79,70,229,.15);
+    }
+    .auth-input:disabled { background: #f8fafc; cursor: not-allowed; color: #94a3b8; }
+
+    /* ─────────────────────────────────────────────
+       PASSWORD WRAP
+    ───────────────────────────────────────────── */
+    .pw-wrap { position: relative; }
+    .pw-wrap .auth-input { padding-right: 2.75rem; }
+    .pw-toggle {
+      position: absolute;
+      right: 0;
+      top: 0;
+      height: 100%;
+      width: 2.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: #94a3b8;
+      padding: 0;
+      transition: color .15s;
+    }
+    .pw-toggle:hover { color: #475569; }
+    /* eye icon states via data-visible attr */
+    .pw-toggle .eye-off { display: none; }
+    .pw-toggle[data-visible="true"] .eye-on  { display: none; }
+    .pw-toggle[data-visible="true"] .eye-off { display: block; }
+
+    /* ─────────────────────────────────────────────
+       PASSWORD STRENGTH BAR
+    ───────────────────────────────────────────── */
+    .strength-bar {
+      height: 4px;
+      border-radius: 2px;
+      background: #e2e8f0;
+      margin-top: 8px;
+      overflow: hidden;
+    }
+    .strength-fill {
+      height: 100%;
+      border-radius: 2px;
+      width: 0%;
+      transition: width .3s ease, background .3s ease;
+    }
+    .strength-label {
+      font-size: 0.6875rem;
+      margin-top: 4px;
+      color: #94a3b8;
+      font-weight: 500;
+    }
+    /* strength-bar-fill alias used by settings */
+    .strength-bar-fill { height: 100%; border-radius: 2px; width: 0%; transition: width .3s ease, background .3s ease; }
+    .strength-0 { width: 0%;   background: transparent; }
+    .strength-1 { width: 25%;  background: #ef4444; }
+    .strength-2 { width: 50%;  background: #f59e0b; }
+    .strength-3 { width: 75%;  background: #3b82f6; }
+    .strength-4 { width: 100%; background: #22c55e; }
+
+    /* ─────────────────────────────────────────────
+       FIELD ERROR
+    ───────────────────────────────────────────── */
+    .field-error {
+      display: block;
+      font-size: 0.75rem;
+      color: #ef4444;
+      margin-top: 4px;
+      line-height: 1.4;
+    }
+
+    /* ─────────────────────────────────────────────
+       ALERTS
+    ───────────────────────────────────────────── */
+    .alerts { margin-bottom: 0.875rem; display: flex; flex-direction: column; gap: 0.5rem; }
+    .alert {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.625rem;
+      padding: 0.625rem 0.875rem;
+      border-radius: 0.5rem;
+      font-size: 0.8125rem;
+      line-height: 1.5;
+      border: 1px solid transparent;
+    }
+    .alert-error   { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+    .alert-warning { background: #fffbeb; color: #92400e; border-color: #fde68a; }
+    .alert-success { background: #f0fdf4; color: #166534; border-color: #bbf7d0; }
+    .alert-info    { background: #eff6ff; color: #1e40af; border-color: #bfdbfe; }
+
+    /* ─────────────────────────────────────────────
+       BUTTONS
+    ───────────────────────────────────────────── */
+    .btn-primary {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      width: 100%;
+      height: 2.75rem;
+      padding: 0 1.25rem;
+      font-size: 0.9375rem;
+      font-weight: 600;
+      font-family: inherit;
+      color: #fff;
+      background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+      border: none;
+      border-radius: 0.5rem;
+      cursor: pointer;
+      outline: none;
+      transition: opacity .15s, transform .1s, box-shadow .15s;
+      text-decoration: none;
+      box-shadow: 0 1px 3px rgba(79,70,229,.35), 0 4px 12px rgba(79,70,229,.2);
+    }
+    .btn-primary:hover  { opacity: 0.92; box-shadow: 0 2px 6px rgba(79,70,229,.4), 0 8px 20px rgba(79,70,229,.25); }
+    .btn-primary:active { transform: scale(0.985); }
+    .btn-primary:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+
+    .btn-outline {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      width: 100%;
+      height: 2.75rem;
+      padding: 0 1.25rem;
+      font-size: 0.9375rem;
+      font-weight: 500;
+      font-family: inherit;
+      color: #334155;
+      background: #fff;
+      border: 1px solid #cbd5e1;
+      border-radius: 0.5rem;
+      cursor: pointer;
+      outline: none;
+      transition: background .15s, border-color .15s;
+      text-decoration: none;
+    }
+    .btn-outline:hover { background: #f8fafc; border-color: #94a3b8; }
+    .btn-outline:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    .btn-google {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.625rem;
+      width: 100%;
+      height: 2.75rem;
+      padding: 0 1.25rem;
+      font-size: 0.9375rem;
+      font-weight: 500;
+      font-family: inherit;
+      color: #1e293b;
+      background: #fff;
+      border: 1px solid #d1d5db;
+      border-radius: 0.5rem;
+      cursor: pointer;
+      outline: none;
+      transition: background .15s, box-shadow .15s;
+      text-decoration: none;
+      box-shadow: 0 1px 2px rgba(0,0,0,.06);
+    }
+    .btn-google:hover { background: #f9fafb; box-shadow: 0 2px 6px rgba(0,0,0,.09); }
+    .btn-google:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    /* Alias: .btn .btn-primary / .btn .btn-outline also work */
+    .btn { display: inline-flex; align-items: center; justify-content: center; }
+
+    .btn-label { display: inline; }
+
+    /* ─────────────────────────────────────────────
+       SPINNER
+    ───────────────────────────────────────────── */
+    .spinner {
+      display: none;
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,0.35);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .65s linear infinite;
+      flex-shrink: 0;
+    }
+    .spinner-dark {
+      display: none;
+      width: 16px; height: 16px;
+      border: 2px solid rgba(79,70,229,0.2);
+      border-top-color: #4f46e5;
+      border-radius: 50%;
+      animation: spin .65s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ─────────────────────────────────────────────
+       LINKS
+    ───────────────────────────────────────────── */
+    .link {
+      color: #4f46e5;
+      text-decoration: none;
+      font-weight: 500;
+      transition: color .15s;
+    }
+    .link:hover { color: #4338ca; text-decoration: underline; }
+    .link-muted {
+      color: #94a3b8;
+      text-decoration: none;
+      font-size: 0.8125rem;
+      transition: color .15s;
+    }
+    .link-muted:hover { color: #64748b; }
+
+    /* ─────────────────────────────────────────────
+       DIVIDER (or)
+    ───────────────────────────────────────────── */
+    .divider {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin: 1.25rem 0;
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .divider::before,
+    .divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: #e2e8f0;
+    }
+
+    /* ─────────────────────────────────────────────
+       STEP PROGRESS BAR
+    ───────────────────────────────────────────── */
+    .step-bar {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 1.5rem;
+    }
+    .step {
+      flex: 1;
+      height: 3px;
+      border-radius: 999px;
+      background: #e2e8f0;
+      transition: background .25s;
+    }
+    .step.active { background: #4f46e5; }
+
+    /* ─────────────────────────────────────────────
+       ICON CIRCLES
+    ───────────────────────────────────────────── */
+    .icon-circle {
+      width: 56px; height: 56px;
+      border-radius: 50%;
+      background: #f1f5f9;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 1rem;
+      color: #64748b;
+    }
+    .icon-circle.success { background: #dcfce7; color: #16a34a; }
+    .icon-circle.danger  { background: #fee2e2; color: #dc2626; }
+
+    /* ─────────────────────────────────────────────
+       INFO BOX
+    ───────────────────────────────────────────── */
+    .info-box {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 0.5rem;
+      padding: 0.75rem 1rem;
+      font-size: 0.8125rem;
+      color: #1e40af;
+      line-height: 1.5;
+    }
+
+    /* ─────────────────────────────────────────────
+       USER EMAIL CHIP
+    ───────────────────────────────────────────── */
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
+      border-radius: 999px;
+      padding: 0.3rem 0.75rem 0.3rem 0.3rem;
+      font-size: 0.8125rem;
+      color: #334155;
+    }
+    .chip-avatar {
+      width: 24px; height: 24px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #4f46e5, #7c3aed);
+      color: #fff;
+      font-size: 0.6875rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .chip-email { font-weight: 500; }
+    .chip-change {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: #94a3b8;
+      font-size: 0.75rem;
+      padding: 0;
+      margin-left: 2px;
+      text-decoration: underline;
+      transition: color .15s;
+      font-family: inherit;
+    }
+    .chip-change:hover { color: #4f46e5; }
+
+    /* ─────────────────────────────────────────────
+       TAB BUTTONS
+    ───────────────────────────────────────────── */
+    .tab-btn {
+      padding: 0.5rem 1rem;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: #64748b;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      font-family: inherit;
+      transition: color .15s, border-color .15s;
+      white-space: nowrap;
+    }
+    .tab-btn:hover { color: #334155; }
+    .tab-btn.active {
+      color: #4f46e5;
+      border-bottom-color: #4f46e5;
+    }
+
+    /* ─────────────────────────────────────────────
+       OAUTH OVERLAY
+    ───────────────────────────────────────────── */
+    #oauth-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(15,23,42,0.72);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+      gap: 1rem;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .2s;
+    }
+    #oauth-overlay.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    #oauth-overlay .oauth-card {
+      background: #fff;
+      border-radius: 1rem;
+      padding: 2rem 2.25rem;
+      text-align: center;
+      max-width: 320px;
+      width: 100%;
+      box-shadow: 0 20px 60px rgba(0,0,0,.3);
+    }
+    #oauth-overlay .oauth-spinner {
+      width: 36px; height: 36px;
+      border: 3px solid #e0e7ff;
+      border-top-color: #4f46e5;
+      border-radius: 50%;
+      animation: spin .75s linear infinite;
+      margin: 0 auto 1rem;
+    }
+    #oauth-overlay .oauth-title {
+      font-size: 0.9375rem;
+      font-weight: 600;
+      color: #0f172a;
+      margin-bottom: 0.25rem;
+    }
+    #oauth-overlay .oauth-sub {
+      font-size: 0.8125rem;
+      color: #64748b;
+    }
+  </style>
+
+  {% block extra_css %}{% endblock %}
+</head>
+<body>
+
+  <!-- Ambient background orbs -->
+  <div class="bg-orbs" aria-hidden="true"></div>
+
+  <!-- OAuth redirect overlay -->
+  <div id="oauth-overlay" role="dialog" aria-modal="true" aria-label="{% trans 'Signing in…' %}">
+    <div class="oauth-card">
+      <div class="oauth-spinner"></div>
+      <p class="oauth-title">{% trans "Redirecting to provider" %}</p>
+      <p class="oauth-sub">{% trans "Please wait a moment…" %}</p>
+    </div>
+  </div>
+
+  <!-- Main page wrapper -->
+  <div class="page-wrap">
+
+    <!-- Brand logo (above card) -->
+    <a href="/" class="brand-link" aria-label="SparkText home">
+      <img src="{% static 'img/logo-dark.png' %}" alt="SparkText" class="brand-logo-img" />
+    </a>
+
+    <!-- Auth card -->
+    <div class="auth-card">
+
+      <!-- Flash messages -->
+      {% if messages %}
+      <div class="card-body" style="padding-bottom:0;">
+        <div class="alerts">
+          {% for message in messages %}
+          <div class="alert alert-{{ message.tags|default:'info' }}" role="alert">
+            {% if message.tags == 'error' %}
+              <svg width="15" height="15" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" style="flex-shrink:0;margin-top:1px"><path fill-rule="evenodd" d="M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Zm-8-5a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-1.5 0v-4.5A.75.75 0 0 1 10 5Zm0 10a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clip-rule="evenodd"/></svg>
+            {% elif message.tags == 'warning' %}
+              <svg width="15" height="15" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" style="flex-shrink:0;margin-top:1px"><path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495ZM10 5a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 10 5Zm0 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clip-rule="evenodd"/></svg>
+            {% elif message.tags == 'success' %}
+              <svg width="15" height="15" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" style="flex-shrink:0;margin-top:1px"><path fill-rule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm3.857-9.809a.75.75 0 0 0-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 1 0-1.06 1.061l2.5 2.5a.75.75 0 0 0 1.137-.089l4-5.5Z" clip-rule="evenodd"/></svg>
+            {% else %}
+              <svg width="15" height="15" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" style="flex-shrink:0;margin-top:1px"><path fill-rule="evenodd" d="M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Zm-7-4a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM9 9a.75.75 0 0 0 0 1.5h.253a.25.25 0 0 1 .244.304l-.459 2.066A1.75 1.75 0 0 0 10.747 15H11a.75.75 0 0 0 0-1.5h-.253a.25.25 0 0 1-.244-.304l.459-2.066A1.75 1.75 0 0 0 9.253 9H9Z" clip-rule="evenodd"/></svg>
+            {% endif %}
+            <span>{{ message }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- Main content block -->
+      <div class="card-body">
+        {% block content %}{% endblock %}
+      </div>
+
+      <!-- Card footer block -->
+      {% block card_footer %}{% endblock %}
+
+    </div>
+    <!-- /auth-card -->
+
+    <!-- Page footer -->
+    <p class="page-footer">
+      &copy; {% now "Y" %} SparkText &middot;
+      <a href="/privacy/" class="link-muted">{% trans "Privacy" %}</a> &middot;
+      <a href="/terms/" class="link-muted">{% trans "Terms" %}</a>
+    </p>
+
+  </div>
+  <!-- /page-wrap -->
+
+  <script>
+    /* ── OAuth overlay ───────────────────────── */
+    function showOAuthOverlay() {
+      var el = document.getElementById('oauth-overlay');
+      if (el) { el.classList.add('visible'); }
+    }
+
+    /* ── Password visibility toggle ─────────── */
+    function togglePw(inputId, btn) {
+      var input = document.getElementById(inputId);
+      if (!input) return;
+      var isText = input.type === 'text';
+      input.type = isText ? 'password' : 'text';
+      btn.setAttribute('data-visible', String(!isText));
+      btn.setAttribute('aria-label', isText ? 'Show password' : 'Hide password');
+    }
+
+    /* ── Anti double-submit + spinner ─────────── */
+    (function () {
+      document.addEventListener('submit', function (e) {
+        var form = e.target;
+        if (form.dataset.submitted === 'true') {
+          e.preventDefault();
+          return;
+        }
+        form.dataset.submitted = 'true';
+
+        var btn     = form.querySelector('[type="submit"]');
+        if (!btn) return;
+
+        btn.disabled = true;
+
+        var label   = btn.querySelector('.btn-label');
+        var spinner = btn.querySelector('.spinner, .spinner-dark');
+
+        if (spinner) { spinner.style.display = 'block'; }
+        if (label)   { label.style.opacity = '0.7'; }
+
+        /* Safety valve: re-enable after 12 s in case server errors */
+        setTimeout(function () {
+          form.dataset.submitted = 'false';
+          btn.disabled = false;
+          if (spinner) { spinner.style.display = 'none'; }
+          if (label)   { label.style.opacity = '1'; }
+        }, 12000);
+      }, true);
+    })();
+  </script>
+
+  {% block extra_js %}{% endblock %}
+
+</body>
+</html>

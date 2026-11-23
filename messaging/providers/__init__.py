@@ -15,16 +15,19 @@ def get_sms_provider() -> BaseSMSProvider:
     if provider_name == "fake":
         return FakeProvider()
 
-    try:
-        from pathlib import Path
-        import environ
-        env_file = Path(settings.BASE_DIR) / ".env"
-        if env_file.exists():
-            env = environ.Env()
-            environ.Env.read_env(env_file, overwrite=True)
-            provider_name = env("MESSAGING_PROVIDER", default=provider_name or "telnyx").lower()
-    except Exception:
-        pass
+    import sys
+    is_testing = "test" in sys.argv
+    if not is_testing:
+        try:
+            from pathlib import Path
+            import environ
+            env_file = Path(settings.BASE_DIR) / ".env"
+            if env_file.exists():
+                env = environ.Env()
+                environ.Env.read_env(env_file, overwrite=True)
+                provider_name = env("MESSAGING_PROVIDER", default=provider_name or "twilio").lower()
+        except Exception:
+            pass
 
     if provider_name == "fake":
         return FakeProvider()

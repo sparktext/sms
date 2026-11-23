@@ -31,12 +31,18 @@
 
   <div class="field">
     <label for="password">Create Password (at least 8 chars) *</label>
-    <input type="password" id="password" name="password" required placeholder="••••••••">
+    <div class="pw-wrap">
+      <input type="password" id="password" name="password" required placeholder="••••••••" autocomplete="new-password">
+      {% include "core/partials/pw_toggle.html" with target="password" %}
+    </div>
   </div>
 
   <div class="field">
     <label for="confirm_password">Confirm Password *</label>
-    <input type="password" id="confirm_password" name="confirm_password" required placeholder="••••••••">
+    <div class="pw-wrap">
+      <input type="password" id="confirm_password" name="confirm_password" required placeholder="••••••••" autocomplete="new-password">
+      {% include "core/partials/pw_toggle.html" with target="confirm_password" %}
+    </div>
   </div>
 
   <div class="field check" style="margin-top:16px; margin-bottom:20px;">

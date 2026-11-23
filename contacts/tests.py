@@ -15,6 +15,7 @@ from contacts.services import (
     suggest_column_mappings,
     validate_csv_mapping,
     import_contacts_csv,
+    ingest_lead_data,
 )
 from contacts.admin import (
     ContactAdmin,
@@ -208,7 +209,6 @@ class ContactModelAndServiceTests(TestCase):
                 "first_name": "Alice",
                 "last_name": "Smith",
                 "email": "alice@example.com",
-                "timezone": "America/Los_Angeles",
                 "custom_fields": {"favorite_topping": "Cheese"},
             },
             source=Contact.Source.CSV,
@@ -231,20 +231,17 @@ class ContactModelAndServiceTests(TestCase):
         self.assertEqual(c2.first_name, "Alice")
         self.assertEqual(c2.last_name, "Smith")
         self.assertEqual(c2.email, "alice@example.com")
-        self.assertEqual(c2.timezone, "America/Los_Angeles")
         self.assertEqual(c2.custom_fields["favorite_topping"], "Mushrooms")
         self.assertEqual(c2.source, Contact.Source.CSV)
 
-    def test_input_validations_email_timezone_lengths_value_types(self):
-        """Validates email format, IANA timezone, string lengths, and custom field value types."""
+    def test_input_validations_email_lengths_value_types(self):
+        """Validates email format, string lengths, and custom field value types."""
         with self.assertRaises(ValidationError):
             save_contact(self.org1, {"phone": "+16502530000", "email": "not-an-email"})
 
-        with self.assertRaises(ValidationError):
-            save_contact(self.org1, {"phone": "+16502530000", "timezone": "Mars/Olympus_Mons"})
-
-        c, _created = save_contact(self.org1, {"phone": "+16502530000", "timezone": "America/New_York"})
-        self.assertEqual(c.timezone, "America/New_York")
+        # Timezone is no longer a contact attribute: a stray value is ignored, not stored or validated.
+        c, _created = save_contact(self.org1, {"phone": "+16502530000", "timezone": "Mars/Olympus_Mons"})
+        self.assertFalse(hasattr(c, "timezone"))
 
         with self.assertRaises(ValidationError):
             save_contact(self.org1, {
@@ -439,7 +436,6 @@ class AdminFormValidationTests(TestCase):
                 "first_name": "Admin",
                 "last_name": "Edited",
                 "email": "edited@example.com",
-                "timezone": "America/Chicago",
                 "custom_fields_json": {"tier": "Gold"},
                 "external_ids": {},
             }
@@ -519,6 +515,7 @@ class ContactsViewAndTemplateTests(TestCase):
                 "first_name": "Jane",
                 "last_name": "Taylor",
                 "email": "jane@example.com",
+                "source": "Direct",
             },
             HTTP_X_REQUESTED_WITH="XMLHttpRequest",
         )
@@ -528,7 +525,19 @@ class ContactsViewAndTemplateTests(TestCase):
         self.assertEqual(json_data["phone"], "+16502531111")
         self.assertEqual(json_data["first_name"], "Jane")
         self.assertEqual(json_data["last_name"], "Taylor")
-        self.assertTrue(Contact.objects.filter(organization=self.org, phone="+16502531111").exists())
+        self.assertTrue(Contact.objects.filter(organization=self.org, phone="+16502531111", source="Direct").exists())
+
+        # Test source is compulsory
+        fail_resp = self.client.post(
+            "/contacts/new/",
+            data={
+                "phone": "(650) 253-2222",
+                "first_name": "No",
+                "last_name": "Source",
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(fail_resp.status_code, 400)
 
     def test_import_preview_and_process_flow(self):
         import io
@@ -573,6 +582,60 @@ class ContactsViewAndTemplateTests(TestCase):
         self.assertEqual(c.first_name, "Charlie")
         self.assertEqual(c.last_name, "Brown")
 
+    def test_import_excel_xlsx_flow(self):
+        import io
+        import json
+        import openpyxl
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        # Create in-memory XLSX file
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["First Name", "Last Name", "Phone Number", "Email"])
+        ws.append(["David", "Miller", "+16502533333", "david@example.com"])
+        buf = io.BytesIO()
+        wb.save(buf)
+        xlsx_bytes = buf.getvalue()
+
+        upload_file = SimpleUploadedFile("contacts.xlsx", xlsx_bytes, content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+        # Preview step
+        resp_prev = self.client.post(
+            "/contacts/import/preview/",
+            {"file": upload_file},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(resp_prev.status_code, 200)
+        prev_data = resp_prev.json()
+        self.assertEqual(prev_data["status"], "success")
+        self.assertIn("Phone Number", prev_data["headers"])
+
+        # Process step
+        mapping = {
+            "First Name": {"decision": "map", "target": "first_name"},
+            "Last Name": {"decision": "map", "target": "last_name"},
+            "Phone Number": {"decision": "map", "target": "phone"},
+            "Email": {"decision": "map", "target": "email"},
+        }
+        upload_file2 = SimpleUploadedFile("contacts.xlsx", xlsx_bytes, content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        resp_proc = self.client.post(
+            "/contacts/import/process/",
+            {
+                "file": upload_file2,
+                "mapping": json.dumps(mapping),
+                "consent_attested": "1",
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(resp_proc.status_code, 200)
+        proc_data = resp_proc.json()
+        self.assertEqual(proc_data["status"], "success")
+        self.assertEqual(proc_data["report"]["created"], 1)
+        c = Contact.objects.get(organization=self.org, phone="+16502533333")
+        self.assertEqual(c.first_name, "David")
+        self.assertEqual(c.last_name, "Miller")
+        self.assertEqual(c.email, "david@example.com")
+
     def test_sms_status_unknown_displays_no_consent(self):
         c = Contact.objects.create(first_name="Test", last_name="Lead", phone="+16502530000", organization=self.org)
         self.assertEqual(c.sms_status, Contact.SMSStatus.UNKNOWN)
@@ -612,7 +675,6 @@ class ContactsViewAndTemplateTests(TestCase):
                 "first_name": "Antonio",
                 "last_name": "Updated",
                 "email": "antonio.new@example.com",
-                "timezone": "America/New_York",
             },
             HTTP_X_REQUESTED_WITH="XMLHttpRequest",
         )
@@ -834,7 +896,7 @@ class ContactsViewAndTemplateTests(TestCase):
 
     def test_export_contacts_csv(self):
         """Export contacts view streams valid CSV with correct headers and contact data."""
-        self.client.login(username=self.user.email, password="password123")
+        self.client.force_login(self.user)
         Contact.objects.create(
             organization=self.org,
             phone="+14155552671",
@@ -906,7 +968,7 @@ class ContactsViewAndTemplateTests(TestCase):
         # 1. GET contact detail renders the full conversation history & inline reply form
         get_resp = self.client.get(f"/contacts/{contact.id}/")
         self.assertEqual(get_resp.status_code, 200)
-        self.assertContains(get_resp, "Conversation History")
+        self.assertContains(get_resp, "id=\"contact-conversation-card\"")
         self.assertContains(get_resp, "3 messages")
         self.assertContains(get_resp, "Fall promo broadcast!")
         self.assertContains(get_resp, "Tell me more about auto rates.")
@@ -1011,7 +1073,7 @@ class ContactsViewAndTemplateTests(TestCase):
         # 1. GET contact detail renders the Conversation Summary card with metrics & qualification answers
         resp = self.client.get(f"/contacts/{contact.id}/")
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "Conversation Summary")
+        self.assertContains(resp, "Lead summary")
         self.assertContains(resp, "Auto &amp; Home")
         self.assertContains(resp, "94030")
         self.assertContains(resp, "Requested custom commercial quote")
@@ -1100,11 +1162,14 @@ class ContactsViewAndTemplateTests(TestCase):
             html.index("Message Contact", main_idx),
             html.index("Liam", main_idx),
         )
-        # Right column (Consent Status & Conversation Summary) streams in HTML before long Conversation History thread
-        self.assertLess(html.index("Consent Status", main_idx), html.index("Conversation History", main_idx))
-        self.assertLess(html.index("Conversation Summary", main_idx), html.index("Conversation History", main_idx))
-        self.assertIn("lg:col-start-3 lg:row-start-1 lg:row-span-2", html[main_idx:])
-        self.assertIn("lg:col-span-2 lg:col-start-1 lg:row-start-2", html[main_idx:])
+        # Consent lives behind the status badge by the name (no separate Consent Status box)
+        self.assertNotIn("Consent Status", html[main_idx:])
+        self.assertIn('onclick="openAuditHistoryModal()" title="View consent history"', html[main_idx:])
+        # Sticky right column: Conversation Summary on top, then the conversation + reply box
+        self.assertLess(html.index("Lead summary", main_idx), html.index("contact-conversation-card", main_idx))
+        self.assertIn("lg:col-start-2 lg:row-start-1 lg:sticky", html[main_idx:])
+        self.assertLess(html.index('id="contact-summary-card"'), html.index('id="contact-conversation-card"'))
+        self.assertIn("overflow-x-clip", html[main_idx - 300:main_idx + 300])
         # Non-standard custom stage is preserved in the dropdown
         self.assertRegex(html, r'<option[^>]*value="Intake"[^>]*selected')
 
@@ -1226,3 +1291,259 @@ class ContactsViewAndTemplateTests(TestCase):
 
 
 
+
+
+class InlineListCreationAndNoTimezoneTests(TestCase):
+    """Lists can be created from where they are picked; timezone is gone from the contact UI."""
+
+    def setUp(self):
+        from core.models import User
+        self.org = Organization.objects.create(name="Inline Lists Co", slug="inline-lists-co")
+        self.other_org = Organization.objects.create(name="Other Co", slug="other-co")
+        self.user = User.objects.create_user(
+            email="owner@inline.com", password="securepassword123", organization=self.org,
+        )
+        self.client.force_login(self.user)
+        self.ajax = {"HTTP_X_REQUESTED_WITH": "XMLHttpRequest"}
+
+    # ---- create_list JSON contract the inline widget relies on
+    def test_create_list_ajax_returns_id_and_name(self):
+        resp = self.client.post("/contacts/lists/new/", {"name": "Hot Leads"}, **self.ajax)
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["status"], "success")
+        self.assertEqual(data["name"], "Hot Leads")
+        self.assertTrue(ContactList.objects.filter(id=data["id"], organization=self.org).exists())
+
+    def test_create_list_rejects_blank_duplicate_and_too_long(self):
+        ContactList.objects.create(organization=self.org, name="Hot Leads")
+        for payload in ({"name": "  "}, {"name": "hot leads"}, {"name": "x" * 201}):
+            resp = self.client.post("/contacts/lists/new/", payload, **self.ajax)
+            self.assertEqual(resp.status_code, 400, payload)
+            self.assertEqual(resp.json()["status"], "error")
+        self.assertEqual(ContactList.objects.filter(organization=self.org).count(), 1)
+
+    def test_same_list_name_allowed_in_different_orgs(self):
+        ContactList.objects.create(organization=self.other_org, name="Hot Leads")
+        resp = self.client.post("/contacts/lists/new/", {"name": "Hot Leads"}, **self.ajax)
+        self.assertEqual(resp.status_code, 200)
+
+    # ---- a freshly created list can be used straight away
+    def test_add_contact_into_just_created_list(self):
+        new_id = self.client.post("/contacts/lists/new/", {"name": "Fresh"}, **self.ajax).json()["id"]
+        resp = self.client.post("/contacts/new/", {
+            "phone": "(650) 253-0000", "first_name": "Ann", "source": "Direct",
+            "contact_list_id": str(new_id),
+        }, **self.ajax)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(ContactList.objects.get(id=new_id).contacts.count(), 1)
+
+    def test_edit_contact_assigns_just_created_list(self):
+        c = Contact.objects.create(organization=self.org, phone="+16502530000", source="Direct")
+        new_id = self.client.post("/contacts/lists/new/", {"name": "Fresh"}, **self.ajax).json()["id"]
+        resp = self.client.post(f"/contacts/{c.id}/edit/", {
+            "phone": "+16502530000", "source": "Direct", "lists_submitted": "1", "lists": [str(new_id)],
+        }, **self.ajax)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(list(c.lists.values_list("id", flat=True)), [new_id])
+
+    # ---- the widget is rendered everywhere a list is picked
+    def test_list_pages_render_inline_create_widget(self):
+        ContactList.objects.create(organization=self.org, name="Existing")
+        c = Contact.objects.create(organization=self.org, phone="+16502530000", source="Direct")
+
+        html = self.client.get("/contacts/").content.decode()
+        for select_id in ("ac_list_id", "csvTargetList", "remote_list_id"):
+            self.assertIn(f'data-select-id="{select_id}"', html)
+        self.assertIn("lists/new/", html)
+
+        self.assertNotIn("{#", html)  # multi-line {# #} comments leak as visible text
+        self.assertNotIn("Inline \"create a contact list\" widget", html)
+
+        html = self.client.get(f"/contacts/{c.id}/").content.decode()
+        self.assertNotIn("{#", html)
+        self.assertIn('data-chips-id="detailListChips"', html)
+        self.assertIn('id="detailListChips"', html)
+        self.assertIn("lists/new/", html)
+
+    # ---- timezone is gone from the contact UI and ignored on input
+    def test_no_timezone_inputs_on_contact_pages(self):
+        c = Contact.objects.create(organization=self.org, phone="+16502530000", source="Direct")
+        for url in ("/contacts/", f"/contacts/{c.id}/"):
+            html = self.client.get(url).content.decode().lower()
+            self.assertNotIn('name="timezone"', html, url)
+            self.assertNotIn("america/new_york", html, url)
+            self.assertNotIn("ac_timezone", html, url)
+
+    def test_timezone_in_post_or_lead_payload_is_ignored(self):
+        resp = self.client.post("/contacts/new/", {
+            "phone": "(650) 253-0000", "source": "Direct", "timezone": "Not/AZone",
+        }, **self.ajax)
+        self.assertEqual(resp.status_code, 200)
+        contact, _ = ingest_lead_data(self.org, {"phone": "+16502530001", "timezone": "Mars/Base", "city": "Fresno"})
+        self.assertFalse(hasattr(contact, "timezone"))
+        self.assertNotIn("timezone", contact.custom_fields)
+        self.assertFalse(ContactField.objects.filter(organization=self.org, key="timezone").exists())
+
+    def test_csv_timezone_column_is_skipped_by_mapping_suggestions(self):
+        sug = suggest_column_mappings(self.org, ["Phone", "Timezone", "TZ"])
+        self.assertEqual(sug["Phone"]["target"], "phone")
+        self.assertEqual(sug["Timezone"]["decision"], "skip")
+        self.assertEqual(sug["TZ"]["decision"], "skip")
+
+
+class SpreadsheetUsDateTests(TestCase):
+    """Spreadsheet dates are stored as US MM/DD/YYYY; Excel's day/month mix-up is undone."""
+
+    @staticmethod
+    def _xlsx(rows):
+        import io
+        import openpyxl
+        wb = openpyxl.Workbook()
+        for r in rows:
+            wb.active.append(r)
+        buf = io.BytesIO()
+        wb.save(buf)
+        return buf.getvalue()
+
+    def _column(self, rows):
+        from contacts.services import extract_tabular_data
+        _headers, data, _warning = extract_tabular_data(self._xlsx(rows), "leads.xlsx")
+        return [r[1] for r in data]
+
+    def test_us_file_misread_by_day_month_excel_is_repaired(self):
+        import datetime
+        col = self._column([["phone", "birthdate"],
+                            ["+16502530001", datetime.datetime(1965, 11, 12)],   # Excel read 12/11/1965 as 12 Nov
+                            ["+16502530002", "12/25/1965"]])                    # Excel left this as text
+        self.assertEqual(col, ["12/11/1965", "12/25/1965"])
+
+    def test_correct_dates_are_kept_and_shown_in_us_format(self):
+        import datetime
+        col = self._column([["phone", "birthdate"],
+                            ["+16502530001", datetime.datetime(1965, 12, 11)],
+                            ["+16502530002", datetime.datetime(1965, 12, 25)]])
+        self.assertEqual(col, ["12/11/1965", "12/25/1965"])
+
+
+class EditContactKeepsLeadDataTests(TestCase):
+    """Saving the contact form edits only approved fields; lead-form JSON and stage must survive."""
+
+    def test_saving_form_keeps_lead_json_and_stage(self):
+        from django.contrib.auth import get_user_model
+        from django.urls import reverse
+        org = Organization.objects.create(name="Keep Org", slug="keep-org")
+        user = get_user_model().objects.create_user(email="keep@example.com", password="pw12345!", organization=org,
+                                                    role=get_user_model().Role.OWNER)
+        ContactField.objects.create(organization=org, key="city", label="City")
+        ContactField.objects.create(organization=org, key="detail", label="detail")   # approved, but hidden on the form
+        ContactField.objects.create(organization=org, key="county", label="County")
+        contact = Contact.objects.create(organization=org, phone="+16502530111", first_name="Ann", source="Direct",
+                                         custom_fields={"city": "Tulare", "detail": '{"person": {"firstName": "Ann"}}',
+                                                        "stage": "Qualified", "county": "Tulare"})
+        self.client.force_login(user)
+        self.client.post(reverse("contacts:edit", args=[contact.id]),
+                         {"phone": "+16502530112", "first_name": "Ann", "source": "Direct", "custom_field_city": "Fresno",
+                          "custom_field_county": ""})
+        contact.refresh_from_db()
+        self.assertEqual(contact.custom_fields["city"], "Fresno")
+        self.assertEqual(contact.custom_fields["detail"], '{"person": {"firstName": "Ann"}}')
+        self.assertEqual(contact.custom_fields["stage"], "Qualified")
+        self.assertNotIn("county", contact.custom_fields)          # shown on the form and cleared -> removed
+        self.assertEqual(contact.phone, "+16502530112")
+
+
+class LeadEditorTests(TestCase):
+    """Every lead key is shown (even empty ones) and edits are written back in the original's type."""
+
+    PAYLOAD = {
+        "person": {"firstName": "Ann", "lastName": "Lee", "occupation": None, "phone": "5594679858",
+                   "birthDate": "5/9/1963", "address": {"street": "1 Main St", "city": "Tulare", "county": None}},
+        "requestForQuote": None,
+        "autoPolicy": {"monthsInsured": 50, "insuranceExpiration": {"year": 2026, "month": 9},
+                       "completedTs": {"low": 1788118742, "high": 0, "unsigned": False}, "homeowner": True,
+                       "additionalCars": [{"make": "TOYOTA", "year": 2021, "model": "CAMRY", "address": {}}]},
+        "vertical": "auto",
+    }
+
+    def _names(self, editor):
+        return {f["label"]: f for s in editor["sections"]
+                for c in s["cards"] + [c for g in s["groups"] for c in g["cards"]] for f in c["fields"]}
+
+    def test_empty_keys_are_shown(self):
+        from contacts.lead_editor import build_lead_editor
+        fields = self._names(build_lead_editor(self.PAYLOAD))
+        for label in ("Request For Quote", "Occupation", "County", "Address", "Vertical", "First Name"):
+            self.assertIn(label, fields)
+        self.assertTrue(fields["Occupation"]["empty"])
+        self.assertEqual(fields["Date of Birth"]["hint"][-3:], "yrs")
+
+    def test_edits_keep_types_and_untouched_values(self):
+        import json
+        from contacts.lead_editor import build_lead_editor, apply_lead_edits
+        cf = {"detail": json.dumps(self.PAYLOAD), "city": "Tulare"}
+        fields = self._names(build_lead_editor(self.PAYLOAD))
+        posted = [(f["name"], f["value"]) for f in fields.values()]          # everything unchanged
+        same, n = apply_lead_edits(cf, posted)
+        self.assertEqual(n, 0)
+        self.assertIs(same, cf)
+
+        edits = dict(posted)
+        edits[fields["Months Continuously Insured"]["name"]] = "60"
+        edits[fields["Policy Expiration"]["name"]] = "10/2027"
+        edits[fields["Homeowner"]["name"]] = "no"
+        edits[fields["Phone"]["name"]] = "(559) 111-2222"
+        edits[fields["Occupation"]["name"]] = "Teacher"
+        edits[fields["Make"]["name"]] = "HONDA"
+        edits[fields["City"]["name"]] = ""
+        new_cf, n = apply_lead_edits(cf, edits.items())
+        self.assertEqual(n, 7)
+        data = json.loads(new_cf["detail"])
+        self.assertEqual(data["autoPolicy"]["monthsInsured"], 60)
+        self.assertEqual(data["autoPolicy"]["insuranceExpiration"], {"year": 2027, "month": 10})
+        self.assertIs(data["autoPolicy"]["homeowner"], False)
+        self.assertEqual(data["person"]["phone"], "5591112222")
+        self.assertEqual(data["person"]["occupation"], "Teacher")
+        self.assertEqual(data["autoPolicy"]["additionalCars"][0]["make"], "HONDA")
+        self.assertIsNone(data["person"]["address"]["city"])
+        self.assertEqual(data["autoPolicy"]["completedTs"], self.PAYLOAD["autoPolicy"]["completedTs"])
+        self.assertEqual(new_cf["city"], "Tulare")
+
+    def test_saving_contact_form_writes_lead_edits(self):
+        import json
+        from django.contrib.auth import get_user_model
+        from django.urls import reverse
+        from contacts.lead_editor import build_lead_editor
+        org = Organization.objects.create(name="Edit Org", slug="edit-org")
+        user = get_user_model().objects.create_user(email="edit@example.com", password="pw12345!", organization=org,
+                                                    role=get_user_model().Role.OWNER)
+        contact = Contact.objects.create(organization=org, phone="+16502530222", first_name="Ann", source="Direct",
+                                         custom_fields={"detail": json.dumps(self.PAYLOAD), "stage": "Qualified"})
+        self.client.force_login(user)
+        page = self.client.get(reverse("contacts:detail", args=[contact.id]))
+        self.assertContains(page, "Lead details")
+        self.assertContains(page, 'id="leadSearch"')
+        self.assertContains(page, 'name="lead::[&quot;person&quot;,&quot;occupation&quot;]"')
+        name = self._names(build_lead_editor(self.PAYLOAD))["Occupation"]["name"]
+        self.client.post(reverse("contacts:edit", args=[contact.id]),
+                         {"phone": "+16502530222", "first_name": "Ann", "source": "Direct", name: "Nurse"})
+        contact.refresh_from_db()
+        self.assertEqual(json.loads(contact.custom_fields["detail"])["person"]["occupation"], "Nurse")
+        self.assertEqual(contact.custom_fields["stage"], "Qualified")
+
+
+class ImportColumnSuggestionTests(TestCase):
+    """CSV headers that match an existing custom field (key or label) are pre-mapped to it."""
+
+    def test_headers_match_custom_fields_by_key_or_label(self):
+        from contacts.services import suggest_column_mappings
+        org = Organization.objects.create(name="Map Org", slug="map-org")
+        ContactField.objects.create(organization=org, key="zip_code", label="zip_code")
+        ContactField.objects.create(organization=org, key="current_insurer", label="Current Insurer")
+        ContactField.objects.create(organization=org, key="city", label="city")
+        s = suggest_column_mappings(org, ["City", "Zip-Code", "current insurer", "Phone", "notes"])
+        self.assertEqual((s["City"]["type"], s["City"]["target"]), ("custom", "city"))
+        self.assertEqual(s["Zip-Code"]["target"], "zip_code")
+        self.assertEqual(s["current insurer"]["target"], "current_insurer")
+        self.assertEqual((s["Phone"]["type"], s["Phone"]["target"]), ("core", "phone"))
+        self.assertEqual(s["notes"]["decision"], "skip")

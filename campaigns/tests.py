@@ -310,8 +310,9 @@ class CampaignsTestSuite(TestCase):
         self.assertEqual(res.status_code, 200)
         data = res.json()
         self.assertEqual(data["status"], "success")
-        self.assertEqual(data["total"], 2)  # c1 and c3
-        self.assertEqual(data["opted_in"], 1)  # c1
+        # Lead-stage filtering was removed: a stray ?stage= param is ignored
+        self.assertEqual(data["total"], 3)  # c1, c2, c3
+        self.assertEqual(data["opted_in"], 2)  # c1, c2
         self.assertEqual(data["opted_out"], 1)  # c3
 
     def test_cross_organization_isolation(self):
@@ -410,7 +411,6 @@ class CampaignsTestSuite(TestCase):
                 "name": "Updated Fall Auto Rebate",
                 "phone_number_id": self.phone_a.id,
                 "lists": [self.list_1.id],
-                "filter_stage": "__all__",
                 "message_template": "Hello {{ first_name }}, new draft copy!",
                 "ai_mode": "custom",
                 "ai_campaign_goal": "Goal updated",
@@ -450,7 +450,6 @@ class CampaignsTestSuite(TestCase):
                 "name": "Winter Early Bird Draft",
                 "phone_number_id": self.phone_a.id,
                 "lists": [self.list_1.id],
-                "filter_stage": "__all__",
                 "message_template": "Hi {{ first_name }}, draft copy for winter savings.",
                 "ai_mode": "default",
                 "timing": "immediate",
@@ -880,3 +879,38 @@ class CampaignTemplateViewTests(TestCase):
 
 
 
+
+
+class LeadStageFilterRemovedTests(TestCase):
+    """The campaign composer no longer offers or applies a lead-stage filter."""
+
+    def setUp(self):
+        from core.models import User
+        from messaging.models import PhoneNumber
+        self.org = Organization.objects.create(name="No Stage Org", slug="no-stage-org")
+        self.user = User.objects.create_user(email="ns@example.com", password="password123", organization=self.org)
+        self.phone = PhoneNumber.objects.create(organization=self.org, e164="+16502530100", is_active=True)
+        self.lst = ContactList.objects.create(organization=self.org, name="All")
+        for i, (status, stage) in enumerate([
+            (Contact.SMSStatus.OPTED_IN, "Intake"),
+            (Contact.SMSStatus.OPTED_IN, "Qualified"),
+        ]):
+            c = Contact.objects.create(organization=self.org, phone=f"+1650253020{i}", source="Direct",
+                                       sms_status=status, custom_fields={"stage": stage})
+            self.lst.contacts.add(c)
+        self.client.force_login(self.user, backend="django.contrib.auth.backends.ModelBackend")
+
+    def test_composer_has_no_stage_filter(self):
+        html = self.client.get("/campaigns/new/").content.decode()
+        self.assertNotIn("Filter by Lead Stage", html)
+        self.assertNotIn('name="filter_stage"', html)
+        self.assertNotIn('id="filter-stage"', html)
+
+    def test_posted_filter_stage_is_ignored(self):
+        self.client.post("/campaigns/new/", {
+            "name": "No stage", "phone_number_id": self.phone.id,
+            "message_template": "Hi {{ first_name }}", "timing": "immediate",
+            "lists": [self.lst.id], "filter_stage": "Intake", "save_draft": "1",
+        })
+        camp = Campaign.objects.get(organization=self.org, name="No stage")
+        self.assertEqual(camp.filter_criteria, {})

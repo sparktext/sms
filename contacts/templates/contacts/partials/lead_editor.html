@@ -1,0 +1,217 @@
+{# Editable lead details with instant search. Context: lead_editor (sections/cards/fields), lead_dossier (chips + raw JSON). #}
+<div id="leadDetails" class="pt-6 border-t border-gray-200/80 space-y-4">
+
+  <!-- Header -->
+  <div class="flex items-start justify-between gap-3 flex-wrap">
+    <div class="min-w-0">
+      <h4 class="text-sm font-bold text-gray-900 leading-tight">Lead details</h4>
+      <p class="text-[11px] text-gray-500 mt-0.5">{{ lead_editor.field_count }} fields from the lead form · click a value to edit it, then Save Changes</p>
+    </div>
+    {% if lead_dossier.chips %}
+    <div class="flex items-center gap-1.5 flex-wrap">
+      {% for chip in lead_dossier.chips %}
+      {% if chip.kind == "vertical" %}
+      <span class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-brand-50 text-brand-700" title="{{ chip.label }}">{{ chip.value }}</span>
+      {% elif chip.kind == "request" %}
+      <span class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-amber-50 text-amber-700" title="{{ chip.label }}">{{ chip.value }}</span>
+      {% else %}
+      <span class="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-gray-100 text-gray-600" title="{{ chip.label }}">{{ chip.value }}</span>
+      {% endif %}
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Search + jump links -->
+  <div class="space-y-2.5">
+    <div class="flex items-center gap-2">
+      <div class="relative flex-1 min-w-0">
+        <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M17 11A6 6 0 115 11a6 6 0 0112 0z"/></svg>
+        <input id="leadSearch" type="search" autocomplete="off" placeholder="Search lead details: insurer, VIN, birth date, driver…"
+               aria-label="Search lead details"
+               class="w-full pl-9 pr-10 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-300 placeholder:text-gray-400 [&::-webkit-search-cancel-button]:hidden" />
+        <kbd id="leadSearchKbd" class="absolute right-3 top-1/2 -translate-y-1/2 px-1.5 py-0.5 rounded-md border border-gray-200 bg-white text-[10px] font-mono text-gray-400">/</kbd>
+        <button type="button" id="leadSearchClear" class="hidden absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 cursor-pointer" aria-label="Clear search">✕</button>
+      </div>
+      {% if lead_editor.empty_count %}
+      <button type="button" id="leadToggleEmpty" aria-pressed="false"
+              class="shrink-0 px-3 py-2 rounded-xl border border-gray-200 bg-white text-[11px] font-medium text-gray-600 hover:bg-gray-50 cursor-pointer transition">
+        Hide {{ lead_editor.empty_count }} empty
+      </button>
+      {% endif %}
+    </div>
+
+    <div class="flex items-center gap-1.5 flex-wrap" id="leadJump">
+      {% for section in lead_editor.sections %}
+      {% if section.cards %}
+      <a href="#{{ section.anchor }}" data-jump="{{ section.anchor }}"
+         class="px-2.5 py-1 rounded-full bg-gray-100 text-[11px] font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">{{ section.title }}</a>
+      {% endif %}
+      {% for group in section.groups %}
+      <a href="#{{ group.anchor }}" data-jump="{{ group.anchor }}"
+         class="px-2.5 py-1 rounded-full bg-gray-100 text-[11px] font-medium text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition">{{ group.title }} <span class="text-gray-400">{{ group.cards|length }}</span></a>
+      {% endfor %}
+      {% endfor %}
+      <span id="leadUnsaved" class="hidden ml-auto px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 text-[11px] font-semibold"></span>
+    </div>
+    <p id="leadSearchInfo" class="hidden text-[11px] text-gray-500"></p>
+  </div>
+
+  <!-- Sections -->
+  <div class="space-y-3">
+    {% for section in lead_editor.sections %}
+    <details open id="{{ section.anchor }}" data-lead-section class="group/sec scroll-mt-28">
+      <summary class="flex items-center gap-2.5 py-1.5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden">
+        <span class="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center text-sm shrink-0">{{ section.icon }}</span>
+        <span class="text-[13px] font-semibold text-gray-900">{{ section.title }}</span>
+        <span class="text-[11px] text-gray-400">{{ section.field_count }}</span>
+        <span class="flex-1 h-px bg-gray-100"></span>
+        <svg class="w-4 h-4 text-gray-400 transition-transform -rotate-90 group-open/sec:rotate-0 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+      </summary>
+
+      <div class="pt-2 space-y-4">
+        {% if section.cards %}
+        <div class="grid grid-cols-1 @2xl:grid-cols-2 gap-3 items-start">
+          {% for card in section.cards %}
+          {% if section.cards|length == 1 %}
+          {% include "contacts/partials/lead_edit_card.html" with card=card wide=True %}
+          {% else %}
+          {% include "contacts/partials/lead_edit_card.html" with card=card %}
+          {% endif %}
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        {% for group in section.groups %}
+        {% include "contacts/partials/lead_group_table.html" with group=group box_id=group.anchor %}
+        {% endfor %}
+      </div>
+    </details>
+    {% endfor %}
+  </div>
+
+  <!-- Raw payload (collapsed) -->
+  {% if lead_dossier.raw_json %}
+  <details class="group/raw rounded-xl bg-gray-50">
+    <summary class="cursor-pointer select-none px-3 py-2 text-[11px] font-medium text-gray-500 hover:text-gray-800 flex items-center gap-1.5 list-none [&::-webkit-details-marker]:hidden">
+      <span class="transition group-open/raw:rotate-90">▸</span> Raw lead payload (JSON)
+    </summary>
+    <pre class="px-3 pb-3 text-[10px] leading-relaxed text-gray-700 overflow-x-auto max-h-80 overflow-y-auto">{{ lead_dossier.raw_json }}</pre>
+  </details>
+  {% endif %}
+</div>
+
+<script>
+(function () {
+  const root = document.getElementById("leadDetails");
+  if (!root) return;
+  const search = document.getElementById("leadSearch");
+  const clearBtn = document.getElementById("leadSearchClear");
+  const kbd = document.getElementById("leadSearchKbd");
+  const info = document.getElementById("leadSearchInfo");
+  const toggle = document.getElementById("leadToggleEmpty");
+  const unsaved = document.getElementById("leadUnsaved");
+  const rows = Array.from(root.querySelectorAll("[data-lead-row]"));
+  let hideEmpty = false;
+  try { hideEmpty = localStorage.getItem("leadHideEmpty") === "yes"; } catch (_) {}
+
+  const show = (el, on) => { el.style.display = on ? "" : "none"; };
+
+  // One pass decides what's visible: search matches always show (even empty ones), otherwise the empty toggle applies
+  const inputsOf = (row) => Array.from(row.querySelectorAll("input[data-original]"));
+  const rowText = (row) => inputsOf(row).map((i) => i.value.trim()).join(" ").trim();
+  const emptyRows = () => rows.filter((r) => rowText(r) === "").length;
+
+  // One pass decides what's visible: search matches always show (even empty ones), otherwise the empty toggle applies
+  function apply() {
+    const q = (search ? search.value : "").trim().toLowerCase();
+    let matches = 0;
+    rows.forEach((row) => {
+      const value = rowText(row);
+      // a row matches by its label or any of its values; a title match (e.g. "toyota") shows that whole box
+      const hit = !!q && (row.dataset.label.includes(q) || value.toLowerCase().includes(q));
+      const inCard = !!q && (row.closest("[data-lead-card]").dataset.title || "").includes(q);
+      row.toggleAttribute("data-match", hit);
+      show(row, q ? (hit || inCard) : (!hideEmpty || value !== ""));
+      if (hit || inCard) matches += 1;
+    });
+    root.querySelectorAll("[data-col-title]").forEach((th) => th.toggleAttribute("data-match", !!q && th.dataset.colTitle.includes(q)));
+    root.querySelectorAll("[data-lead-card]").forEach((card) => {
+      show(card, Array.from(card.querySelectorAll("[data-lead-row]")).some((r) => r.style.display !== "none"));
+    });
+    root.querySelectorAll("[data-lead-section]").forEach((sec) => {
+      const any = Array.from(sec.querySelectorAll("[data-lead-card]")).some((c) => c.style.display !== "none");
+      show(sec, any);
+      if (q && any) sec.open = true;
+    });
+    if (info) {
+      info.classList.toggle("hidden", !q);
+      info.textContent = matches ? `${matches} matching field${matches === 1 ? "" : "s"}` : `Nothing matches "${search.value.trim()}"`;
+    }
+    if (clearBtn) clearBtn.classList.toggle("hidden", !q);
+    if (kbd) kbd.classList.toggle("hidden", !!q);
+    if (toggle) {
+      const n = emptyRows();
+      toggle.style.display = n ? "" : "none";
+      toggle.textContent = (hideEmpty ? "Show " : "Hide ") + n + " empty";
+      toggle.setAttribute("aria-pressed", hideEmpty ? "true" : "false");
+    }
+  }
+
+  // Edited values are highlighted (per value) and counted, so it's clear what Save Changes will write
+  function refreshUnsaved() {
+    let changed = 0;
+    root.querySelectorAll("input[data-original]").forEach((input) => {
+      const isChanged = input.value.trim() !== input.dataset.original;
+      input.closest("[data-lead-cell]").toggleAttribute("data-changed", isChanged);
+      if (isChanged) changed += 1;
+    });
+    if (unsaved) {
+      unsaved.textContent = changed + (changed === 1 ? " unsaved change" : " unsaved changes");
+      unsaved.classList.toggle("hidden", changed === 0);
+    }
+  }
+
+  if (toggle) {
+    toggle.addEventListener("click", () => {
+      hideEmpty = !hideEmpty;
+      try { localStorage.setItem("leadHideEmpty", hideEmpty ? "yes" : "no"); } catch (_) {}
+      apply();
+    });
+  }
+  if (search) {
+    search.addEventListener("input", apply);
+    search.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") { search.value = ""; apply(); search.blur(); }
+      if (e.key === "Enter") e.preventDefault();   // never submit the contact form from the search box
+    });
+  }
+  if (clearBtn) clearBtn.addEventListener("click", () => { search.value = ""; apply(); search.focus(); });
+
+  // "/" jumps to the search box (unless you're already typing somewhere)
+  document.addEventListener("keydown", (e) => {
+    const t = e.target;
+    if (e.key !== "/" || !search || (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)))) return;
+    e.preventDefault();
+    search.focus();
+    search.scrollIntoView({ behavior: "smooth", block: "center" });
+  });
+
+  root.querySelectorAll("[data-jump]").forEach((a) => {
+    a.addEventListener("click", (e) => {
+      const target = document.getElementById(a.dataset.jump);
+      if (!target) return;
+      e.preventDefault();
+      const sec = target.closest("details");
+      if (sec) sec.open = true;
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  });
+
+  root.addEventListener("input", (e) => {
+    if (e.target.matches("input[data-original]")) { refreshUnsaved(); if (search && search.value) apply(); }
+  });
+
+  apply();
+})();
+</script>

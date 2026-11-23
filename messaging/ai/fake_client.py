@@ -48,6 +48,20 @@ class FakeAIClient(BaseAIClient):
             "schema": schema,
         })
 
+        # The focused "which question does this reply answer?" pass only uses a queued response
+        # meant for it; otherwise it finds nothing, so tests' scripted replies stay in order.
+        is_read_pass = bool(schema and "question_key" in (schema.get("properties") or {}))
+        if is_read_pass and not (self.canned_responses and isinstance(self.canned_responses[0], dict)
+                                 and "question_key" in self.canned_responses[0]):
+            return AIResponse(text=json.dumps({"question_key": "", "answer": ""}), input_tokens=50,
+                              output_tokens=10, latency_ms=20)
+
+        # The "are these real answers?" check likewise only uses a response queued for it; otherwise keeps all
+        if schema and "verdicts" in (schema.get("properties") or {}) and not (
+                self.canned_responses and isinstance(self.canned_responses[0], dict)
+                and "verdicts" in self.canned_responses[0]):
+            return AIResponse(text=json.dumps({"verdicts": {}}), input_tokens=50, output_tokens=10, latency_ms=20)
+
         if self.canned_responses:
             next_resp = self.canned_responses.pop(0)
             if isinstance(next_resp, Exception):

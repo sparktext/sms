@@ -82,7 +82,6 @@ def broadcast_campaign_list_update(
         lists_summary = [l.name for l in campaign.lists.all()] if hasattr(campaign, "lists") else []
         phone_e164 = campaign.phone_number.e164 if campaign.phone_number else ""
         phone_label = campaign.phone_number.label if campaign.phone_number and campaign.phone_number.label else ""
-        stage_filter = (campaign.filter_criteria or {}).get("stage", "")
 
         payload = {
             "event": "campaign_list_update",
@@ -95,7 +94,6 @@ def broadcast_campaign_list_update(
                 "phone_e164": phone_e164,
                 "phone_label": phone_label,
                 "lists": lists_summary,
-                "stage": stage_filter,
                 "total_recipients": campaign.total_recipients,
                 "sent_count": campaign.sent_count,
                 "skipped_count": campaign.skipped_count,

@@ -158,6 +158,11 @@ def filter_collected_answers(
     for q in questions:
         if isinstance(q, dict) and "key" in q:
             allowed_keys.add(q["key"])
+    # Follow-ups defined in AI settings also apply to a campaign's own question list
+    if questions is not config.qualification_questions and isinstance(config.qualification_questions, list):
+        for q in config.qualification_questions:
+            if isinstance(q, dict) and q.get("key") and q.get("parent"):
+                allowed_keys.add(q["key"])
 
     return {k: v for k, v in collected.items() if k in allowed_keys and v is not None}
 

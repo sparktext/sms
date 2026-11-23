@@ -12,6 +12,13 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="{% static 'css/app.css' %}" />
+    <link rel="icon" type="image/png" href="{% static 'img/favicon.png' %}" />
+    <link rel="shortcut icon" href="{% static 'img/favicon.ico' %}" />
+
+    <style>
+      html.sidebar-collapsed .sidebar-brand-full { display: none !important; }
+      html.sidebar-collapsed .sidebar-brand-icon { display: flex !important; }
+    </style>
 
     <script>
       if (localStorage.getItem("sparktext_sidebar_collapsed") === "true") {
@@ -40,22 +47,14 @@
         <div class="sidebar-brand-row flex items-center justify-between">
           <a
             href="{% url 'messaging:dashboard' %}"
-            class="flex items-center gap-3 min-w-0"
+            class="flex items-center min-w-0 group"
             title="SparkText"
           >
-            <div
-              class="w-9 h-9 rounded-xl gradient-brand flex items-center justify-center shadow-lg shadow-brand-500/30 text-white font-extrabold text-lg shrink-0"
-            >
-              ⚡
-            </div>
-            <div class="sidebar-label truncate">
-              <span
-                class="text-lg font-bold tracking-tight text-white block leading-tight"
-                >SparkText</span
-              >
-              <span class="text-[11px] font-medium text-slate-400"
-                >SMS Platform</span
-              >
+            <!-- Full brand logo shown when expanded -->
+            <img src="{% static 'img/logo-dark.png' %}" alt="SparkText" class="sidebar-brand-full h-8 w-auto object-contain transition-opacity group-hover:opacity-90" />
+            <!-- Icon-only shown when collapsed -->
+            <div class="sidebar-brand-icon hidden w-9 h-9 rounded-xl bg-slate-800/80 border border-slate-700/60 items-center justify-center shadow-md">
+              <img src="{% static 'img/icon.png' %}" alt="SparkText" class="w-5 h-5 object-contain" />
             </div>
           </a>
           <button
@@ -315,7 +314,7 @@
                 {{ request.user.get_full_name|default:request.user.email }}
               </p>
               <p class="text-[11px] text-slate-400 capitalize">
-                {{ request.user.role|default:"User" }}
+                {{ request.user.get_role_display|default:"User" }}
               </p>
             </div>
           </div>
@@ -428,22 +427,180 @@
             <kbd id="quick-jump-shortcut-label" class="hidden md:inline-flex items-center px-1.5 py-0.5 text-[10px] font-mono font-semibold text-gray-400 bg-white border border-gray-200 rounded">Ctrl K</kbd>
           </button>
 
-          <button
-            type="button"
-            id="nav-availability-btn"
-            onclick="toggleMyGlobalAvailability()"
-            class="inline-flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-full text-xs font-semibold border transition cursor-pointer shadow-2xs whitespace-nowrap shrink-0 {% if request.user.is_available_for_leads %}bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100/80{% else %}bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100{% endif %}"
-            title="{% if request.user.is_available_for_leads %}Available for Leads — click to go Away{% else %}Away / Paused — click to go Available{% endif %}"
-          >
-            <span class="w-2 h-2 rounded-full {% if request.user.is_available_for_leads %}bg-emerald-500 animate-pulse{% else %}bg-gray-400{% endif %}"></span>
-            <span id="nav-availability-text" class="hidden sm:inline">{% if request.user.is_available_for_leads %}Available for Leads{% else %}Away / Paused{% endif %}</span>
-          </button>
+          <!-- Notification Bell & Dropdown -->
+          <div class="relative inline-block text-left" id="header-notif-container">
+            <button
+              type="button"
+              id="header-notif-btn"
+              onclick="toggleHeaderNotifications(event)"
+              class="relative inline-flex items-center justify-center w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 hover:text-gray-900 transition cursor-pointer shadow-2xs"
+              title="Notifications"
+              aria-label="View notifications"
+              aria-haspopup="true"
+              aria-expanded="false"
+            >
+              <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+              </svg>
+              <!-- Unread badge pill -->
+              <span id="header-notif-badge" class="hidden absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-amber-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-white shadow-2xs">
+                0
+              </span>
+            </button>
+
+            <!-- Notifications Dropdown Popover -->
+            <div
+              id="header-notif-dropdown"
+              class="hidden absolute right-0 mt-2 w-80 sm:w-96 rounded-2xl bg-white shadow-2xl border border-gray-200/90 z-50 overflow-hidden transform transition-all duration-150 origin-top-right"
+              role="menu"
+              aria-orientation="vertical"
+            >
+              <!-- Header -->
+              <div class="px-4 py-3 bg-slate-50/80 border-b border-gray-100 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <span class="text-xs font-bold text-gray-900 tracking-wide uppercase">Notifications</span>
+                  <span id="header-notif-count-pill" class="hidden px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">
+                    0 unread
+                  </span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onclick="markAllNotificationsRead(event)"
+                    class="text-[11px] font-semibold text-brand-600 hover:text-brand-800 transition cursor-pointer"
+                  >
+                    Mark all read
+                  </button>
+                  <span class="text-gray-300 select-none">·</span>
+                  <button
+                    type="button"
+                    onclick="clearAllNotifications(event)"
+                    class="text-[11px] font-medium text-gray-400 hover:text-gray-600 transition cursor-pointer"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+
+              <!-- List Container -->
+              <div id="header-notif-list" class="max-h-80 overflow-y-auto divide-y divide-gray-100 focus:outline-hidden">
+                <!-- Dynamically populated -->
+              </div>
+
+              <!-- Footer -->
+              <div class="px-4 py-2 bg-gray-50/70 border-t border-gray-100 text-center text-xs">
+                <span class="text-[11px] text-gray-400">Real-time notification alerts</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Inbound Lead Routing Availability Status & Popover -->
+          <div class="relative inline-block text-left" id="header-availability-container">
+            <button
+              type="button"
+              id="nav-availability-btn"
+              onclick="toggleAvailabilityDropdown(event)"
+              class="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full text-xs font-semibold border transition cursor-pointer shadow-2xs whitespace-nowrap shrink-0 {% if request.user.is_available_for_leads %}bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100/80{% else %}bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100{% endif %}"
+              title="Inbound Lead Routing: Click to view or change your status"
+              aria-haspopup="true"
+              aria-expanded="false"
+            >
+              <span class="w-2 h-2 rounded-full {% if request.user.is_available_for_leads %}bg-emerald-500 animate-pulse{% else %}bg-gray-400{% endif %}"></span>
+              <span id="nav-availability-text" class="hidden sm:inline">{% if request.user.is_available_for_leads %}Available for Leads{% else %}Away / Paused{% endif %}</span>
+              <svg class="w-3 h-3 text-gray-400 transition-transform duration-150" id="nav-availability-chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+
+            <!-- Availability Dropdown Menu -->
+            <div
+              id="nav-availability-dropdown"
+              class="hidden absolute right-0 mt-2 w-80 sm:w-88 rounded-2xl bg-white shadow-2xl border border-gray-200/90 z-50 overflow-hidden transform transition-all duration-150 origin-top-right text-left"
+              role="menu"
+            >
+              <!-- Explanatory Header for First-Time Users -->
+              <div class="p-3.5 sm:p-4 bg-gradient-to-b from-gray-50 to-white border-b border-gray-100">
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-bold text-gray-900 tracking-wide uppercase flex items-center gap-1.5">
+                    <svg class="w-3.5 h-3.5 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    Lead Routing Status
+                  </span>
+                  <span id="nav-availability-badge-status" class="px-2 py-0.5 rounded-full text-[10px] font-bold {% if request.user.is_available_for_leads %}bg-emerald-100 text-emerald-800{% else %}bg-gray-100 text-gray-700{% endif %}">
+                    {% if request.user.is_available_for_leads %}Active on Duty{% else %}Currently Away{% endif %}
+                  </span>
+                </div>
+                <p class="text-[11px] text-gray-500 mt-1.5 leading-relaxed">
+                  Controls whether incoming customer SMS conversations and AI handoffs are automatically assigned to you.
+                </p>
+              </div>
+
+              <!-- Options List -->
+              <div class="p-2 space-y-1.5">
+                <!-- Option 1: Available -->
+                <button
+                  type="button"
+                  onclick="setAvailabilityState(true, event)"
+                  id="avail-opt-true"
+                  class="w-full text-left p-2.5 rounded-xl border transition flex items-start gap-3 cursor-pointer group {% if request.user.is_available_for_leads %}bg-emerald-50/70 border-emerald-200 text-emerald-900 shadow-2xs{% else %}bg-white border-transparent hover:bg-gray-50 text-gray-700{% endif %}"
+                >
+                  <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 mt-1 shrink-0 group-hover:scale-110 transition {% if request.user.is_available_for_leads %}ring-2 ring-emerald-300 animate-pulse{% endif %}" id="avail-opt-dot-true"></span>
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-center justify-between">
+                      <span class="text-xs font-bold text-gray-900 group-hover:text-emerald-700">Available (Accepting Leads)</span>
+                      <svg id="avail-check-true" class="w-4 h-4 text-emerald-600 shrink-0 {% if not request.user.is_available_for_leads %}hidden{% endif %}" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                      </svg>
+                    </div>
+                    <p class="text-[11px] text-gray-500 mt-0.5 leading-snug">
+                      You are actively working. New customer texts and qualified AI handoffs route straight to you.
+                    </p>
+                  </div>
+                </button>
+
+                <!-- Option 2: Away -->
+                <button
+                  type="button"
+                  onclick="setAvailabilityState(false, event)"
+                  id="avail-opt-false"
+                  class="w-full text-left p-2.5 rounded-xl border transition flex items-start gap-3 cursor-pointer group {% if not request.user.is_available_for_leads %}bg-amber-50/60 border-amber-200 text-gray-900 shadow-2xs{% else %}bg-white border-transparent hover:bg-gray-50 text-gray-700{% endif %}"
+                >
+                  <span class="w-2.5 h-2.5 rounded-full bg-gray-400 mt-1 shrink-0 group-hover:scale-110 transition" id="avail-opt-dot-false"></span>
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-center justify-between">
+                      <span class="text-xs font-bold text-gray-900 group-hover:text-amber-800">Away / Paused</span>
+                      <svg id="avail-check-false" class="w-4 h-4 text-amber-600 shrink-0 {% if request.user.is_available_for_leads %}hidden{% endif %}" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                      </svg>
+                    </div>
+                    <p class="text-[11px] text-gray-500 mt-0.5 leading-snug">
+                      Pause new assignments while on break. Existing chats stay with you, but new leads route to teammates.
+                    </p>
+                  </div>
+                </button>
+              </div>
+
+              <!-- Footer with helpful note / admin routing shortcut -->
+              <div class="px-3.5 py-2.5 bg-gray-50/80 border-t border-gray-100 flex items-center justify-between text-[11px] text-gray-500">
+                <span class="flex items-center gap-1 text-[11px] text-gray-400">
+                  <svg class="w-3.5 h-3.5 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                  Automatic fallback ensures zero dropped leads
+                </span>
+                {% if request.user.role in "owner,admin" %}
+                <a href="{% url 'team_members' %}" class="font-semibold text-brand-600 hover:text-brand-800 transition">
+                  Settings →
+                </a>
+                {% endif %}
+              </div>
+            </div>
+          </div>
           {% endif %}
           
         </div>
       </header>
 
-      <main class="p-3 sm:p-6 lg:p-8 space-y-6 max-w-7xl w-full mx-auto overflow-x-hidden">
+      <main class="p-3 sm:p-6 lg:p-8 space-y-6 {% block main_width %}max-w-7xl{% endblock %} w-full mx-auto {% block main_overflow %}overflow-x-hidden{% endblock %}">
         {% block page_header %}
         <!-- Page Header -->
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 {% block page_header_class %}{% endblock %}">
@@ -532,9 +689,116 @@
         return match ? decodeURIComponent(match[2]) : '';
       }
 
-      async function toggleMyGlobalAvailability() {
+      function updateAvailabilityUI(isAvailable) {
         const btn = document.getElementById("nav-availability-btn");
         const textEl = document.getElementById("nav-availability-text");
+        const statusBadge = document.getElementById("nav-availability-badge-status");
+        const optTrue = document.getElementById("avail-opt-true");
+        const optFalse = document.getElementById("avail-opt-false");
+        const checkTrue = document.getElementById("avail-check-true");
+        const checkFalse = document.getElementById("avail-check-false");
+        const dotTrue = document.getElementById("avail-opt-dot-true");
+
+        if (btn) {
+          const dot = btn.querySelector("span:first-child");
+          if (isAvailable) {
+            btn.className = "inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full text-xs font-semibold border transition cursor-pointer shadow-2xs whitespace-nowrap shrink-0 bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100/80";
+            if (dot) dot.className = "w-2 h-2 rounded-full bg-emerald-500 animate-pulse";
+            if (textEl) textEl.innerText = "Available for Leads";
+          } else {
+            btn.className = "inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full text-xs font-semibold border transition cursor-pointer shadow-2xs whitespace-nowrap shrink-0 bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100";
+            if (dot) dot.className = "w-2 h-2 rounded-full bg-gray-400";
+            if (textEl) textEl.innerText = "Away / Paused";
+          }
+        }
+
+        if (statusBadge) {
+          if (isAvailable) {
+            statusBadge.className = "px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800";
+            statusBadge.innerText = "Active on Duty";
+          } else {
+            statusBadge.className = "px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-100 text-gray-700";
+            statusBadge.innerText = "Currently Away";
+          }
+        }
+
+        if (optTrue) {
+          optTrue.className = isAvailable
+            ? "w-full text-left p-2.5 rounded-xl border transition flex items-start gap-3 cursor-pointer group bg-emerald-50/70 border-emerald-200 text-emerald-900 shadow-2xs"
+            : "w-full text-left p-2.5 rounded-xl border transition flex items-start gap-3 cursor-pointer group bg-white border-transparent hover:bg-gray-50 text-gray-700";
+        }
+        if (optFalse) {
+          optFalse.className = !isAvailable
+            ? "w-full text-left p-2.5 rounded-xl border transition flex items-start gap-3 cursor-pointer group bg-amber-50/60 border-amber-200 text-gray-900 shadow-2xs"
+            : "w-full text-left p-2.5 rounded-xl border transition flex items-start gap-3 cursor-pointer group bg-white border-transparent hover:bg-gray-50 text-gray-700";
+        }
+        if (checkTrue) checkTrue.classList.toggle("hidden", !isAvailable);
+        if (checkFalse) checkFalse.classList.toggle("hidden", isAvailable);
+        if (dotTrue) dotTrue.className = isAvailable ? "w-2.5 h-2.5 rounded-full bg-emerald-500 mt-1 shrink-0 group-hover:scale-110 transition ring-2 ring-emerald-300 animate-pulse" : "w-2.5 h-2.5 rounded-full bg-emerald-500 mt-1 shrink-0 group-hover:scale-110 transition";
+      }
+
+      window.toggleAvailabilityDropdown = function(e) {
+        if (e) { e.preventDefault(); e.stopPropagation(); }
+        const dropdown = document.getElementById("nav-availability-dropdown");
+        const btn = document.getElementById("nav-availability-btn");
+        const chevron = document.getElementById("nav-availability-chevron");
+        if (!dropdown) return;
+        const isHidden = dropdown.classList.contains("hidden");
+        // Close notification dropdown if open
+        const notifDropdown = document.getElementById("header-notif-dropdown");
+        if (notifDropdown && !notifDropdown.classList.contains("hidden")) {
+          notifDropdown.classList.add("hidden");
+        }
+        if (isHidden) {
+          dropdown.classList.remove("hidden");
+          if (btn) btn.setAttribute("aria-expanded", "true");
+          if (chevron) chevron.classList.add("rotate-180");
+        } else {
+          dropdown.classList.add("hidden");
+          if (btn) btn.setAttribute("aria-expanded", "false");
+          if (chevron) chevron.classList.remove("rotate-180");
+        }
+      };
+
+      window.setAvailabilityState = async function(isAvailable, e) {
+        if (e) { e.preventDefault(); e.stopPropagation(); }
+        const csrf = getCsrfToken();
+        const formData = new FormData();
+        formData.append("is_available", isAvailable ? "true" : "false");
+
+        try {
+          const resp = await fetch("{% url 'toggle_my_availability' %}", {
+            method: "POST",
+            headers: {
+              "X-CSRFToken": csrf,
+              "X-Requested-With": "XMLHttpRequest",
+            },
+            body: formData,
+          });
+          const data = await resp.json();
+          if (data.status === "success") {
+            updateAvailabilityUI(data.is_available);
+            const dropdown = document.getElementById("nav-availability-dropdown");
+            const btn = document.getElementById("nav-availability-btn");
+            const chevron = document.getElementById("nav-availability-chevron");
+            if (dropdown) dropdown.classList.add("hidden");
+            if (btn) btn.setAttribute("aria-expanded", "false");
+            if (chevron) chevron.classList.remove("rotate-180");
+
+            if (typeof window.showAppToast === "function") {
+              const msg = data.is_available
+                ? "You are now Available. Inbound customer leads will route to you."
+                : "You are now Away. Inbound leads will route to other teammates.";
+              window.showAppToast(msg, "info", 3500);
+            }
+          }
+        } catch (err) {
+          console.error("Failed to update availability:", err);
+        }
+      };
+
+      async function toggleMyGlobalAvailability() {
+        const btn = document.getElementById("nav-availability-btn");
         if (!btn) return;
         try {
           const csrf = getCsrfToken();
@@ -547,21 +811,26 @@
           });
           const data = await resp.json();
           if (data.status === "success") {
-            const dot = btn.querySelector("span:first-child");
-            if (data.is_available) {
-              btn.className = "inline-flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-full text-xs font-semibold border transition cursor-pointer shadow-2xs whitespace-nowrap shrink-0 bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100/80";
-              if (dot) dot.className = "w-2 h-2 rounded-full bg-emerald-500 animate-pulse";
-              if (textEl) textEl.innerText = "Available for Leads";
-            } else {
-              btn.className = "inline-flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-full text-xs font-semibold border transition cursor-pointer shadow-2xs whitespace-nowrap shrink-0 bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100";
-              if (dot) dot.className = "w-2 h-2 rounded-full bg-gray-400";
-              if (textEl) textEl.innerText = "Away / Paused";
-            }
+            updateAvailabilityUI(data.is_available);
           }
         } catch (e) {
           console.error("Failed to toggle availability:", e);
         }
       }
+
+      document.addEventListener("click", function(e) {
+        const container = document.getElementById("header-availability-container");
+        const dropdown = document.getElementById("nav-availability-dropdown");
+        const btn = document.getElementById("nav-availability-btn");
+        const chevron = document.getElementById("nav-availability-chevron");
+        if (dropdown && !dropdown.classList.contains("hidden")) {
+          if (container && !container.contains(e.target)) {
+            dropdown.classList.add("hidden");
+            if (btn) btn.setAttribute("aria-expanded", "false");
+            if (chevron) chevron.classList.remove("rotate-180");
+          }
+        }
+      });
 
       // ─────────────────────────────────────────────────────────────
       // SHARED IN-APP TOASTS & CONFIRMATION MODAL
@@ -694,8 +963,8 @@
         { title: "AI Assistant", subtitle: "Gemma mode, knowledge & questions", url: "{% url 'messaging:ai_assistant_settings' %}", badge: "Page" },
         { title: "Compliance Ledger", subtitle: "TCPA/CTIA opt-in & opt-out logs", url: "{% url 'compliance:dashboard' %}", badge: "Page" },
         { title: "Phone Numbers & Routing", subtitle: "Manage 10DLC & sending lines", url: "{% url 'messaging:phone_numbers_settings' %}", badge: "Settings" },
-        { title: "Team Members", subtitle: "Invitations, roles & access", url: "{% url 'team_members' %}", badge: "Settings" },
-        { title: "Lead Routing", subtitle: "Agent availability & assignment rules", url: "{% url 'lead_routing_settings' %}", badge: "Settings" },
+        { title: "Team & Lead Routing", subtitle: "Staff roster, roles, live workload & lead distribution", url: "{% url 'team_members' %}", badge: "Settings" },
+        { title: "Notification Sounds", subtitle: "Select notification chime & custom audio", url: "{% url 'notification_sound_settings' %}", badge: "Settings" },
       ];
       let quickJumpSeq = 0;
       let quickJumpTimer = null;
@@ -916,43 +1185,694 @@
     ></div>
 
     {% if request.user.is_authenticated and request.user.organization %}
+    <script id="initial-notifications-data" type="application/json">{{ initial_notifications_json|default:'[]'|safe }}</script>
     <script>
       (function() {
         const orgId = {{ request.user.organization.id }};
+        const currentUserId = {{ request.user.id }};
+        window.currentUserId = currentUserId;
+        let orgNotificationSound = "{{ request.user.organization.notification_sound|default:'sales_flourish' }}";
+        let orgCustomSoundUrl = "{% if request.user.organization.custom_notification_sound %}{{ request.user.organization.custom_notification_sound.url }}{% endif %}";
+
+        window.setOrgNotificationSound = function(soundType, customUrl) {
+          if (soundType !== undefined && soundType !== null) {
+            orgNotificationSound = soundType;
+          }
+          if (customUrl !== undefined) {
+            orgCustomSoundUrl = customUrl;
+          }
+        };
         const wsScheme = window.location.protocol === "https:" ? "wss://" : "ws://";
         const inboxWsUrl = `${wsScheme}${window.location.host}/ws/inbox/${orgId}/`;
         let globalInboxSocket = null;
         let globalReconnectTimer = null;
 
-        // Global synthesized audio chime (Web Audio API)
-        window.playGlobalNotificationChime = function() {
-          if (localStorage.getItem("sparktext_sound") === "false") return;
+        // ─────────────────────────────────────────────────────────────
+        // HEADER NOTIFICATION CENTER (Prior Notifications & Targeted Routing)
+        // ─────────────────────────────────────────────────────────────
+        const storageKey = `sparktext_notifs_${orgId}_${currentUserId}`;
+
+        function getStoredNotifications() {
           try {
-            const AudioCtx = window.AudioContext || window.webkitAudioContext;
-            if (!AudioCtx) return;
-            const ctx = new AudioCtx();
-            if (ctx.state === "suspended") ctx.resume();
-            const now = ctx.currentTime;
-            const masterGain = ctx.createGain();
-            masterGain.gain.setValueAtTime(0.55, now);
-            masterGain.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
-            masterGain.connect(ctx.destination);
-
-            const osc1 = ctx.createOscillator();
-            osc1.type = "sine";
-            osc1.frequency.setValueAtTime(880, now);
-            osc1.connect(masterGain);
-            osc1.start(now);
-            osc1.stop(now + 0.25);
-
-            const osc2 = ctx.createOscillator();
-            osc2.type = "sine";
-            osc2.frequency.setValueAtTime(1318.5, now + 0.12);
-            osc2.connect(masterGain);
-            osc2.start(now + 0.12);
-            osc2.stop(now + 0.55);
+            return JSON.parse(localStorage.getItem(storageKey) || "[]");
           } catch (e) {
-            console.debug("Audio chime error:", e);
+            return [];
+          }
+        }
+
+        function saveStoredNotifications(list) {
+          try {
+            localStorage.setItem(storageKey, JSON.stringify(list.slice(0, 30)));
+          } catch (e) {}
+          renderNotificationsUI();
+        }
+
+        function getActiveConversationId() {
+          if (typeof window.currentConvId !== "undefined" && window.currentConvId) {
+            const cid = parseInt(window.currentConvId, 10);
+            if (!isNaN(cid) && cid > 0) return cid;
+          }
+          const match = window.location.pathname.match(/\/inbox\/(\d+)/);
+          if (match && match[1]) {
+            const cid = parseInt(match[1], 10);
+            if (!isNaN(cid) && cid > 0) return cid;
+          }
+          return null;
+        }
+        window.getActiveConversationId = getActiveConversationId;
+
+        // Marks ALL notifications for a given conversation as read
+        window.markConversationNotificationsRead = function(convId) {
+          if (!convId) return;
+          const targetId = parseInt(convId, 10);
+          if (isNaN(targetId) || targetId <= 0) return;
+          let changed = false;
+          currentNotifications.forEach(x => {
+            if (x.conversation_id && parseInt(x.conversation_id, 10) === targetId) {
+              if (!x.read) {
+                x.read = true;
+                changed = true;
+              }
+            }
+          });
+          if (changed) {
+            saveStoredNotifications(currentNotifications);
+          }
+        };
+
+        function mergeServerAndStoredNotifications() {
+          let list = getStoredNotifications();
+          // Filter out any non-needs_human notifications AND any notifications assigned to another agent
+          list = list.filter(x => {
+            const isTypeOk = x.type === "needs_human" || x.type === "lead_assigned" || x.status === "needs_human";
+            if (!isTypeOk) return false;
+            if (x.assigned_to_id && parseInt(x.assigned_to_id, 10) !== currentUserId) return false;
+            return true;
+          });
+
+          const srvDataEl = document.getElementById("initial-notifications-data");
+          let srvList = [];
+          if (srvDataEl) {
+            try {
+              srvList = JSON.parse(srvDataEl.textContent || "[]");
+            } catch (e) {}
+          }
+          const activeId = getActiveConversationId();
+
+          // Merge server notifications not already in local storage
+          srvList.forEach(srvItem => {
+            const exists = list.some(x => x.conversation_id === srvItem.conversation_id && x.type === srvItem.type);
+            if (!exists) {
+              if (activeId && srvItem.conversation_id && parseInt(srvItem.conversation_id, 10) === activeId) {
+                srvItem.read = true;
+              }
+              list.push(srvItem);
+            }
+          });
+
+          // If currently viewing a conversation, mark all stored notifications for it read immediately
+          if (activeId) {
+            list.forEach(x => {
+              if (x.conversation_id && parseInt(x.conversation_id, 10) === activeId) {
+                x.read = true;
+              }
+            });
+          }
+
+          list.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+          return list;
+        }
+
+        let currentNotifications = mergeServerAndStoredNotifications();
+        saveStoredNotifications(currentNotifications);
+
+        window.addNotification = function(notif) {
+          if (!notif) return;
+          // STRICT RULE 1: Only leads marked as needs_human (or lead_assigned) can be added to the notification center
+          if (notif.type !== "needs_human" && notif.type !== "lead_assigned" && notif.status !== "needs_human") {
+            return;
+          }
+          // STRICT RULE 2: Targeted routing: If assigned to another agent, reject
+          if (notif.assigned_to_id && parseInt(notif.assigned_to_id, 10) !== currentUserId) {
+            return;
+          }
+          const activeId = getActiveConversationId();
+          if (activeId && notif.conversation_id && parseInt(notif.conversation_id, 10) === activeId && !document.hidden && document.hasFocus()) {
+            notif.read = true;
+          }
+          // De-duplicate recently added notifications for the same conversation
+          currentNotifications = currentNotifications.filter(x => !(x.conversation_id === notif.conversation_id && Math.abs(x.timestamp - notif.timestamp) < 4000));
+          currentNotifications.unshift(notif);
+          currentNotifications = currentNotifications.slice(0, 30);
+          saveStoredNotifications(currentNotifications);
+        };
+
+        window.markAllNotificationsRead = function(e) {
+          if (e) { e.preventDefault(); e.stopPropagation(); }
+          currentNotifications.forEach(x => { x.read = true; });
+          saveStoredNotifications(currentNotifications);
+        };
+
+        window.clearAllNotifications = function(e) {
+          if (e) { e.preventDefault(); e.stopPropagation(); }
+          currentNotifications = [];
+          saveStoredNotifications(currentNotifications);
+        };
+
+        window.markNotificationReadAndNavigate = function(notifId, url) {
+          const item = currentNotifications.find(x => x.id === notifId);
+          let targetConvId = item ? item.conversation_id : null;
+          if (!targetConvId && url) {
+            const m = url.match(/\/inbox\/(\d+)/);
+            if (m && m[1]) targetConvId = parseInt(m[1], 10);
+          }
+
+          if (targetConvId) {
+            window.markConversationNotificationsRead(targetConvId);
+          } else if (item) {
+            item.read = true;
+            saveStoredNotifications(currentNotifications);
+          }
+
+          // If on the inbox page and selectConversation is available, switch directly without full reload
+          if (targetConvId && typeof selectConversation === "function" && window.location.pathname.startsWith("/inbox")) {
+            selectConversation(targetConvId, url || `/inbox/${targetConvId}/`, true);
+            const dropdown = document.getElementById("header-notif-dropdown");
+            if (dropdown) dropdown.classList.add("hidden");
+            const btn = document.getElementById("header-notif-btn");
+            if (btn) btn.setAttribute("aria-expanded", "false");
+            return;
+          }
+
+          if (url) window.location.href = url;
+        };
+
+        window.addEventListener("focus", function() {
+          const activeId = getActiveConversationId();
+          if (activeId) {
+            window.markConversationNotificationsRead(activeId);
+          }
+        });
+        document.addEventListener("visibilitychange", function() {
+          if (!document.hidden) {
+            const activeId = getActiveConversationId();
+            if (activeId) {
+              window.markConversationNotificationsRead(activeId);
+            }
+          }
+        });
+
+        window.toggleHeaderNotifications = function(e) {
+          if (e) { e.preventDefault(); e.stopPropagation(); }
+          if ("Notification" in window && Notification.permission === "default") {
+            Notification.requestPermission().catch(() => {});
+          }
+          const dropdown = document.getElementById("header-notif-dropdown");
+          const btn = document.getElementById("header-notif-btn");
+          if (!dropdown) return;
+          const isHidden = dropdown.classList.contains("hidden");
+          if (isHidden) {
+            dropdown.classList.remove("hidden");
+            if (btn) btn.setAttribute("aria-expanded", "true");
+            renderNotificationsUI();
+          } else {
+            dropdown.classList.add("hidden");
+            if (btn) btn.setAttribute("aria-expanded", "false");
+          }
+        };
+
+        document.addEventListener("click", function(e) {
+          const container = document.getElementById("header-notif-container");
+          const dropdown = document.getElementById("header-notif-dropdown");
+          if (dropdown && !dropdown.classList.contains("hidden")) {
+            if (container && !container.contains(e.target)) {
+              dropdown.classList.add("hidden");
+              const btn = document.getElementById("header-notif-btn");
+              if (btn) btn.setAttribute("aria-expanded", "false");
+            }
+          }
+        });
+
+        function formatNotifTimeAgo(ts) {
+          if (!ts) return "just now";
+          const diffSec = Math.floor((Date.now() - ts) / 1000);
+          if (diffSec < 45) return "just now";
+          if (diffSec < 3600) return Math.floor(diffSec / 60) + "m ago";
+          if (diffSec < 86400) return Math.floor(diffSec / 3600) + "h ago";
+          return Math.floor(diffSec / 86400) + "d ago";
+        }
+
+        function renderNotificationsUI() {
+          const badge = document.getElementById("header-notif-badge");
+          const countPill = document.getElementById("header-notif-count-pill");
+          const listContainer = document.getElementById("header-notif-list");
+
+          const unreadCount = currentNotifications.filter(x => !x.read).length;
+
+          if (badge) {
+            if (unreadCount > 0) {
+              badge.textContent = unreadCount > 9 ? "9+" : unreadCount;
+              badge.classList.remove("hidden");
+            } else {
+              badge.classList.add("hidden");
+            }
+          }
+
+          if (countPill) {
+            if (unreadCount > 0) {
+              countPill.textContent = `${unreadCount} unread`;
+              countPill.classList.remove("hidden");
+            } else {
+              countPill.classList.add("hidden");
+            }
+          }
+
+          if (!listContainer) return;
+
+          if (currentNotifications.length === 0) {
+            listContainer.innerHTML = `
+              <div class="py-10 px-4 text-center">
+                <div class="w-10 h-10 rounded-full bg-slate-100 text-slate-400 mx-auto flex items-center justify-center mb-2">
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+                </div>
+                <p class="text-xs font-semibold text-gray-700">No notifications</p>
+                <p class="text-[11px] text-gray-400 mt-0.5">When human attention or leads need your review, they will appear here.</p>
+              </div>
+            `;
+            return;
+          }
+
+          function esc(str) {
+            const d = document.createElement("div");
+            d.appendChild(document.createTextNode(str || ""));
+            return d.innerHTML;
+          }
+
+          listContainer.innerHTML = currentNotifications.map(item => {
+            const isLead = item.type === "lead_assigned";
+            const iconBg = isLead
+              ? "bg-emerald-100 text-emerald-800 border-emerald-200"
+              : "bg-amber-100 text-amber-700 border-amber-200";
+            const icon = isLead ? "🎯" : "⚠️";
+            const unreadDot = !item.read ? '<span class="w-2 h-2 rounded-full bg-amber-500 shrink-0"></span>' : '';
+            const bgClass = !item.read ? 'bg-amber-50/40 hover:bg-amber-50/70' : 'bg-white hover:bg-gray-50';
+            const timeAgo = formatNotifTimeAgo(item.timestamp);
+            const assignBadge = item.is_assigned_to_me
+              ? '<span class="inline-flex items-center text-[10px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded">Assigned to you</span>'
+              : (item.assigned_to_name
+                ? `<span class="inline-flex items-center text-[10px] font-semibold text-slate-600 bg-slate-100 border border-slate-200 px-1.5 py-0.2 rounded">Assigned: ${esc(item.assigned_to_name)}</span>`
+                : '<span class="inline-flex items-center text-[10px] font-semibold text-amber-800 bg-amber-100/90 border border-amber-200 px-1.5 py-0.2 rounded">Unassigned</span>');
+
+            const itemUrl = item.url || (item.conversation_id ? `/inbox/${item.conversation_id}/` : "/inbox/");
+
+            return `
+              <div
+                onclick="markNotificationReadAndNavigate('${item.id}', '${itemUrl}')"
+                class="flex items-start gap-3 p-3 transition cursor-pointer select-none ${bgClass}"
+              >
+                <div class="w-8 h-8 rounded-xl ${iconBg} border flex items-center justify-center shrink-0 text-sm font-bold shadow-2xs">
+                  ${icon}
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center justify-between gap-1">
+                    <h4 class="text-xs font-bold text-gray-900 truncate">${esc(item.title)}</h4>
+                    <span class="text-[10px] text-gray-400 font-medium shrink-0">${timeAgo}</span>
+                  </div>
+                  <p class="text-[11px] text-gray-600 line-clamp-2 mt-0.5 leading-snug">${esc(item.body)}</p>
+                  <div class="mt-1.5 flex items-center gap-2">
+                    ${assignBadge}
+                  </div>
+                </div>
+                ${unreadDot}
+              </div>
+            `;
+          }).join("");
+        }
+
+        renderNotificationsUI();
+
+        // ==========================================
+        // CATCHY SALES NOTIFICATION CHIME & AUDIO ENGINE
+        // ==========================================
+        let sharedAudioCtx = null;
+
+        function getSharedAudioContext() {
+          try {
+            if (!sharedAudioCtx) {
+              const AudioCtx = window.AudioContext || window.webkitAudioContext;
+              if (AudioCtx) {
+                sharedAudioCtx = new AudioCtx();
+              }
+            }
+            if (sharedAudioCtx && sharedAudioCtx.state === "suspended") {
+              sharedAudioCtx.resume().catch(() => {});
+            }
+          } catch (e) {
+            console.debug("AudioContext init error:", e);
+          }
+          return sharedAudioCtx;
+        }
+
+        // Proactively unlock AudioContext on user interaction so background tabs can play audio
+        const unlockUserAudio = () => {
+          const ctx = getSharedAudioContext();
+          if (ctx && ctx.state === "running") {
+            window.removeEventListener("pointerdown", unlockUserAudio);
+            window.removeEventListener("click", unlockUserAudio);
+            window.removeEventListener("keydown", unlockUserAudio);
+            window.removeEventListener("touchstart", unlockUserAudio);
+          }
+        };
+        window.addEventListener("pointerdown", unlockUserAudio, { passive: true });
+        window.addEventListener("click", unlockUserAudio, { passive: true });
+        window.addEventListener("keydown", unlockUserAudio, { passive: true });
+        window.addEventListener("touchstart", unlockUserAudio, { passive: true });
+
+        // Multi-preset synthesizer engine
+        function synthesizePresetChime(soundType) {
+          try {
+            const ctx = getSharedAudioContext();
+            if (!ctx) return;
+            if (ctx.state === "suspended") {
+              ctx.resume().catch(() => {});
+            }
+            const now = ctx.currentTime;
+
+            // Broadcast dynamics compressor
+            const compressor = ctx.createDynamicsCompressor();
+            compressor.threshold.setValueAtTime(-18, now);
+            compressor.knee.setValueAtTime(10, now);
+            compressor.ratio.setValueAtTime(6, now);
+            compressor.attack.setValueAtTime(0.003, now);
+            compressor.release.setValueAtTime(0.2, now);
+            compressor.connect(ctx.destination);
+
+            const masterGain = ctx.createGain();
+            masterGain.gain.setValueAtTime(0.75, now);
+            masterGain.connect(compressor);
+
+            if (soundType === "cash_register") {
+              // 1. Mechanical clicks
+              [0.00, 0.035, 0.07].forEach(t => {
+                const clickOsc = ctx.createOscillator();
+                const clickGain = ctx.createGain();
+                clickOsc.type = "square";
+                clickOsc.frequency.setValueAtTime(450, now + t);
+                clickOsc.frequency.exponentialRampToValueAtTime(80, now + t + 0.018);
+                clickGain.gain.setValueAtTime(0.22, now + t);
+                clickGain.gain.exponentialRampToValueAtTime(0.0001, now + t + 0.018);
+                clickOsc.connect(clickGain);
+                clickGain.connect(masterGain);
+                clickOsc.start(now + t);
+                clickOsc.stop(now + t + 0.02);
+              });
+
+              // 2. Dual metallic bell ring (high A6: 1760Hz + high C7: 2093Hz)
+              const ringStart = now + 0.11;
+              const ringEnd = ringStart + 0.75;
+              [1760, 2093].forEach((freq, idx) => {
+                const bellOsc = ctx.createOscillator();
+                const bellGain = ctx.createGain();
+                bellOsc.type = "sine";
+                bellOsc.frequency.setValueAtTime(freq, ringStart);
+                bellGain.gain.setValueAtTime(0.0001, ringStart);
+                bellGain.gain.linearRampToValueAtTime(0.60 - (idx * 0.1), ringStart + 0.008);
+                bellGain.gain.exponentialRampToValueAtTime(0.0001, ringEnd);
+                bellOsc.connect(bellGain);
+                bellGain.connect(masterGain);
+                bellOsc.start(ringStart);
+                bellOsc.stop(ringEnd);
+
+                const overtoneOsc = ctx.createOscillator();
+                const overtoneGain = ctx.createGain();
+                overtoneOsc.type = "triangle";
+                overtoneOsc.frequency.setValueAtTime(freq * 1.62, ringStart);
+                overtoneGain.gain.setValueAtTime(0.2, ringStart);
+                overtoneGain.gain.exponentialRampToValueAtTime(0.0001, ringStart + 0.25);
+                overtoneOsc.connect(overtoneGain);
+                overtoneGain.connect(masterGain);
+                overtoneOsc.start(ringStart);
+                overtoneOsc.stop(ringStart + 0.25);
+              });
+
+            } else if (soundType === "crystal_bell") {
+              // Crystal Bell Ding at 1318.51Hz (E6)
+              const bellStart = now;
+              const bellEnd = now + 0.85;
+
+              const fund = ctx.createOscillator();
+              const fundGain = ctx.createGain();
+              fund.type = "sine";
+              fund.frequency.setValueAtTime(1318.51, bellStart);
+              fundGain.gain.setValueAtTime(0.0001, bellStart);
+              fundGain.gain.linearRampToValueAtTime(0.9, bellStart + 0.004);
+              fundGain.gain.exponentialRampToValueAtTime(0.0001, bellEnd);
+              fund.connect(fundGain);
+              fundGain.connect(masterGain);
+              fund.start(bellStart);
+              fund.stop(bellEnd);
+
+              const harm = ctx.createOscillator();
+              const harmGain = ctx.createGain();
+              harm.type = "sine";
+              harm.frequency.setValueAtTime(2637.02, bellStart);
+              harmGain.gain.setValueAtTime(0.35, bellStart);
+              harmGain.gain.exponentialRampToValueAtTime(0.0001, bellStart + 0.45);
+              harm.connect(harmGain);
+              harmGain.connect(masterGain);
+              harm.start(bellStart);
+              harm.stop(bellStart + 0.45);
+
+            } else if (soundType === "bright_pop") {
+              // Crisp Pop & Marimba
+              const popOsc = ctx.createOscillator();
+              const popGain = ctx.createGain();
+              popOsc.type = "sine";
+              popOsc.frequency.setValueAtTime(780, now);
+              popOsc.frequency.exponentialRampToValueAtTime(320, now + 0.05);
+              popGain.gain.setValueAtTime(0.65, now);
+              popGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.06);
+              popOsc.connect(popGain);
+              popGain.connect(masterGain);
+              popOsc.start(now);
+              popOsc.stop(now + 0.06);
+
+              const pingStart = now + 0.08;
+              const pingEnd = pingStart + 0.35;
+              const pingOsc = ctx.createOscillator();
+              const pingGain = ctx.createGain();
+              pingOsc.type = "triangle";
+              pingOsc.frequency.setValueAtTime(1567.98, pingStart);
+              pingGain.gain.setValueAtTime(0.0001, pingStart);
+              pingGain.gain.linearRampToValueAtTime(0.85, pingStart + 0.008);
+              pingGain.gain.exponentialRampToValueAtTime(0.0001, pingEnd);
+              pingOsc.connect(pingGain);
+              pingGain.connect(masterGain);
+              pingOsc.start(pingStart);
+              pingOsc.stop(pingEnd);
+
+            } else if (soundType === "chime_trio") {
+              // Elevate: E5 -> A5 -> C#6
+              const trioNotes = [
+                { freq: 659.25, start: 0.00, dur: 0.18, gain: 0.65 },
+                { freq: 880.00, start: 0.09, dur: 0.18, gain: 0.70 },
+                { freq: 1108.73, start: 0.18, dur: 0.60, gain: 0.90 },
+              ];
+              trioNotes.forEach(n => {
+                const start = now + n.start;
+                const end = start + n.dur;
+                const osc = ctx.createOscillator();
+                const g = ctx.createGain();
+                osc.type = "sine";
+                osc.frequency.setValueAtTime(n.freq, start);
+                g.gain.setValueAtTime(0.0001, start);
+                g.gain.linearRampToValueAtTime(n.gain, start + 0.01);
+                g.gain.exponentialRampToValueAtTime(0.0001, end);
+                osc.connect(g);
+                g.connect(masterGain);
+                osc.start(start);
+                osc.stop(end);
+              });
+
+            } else if (soundType === "classic_ring") {
+              // Classic Digital Ring: A5 -> D6 pulses
+              const pulses = [
+                { freq: 880, start: 0.00, dur: 0.07 },
+                { freq: 1175, start: 0.07, dur: 0.09 },
+                { freq: 880, start: 0.20, dur: 0.07 },
+                { freq: 1175, start: 0.27, dur: 0.18 },
+              ];
+              pulses.forEach(p => {
+                const start = now + p.start;
+                const end = start + p.dur;
+                const osc = ctx.createOscillator();
+                const g = ctx.createGain();
+                osc.type = "sine";
+                osc.frequency.setValueAtTime(p.freq, start);
+                g.gain.setValueAtTime(0.65, start);
+                g.gain.exponentialRampToValueAtTime(0.0001, end);
+                osc.connect(g);
+                g.connect(masterGain);
+                osc.start(start);
+                osc.stop(end);
+              });
+
+            } else {
+              // Default: Sales Flourish (G5 -> B5 -> D6 -> G6)
+              const notes = [
+                { freq: 783.99, start: 0.00, dur: 0.16, gain: 0.70 },
+                { freq: 987.77, start: 0.08, dur: 0.16, gain: 0.75 },
+                { freq: 1174.66, start: 0.16, dur: 0.18, gain: 0.85 },
+                { freq: 1567.98, start: 0.24, dur: 0.65, gain: 1.00 },
+              ];
+
+              notes.forEach(n => {
+                const noteStart = now + n.start;
+                const noteEnd = noteStart + n.dur;
+
+                const noteGain = ctx.createGain();
+                noteGain.gain.setValueAtTime(0.0001, noteStart);
+                noteGain.gain.linearRampToValueAtTime(n.gain, noteStart + 0.012);
+                noteGain.gain.exponentialRampToValueAtTime(0.0001, noteEnd);
+                noteGain.connect(masterGain);
+
+                const oscFund = ctx.createOscillator();
+                oscFund.type = "sine";
+                oscFund.frequency.setValueAtTime(n.freq, noteStart);
+                oscFund.connect(noteGain);
+                oscFund.start(noteStart);
+                oscFund.stop(noteEnd);
+
+                const oscHarm = ctx.createOscillator();
+                oscHarm.type = "triangle";
+                oscHarm.frequency.setValueAtTime(n.freq * 2, noteStart);
+                const harmGain = ctx.createGain();
+                harmGain.gain.setValueAtTime(0.25, noteStart);
+                harmGain.gain.exponentialRampToValueAtTime(0.0001, noteStart + Math.min(n.dur * 0.6, 0.22));
+                oscHarm.connect(harmGain);
+                harmGain.connect(noteGain);
+                oscHarm.start(noteStart);
+                oscHarm.stop(noteEnd);
+              });
+            }
+          } catch (e) {
+            console.debug("Audio synthesis error:", e);
+          }
+        }
+
+        let lastChimePlayedAt = 0;
+        // Global notification chime player (supports presets and custom uploaded audio)
+        window.playGlobalNotificationChime = function(soundTypeOverride, customUrlOverride) {
+          const now = Date.now();
+          if (!soundTypeOverride && (now - lastChimePlayedAt < 600)) {
+            return;
+          }
+          lastChimePlayedAt = now;
+          const targetSound = soundTypeOverride || orgNotificationSound || "sales_flourish";
+          const targetCustomUrl = customUrlOverride || orgCustomSoundUrl;
+
+          // 1. Play custom audio file if active
+          if (targetSound === "custom" && targetCustomUrl) {
+            try {
+              const audio = new Audio(targetCustomUrl);
+              audio.volume = 0.85;
+              const p = audio.play();
+              if (p !== undefined) {
+                p.catch(err => {
+                  console.debug("Custom audio playback failed, falling back to synthesis:", err);
+                  synthesizePresetChime("sales_flourish");
+                });
+              }
+              return;
+            } catch (err) {
+              console.debug("Custom audio init error:", err);
+            }
+          }
+
+          // 2. Synthesize requested or configured preset
+          synthesizePresetChime(targetSound);
+        };
+
+        window.previewSound = function(soundType, customUrl) {
+          window.playGlobalNotificationChime(soundType, customUrl);
+        };
+
+        // ==========================================
+        // BACKGROUND TAB ALERT: TITLE FLASHING & DESKTOP NOTIFICATIONS
+        // ==========================================
+        let titleFlashingTimer = null;
+        let originalPageTitle = document.title || "SparkText";
+        let activeFlashText = "";
+
+        window.startTitleFlashing = function(alertText) {
+          activeFlashText = alertText || "🔔 (1) Needs Human Attention! — SparkText";
+          if (titleFlashingTimer) return;
+          if (document.title && !document.title.startsWith("🔔") && !document.title.startsWith("🎯") && !document.title.startsWith("💬")) {
+            originalPageTitle = document.title;
+          }
+          let toggle = false;
+          titleFlashingTimer = setInterval(() => {
+            document.title = toggle ? activeFlashText : originalPageTitle;
+            toggle = !toggle;
+          }, 900);
+        };
+
+        window.stopTitleFlashing = function() {
+          if (titleFlashingTimer) {
+            clearInterval(titleFlashingTimer);
+            titleFlashingTimer = null;
+            if (originalPageTitle) {
+              document.title = originalPageTitle;
+            }
+          }
+        };
+
+        window.addEventListener("focus", () => window.stopTitleFlashing());
+        document.addEventListener("visibilitychange", () => {
+          if (!document.hidden) {
+            window.stopTitleFlashing();
+          }
+        });
+
+        window.showDesktopNotification = function(toastData) {
+          if (!("Notification" in window)) return;
+          if (Notification.permission !== "granted") return;
+          if (!toastData) return;
+
+          // STRICT FILTER 1: ONLY needs_human or lead_assigned trigger desktop notifications
+          const isAllowedType = toastData.type === "needs_human" || toastData.type === "lead_assigned" || toastData.status === "needs_human";
+          if (!isAllowedType) {
+            return;
+          }
+
+          // STRICT FILTER 2: TARGETED ROUTING RULE
+          // If assigned to another agent, NEVER show desktop notification
+          const assignedId = toastData.assigned_to_id;
+          if (assignedId && parseInt(assignedId, 10) !== currentUserId) {
+            return;
+          }
+
+          try {
+            let title = toastData.title;
+            if (!title) {
+              if (toastData.type === "lead_assigned") title = "🎯 New Lead Assigned";
+              else title = "🔔 Needs Human Attention";
+            }
+            const body = toastData.body || "A customer requires human agent assistance.";
+            const notif = new Notification(title, {
+              body: body,
+              icon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230f766e' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 19 9.5 9.5 13 14 20 5'/%3E%3C/svg%3E",
+              tag: "sparktext-" + (toastData.conversation_id || Date.now()),
+              renotify: true,
+            });
+            notif.onclick = function() {
+              window.focus();
+              const chatUrl = toastData.direct_url || (toastData.conversation_id ? `/inbox/${toastData.conversation_id}/` : "/inbox/");
+              window.location.href = chatUrl;
+              notif.close();
+            };
+          } catch (e) {
+            console.debug("Desktop notification error:", e);
           }
         };
 
@@ -984,12 +1904,12 @@
           const toast = document.createElement("div");
           toast.id = toastId;
 
-          let cardStyle = "bg-white/98 border-slate-200/90 text-gray-900";
-          let icon = "💬";
-          let badgeClass = "bg-brand-50 text-brand-600 border-brand-100";
-          let actionText = "View Chat →";
-          let actionBtnClass = "text-brand-600 hover:text-brand-800 font-bold hover:underline";
-          let title = toastData.title || "New Message";
+          let cardStyle = "bg-amber-50/98 border-amber-300 text-amber-950";
+          let icon = "⚠️";
+          let badgeClass = "bg-amber-100 text-amber-700 border-amber-200";
+          let actionText = "Open Conversation →";
+          let actionBtnClass = "text-amber-800 hover:text-amber-950 font-bold underline";
+          let title = toastData.title || "Needs Human Attention";
 
           if (isLeadAssigned) {
             cardStyle = "bg-gradient-to-r from-emerald-50/98 to-teal-50/98 border-emerald-300 text-emerald-950 ring-2 ring-emerald-400/30";
@@ -998,13 +1918,6 @@
             actionText = "Jump to Chat →";
             actionBtnClass = "px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] shadow-2xs";
             title = toastData.title || "🎯 New Qualified Lead Assigned";
-          } else if (isHandoff) {
-            cardStyle = "bg-amber-50/98 border-amber-300 text-amber-950";
-            icon = "⚠️";
-            badgeClass = "bg-amber-100 text-amber-700 border-amber-200";
-            actionText = "Open Conversation →";
-            actionBtnClass = "text-amber-800 hover:text-amber-950 font-bold underline";
-            title = toastData.title || "Needs Human Attention";
           }
 
           toast.className = `pointer-events-auto flex items-start gap-3 p-3.5 rounded-2xl shadow-xl border transition-all duration-300 transform translate-y-3 opacity-0 ${cardStyle}`;
@@ -1023,14 +1936,25 @@
             </div>
             <div class="flex-1 min-w-0 pr-1">
               <div class="flex items-center justify-between gap-1">
-                <h4 class="text-xs font-bold truncate ${isLeadAssigned ? 'text-emerald-950' : (isHandoff ? 'text-amber-950' : 'text-gray-900')}">${esc(title)}</h4>
+                <h4 class="text-xs font-bold truncate ${isLeadAssigned ? 'text-emerald-950' : 'text-amber-950'}">${esc(title)}</h4>
                 <span class="text-[10px] text-gray-400 font-medium shrink-0">just now</span>
               </div>
-              <p class="text-[11px] ${isLeadAssigned ? 'text-emerald-900/90 font-semibold' : (isHandoff ? 'text-amber-900/90' : 'text-gray-600')} line-clamp-2 mt-0.5 leading-snug">${esc(body)}</p>
-              <div class="mt-2.5 flex items-center gap-2">
-                <a href="${chatUrl}" class="inline-flex items-center gap-1 text-[11px] ${actionBtnClass}">
+              <p class="text-[11px] ${isLeadAssigned ? 'text-emerald-900/90 font-semibold' : 'text-amber-900/90'} line-clamp-2 mt-0.5 leading-snug">${esc(body)}</p>
+              <div class="mt-2.5 flex items-center justify-between gap-2">
+                <a href="${chatUrl}" onclick="if (typeof window.markConversationNotificationsRead === 'function') window.markConversationNotificationsRead('${toastData.conversation_id || ''}');" class="inline-flex items-center gap-1 text-[11px] ${actionBtnClass}">
                   <span>${actionText}</span>
                 </a>
+                ${(function() {
+                  const toastAssignedToId = toastData.assigned_to_id;
+                  const isAssignedToMe = toastAssignedToId && parseInt(toastAssignedToId, 10) === currentUserId;
+                  if (isAssignedToMe) {
+                    return '<span class="inline-flex items-center text-[10px] font-semibold text-emerald-800 bg-emerald-100 border border-emerald-200 px-1.5 py-0.2 rounded shrink-0">Assigned to you</span>';
+                  } else if (toastData.assigned_to_name) {
+                    return `<span class="inline-flex items-center text-[10px] font-semibold text-slate-700 bg-slate-100 border border-slate-200 px-1.5 py-0.2 rounded shrink-0">Assigned: ${esc(toastData.assigned_to_name)}</span>`;
+                  } else {
+                    return '<span class="inline-flex items-center text-[10px] font-semibold text-amber-800 bg-amber-100/90 border border-amber-200 px-1.5 py-0.2 rounded shrink-0">Unassigned</span>';
+                  }
+                })()}
               </div>
             </div>
             <button type="button" onclick="dismissToast('${toastId}')" class="text-gray-400 hover:text-gray-600 text-xs shrink-0 cursor-pointer p-0.5" aria-label="Close">
@@ -1046,8 +1970,23 @@
             toast.classList.add("translate-y-0", "opacity-100");
           });
 
+          // Sync active notification chime if provided in toast
+          if (toastData && toastData.notification_sound) {
+            orgNotificationSound = toastData.notification_sound;
+          }
+          if (toastData && toastData.custom_sound_url !== undefined) {
+            orgCustomSoundUrl = toastData.custom_sound_url;
+          }
+
           // Play chime
           window.playGlobalNotificationChime();
+
+          // If user is on another tab or window is not focused, trigger title flashing & desktop notification
+          if (document.hidden || !document.hasFocus()) {
+            const alertTitle = isLeadAssigned ? "🎯 (1) New Lead Assigned! — SparkText" : "🔔 (1) Needs Human Attention! — SparkText";
+            window.startTitleFlashing(alertTitle);
+            window.showDesktopNotification(toastData);
+          }
 
           // Auto-dismiss after 6.5s
           let timer = setTimeout(() => dismissToast(toastId), 6500);
@@ -1068,24 +2007,142 @@
             globalInboxSocket.onmessage = function(e) {
               try {
                 const data = JSON.parse(e.data);
+
+                // Real-time notification sound/ringtone synchronization across all agency users
+                if (data.event === "notification_sound_update") {
+                  if (data.notification_sound) {
+                    orgNotificationSound = data.notification_sound;
+                  }
+                  if (data.custom_sound_url !== undefined) {
+                    orgCustomSoundUrl = data.custom_sound_url;
+                  }
+                  const activeLabel = document.getElementById("active-sound-label");
+                  if (activeLabel && data.notification_sound_display) {
+                    activeLabel.textContent = data.notification_sound_display;
+                  }
+                  return;
+                }
+
+                // Real-time lead claim / assignment synchronization:
+                // When an unassigned lead is claimed or assigned to an agent, remove it from other agents' notification lists!
+                if (data.event === "conversation_assigned") {
+                  const convId = data.conversation_id;
+                  const assignedToId = data.assigned_to_id;
+                  const isAssignedToMe = Boolean(assignedToId && parseInt(assignedToId, 10) === currentUserId);
+                  const isAssignedToOther = Boolean(assignedToId && parseInt(assignedToId, 10) !== currentUserId);
+
+                  if (isAssignedToOther) {
+                    // Claimed by or assigned to another agent -> remove from this agent's drawer
+                    currentNotifications = currentNotifications.filter(item => {
+                      return parseInt(item.conversation_id, 10) !== parseInt(convId, 10);
+                    });
+                    saveStoredNotifications(currentNotifications);
+                    renderNotificationsUI();
+                  } else if (isAssignedToMe) {
+                    // Assigned to this agent -> update badge
+                    currentNotifications.forEach(item => {
+                      if (parseInt(item.conversation_id, 10) === parseInt(convId, 10)) {
+                        item.assigned_to_id = currentUserId;
+                        item.assigned_to_name = "You";
+                        item.is_assigned_to_me = true;
+                      }
+                    });
+                    saveStoredNotifications(currentNotifications);
+                    renderNotificationsUI();
+                  }
+                  window.dispatchEvent(new CustomEvent("conversation_assigned", { detail: data }));
+                  return;
+                }
+
                 if (data.event === "inbox_update") {
+                  // Dynamically sync sound from payload if present
+                  if (data.notification_sound) {
+                    orgNotificationSound = data.notification_sound;
+                  }
+                  if (data.custom_sound_url !== undefined) {
+                    orgCustomSoundUrl = data.custom_sound_url;
+                  }
+                  if (data.toast && data.toast.notification_sound) {
+                    orgNotificationSound = data.toast.notification_sound;
+                  }
+                  if (data.toast && data.toast.custom_sound_url !== undefined) {
+                    orgCustomSoundUrl = data.toast.custom_sound_url;
+                  }
+
                   // 1. Update the sidebar unread badge immediately
                   if (data.nav_unread_count !== undefined) {
                     window.updateSidebarUnreadCount(data.nav_unread_count);
                   }
 
-                  // 2. Trigger toast if not currently viewing this conversation
-                  const activeConvId = (typeof currentConvId !== "undefined") ? currentConvId : null;
+                  // 2. Targeted notification routing:
+                  // Only notify (toast & chime & notification center) if:
+                  // - Conversation is unassigned (send to everyone in org)
+                  // - OR conversation is assigned specifically to this user
+                  const activeConvId = getActiveConversationId();
                   const incomingConvId = data.conversation?.id || data.toast?.conversation_id;
+                  const isViewingThisChat = Boolean(
+                    activeConvId &&
+                    incomingConvId &&
+                    parseInt(activeConvId, 10) === parseInt(incomingConvId, 10)
+                  );
+                  const isTabHidden = document.hidden || !document.hasFocus();
+                  const isDirectlyActiveInForeground = isViewingThisChat && !isTabHidden;
 
-                  if (data.toast && (!activeConvId || activeConvId !== incomingConvId)) {
-                    window.showGlobalToast(data.toast);
+                  const isNeedsHumanOrAssigned = data.toast && (
+                    data.toast.type === "needs_human" ||
+                    data.toast.type === "lead_assigned" ||
+                    data.toast.status === "needs_human"
+                  );
+
+                  if (isNeedsHumanOrAssigned) {
+                    const toastAssignedToId = data.toast.assigned_to_id || data.conversation?.assigned_to_id;
+                    const isAssigned = Boolean(toastAssignedToId);
+                    const isAssignedToMe = Boolean(toastAssignedToId && parseInt(toastAssignedToId, 10) === currentUserId);
+                    const isAssignedToOther = Boolean(toastAssignedToId && parseInt(toastAssignedToId, 10) !== currentUserId);
+
+                    // TARGETED ROUTING RULE:
+                    // 1. If assigned: ONLY notify the assigned agent (isAssignedToMe).
+                    // 2. If unassigned: notify everyone in the org.
+                    if (isAssigned && !isAssignedToMe) {
+                      return;
+                    }
+
+                    const notifObj = {
+                      id: "notif-" + Date.now() + "-" + Math.floor(Math.random() * 1000),
+                      type: data.toast.type || "needs_human",
+                      title: data.toast.title || "Needs Human Attention",
+                      body: data.toast.body || "",
+                      conversation_id: data.toast.conversation_id || data.conversation?.id,
+                      url: data.toast.direct_url || (data.toast.conversation_id ? `/inbox/${data.toast.conversation_id}/` : "/inbox/"),
+                      assigned_to_id: toastAssignedToId,
+                      assigned_to_name: data.toast.assigned_to_name || (isAssignedToMe ? "You" : null),
+                      is_assigned_to_me: isAssignedToMe,
+                      timestamp: Date.now(),
+                      read: isDirectlyActiveInForeground,
+                    };
+
+                    if (typeof window.addNotification === "function") {
+                      window.addNotification(notifObj);
+                    }
+
+                    if (isDirectlyActiveInForeground && activeConvId) {
+                      window.markConversationNotificationsRead(activeConvId);
+                    }
+
+                    if (!isDirectlyActiveInForeground) {
+                      window.showGlobalToast(data.toast);
+                    } else {
+                      window.playGlobalNotificationChime();
+                    }
                   }
 
                   // 3. If on /inbox/, update the active sidebar conversation card
                   if (typeof updateSidebarCard === "function" && data.conversation) {
                     updateSidebarCard(data.conversation, data);
                   }
+
+                  // Forward real-time inbox update to any active view listeners (e.g. Dashboard)
+                  window.dispatchEvent(new CustomEvent("inbox_update", { detail: data }));
                 } else if (data.event === "campaign_list_update") {
                   // Forward campaign creation/status events to any active view listeners
                   window.dispatchEvent(new CustomEvent("campaign_list_update", { detail: data }));

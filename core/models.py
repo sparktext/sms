@@ -1,4 +1,5 @@
 import secrets
+import uuid
 from datetime import timedelta
 from django.utils import timezone
 from django.contrib.auth.models import AbstractUser, BaseUserManager
@@ -82,6 +83,28 @@ class Organization(models.Model):
         default=False,
         help_text="Whether default starter SMS templates and categories have been initialized for this workspace",
     )
+    # Notification Chime & Sound Preferences
+    class NotificationSound(models.TextChoices):
+        SALES_FLOURISH = "sales_flourish", "Sales Flourish (Ascending Major Chime)"
+        CASH_REGISTER = "cash_register", "Cash Register (Cha-Ching)"
+        CRYSTAL_BELL = "crystal_bell", "Crystal Bell Ding"
+        BRIGHT_POP = "bright_pop", "Crisp Pop & Marimba"
+        CHIME_TRIO = "chime_trio", "Elevate (Harmonic Trio)"
+        CLASSIC_RING = "classic_ring", "Classic Digital Ring"
+        CUSTOM = "custom", "Custom Audio File"
+
+    notification_sound = models.CharField(
+        max_length=50,
+        choices=NotificationSound.choices,
+        default=NotificationSound.SALES_FLOURISH,
+        help_text="Notification chime played when a lead needs human attention or is assigned",
+    )
+    custom_notification_sound = models.FileField(
+        upload_to="notification_sounds/",
+        blank=True,
+        null=True,
+        help_text="Custom audio file (MP3, WAV, OGG, M4A) for notification chime",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
@@ -145,12 +168,45 @@ class User(AbstractUser):
         help_text="Timestamp of when the user was last assigned a lead, used for fair tiebreaking",
     )
 
+    # --- Auth enhancement fields (migration 0006) ---
+    public_id = models.UUIDField(
+        default=uuid.uuid4, unique=True, editable=False, db_index=True,
+        help_text="Public-facing opaque identifier for URLs",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=[('active', 'Active'), ('suspended', 'Suspended'), ('deleted', 'Deleted')],
+        default='active',
+        db_index=True,
+    )
+    signup_method = models.CharField(
+        max_length=10,
+        choices=[('email', 'Email'), ('google', 'Google')],
+        default='email',
+    )
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True, null=True)
+    updated_at = models.DateTimeField(auto_now=True, null=True)
+    email_verified_at = models.DateTimeField(null=True, blank=True)
+    password_set_at = models.DateTimeField(null=True, blank=True)
+    welcome_email_sent_at = models.DateTimeField(null=True, blank=True)
+    last_login_ip = models.GenericIPAddressField(null=True, blank=True)
+    suspended_at = models.DateTimeField(null=True, blank=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    # Consent
+    terms_version = models.CharField(max_length=20, blank=True, default='1.0')
+    marketing_opt_in = models.BooleanField(default=False)
+
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
     objects = UserManager()
 
     def __str__(self):
         return self.email
+
+    @property
+    def is_admin_or_owner(self) -> bool:
+        return self.role in [self.Role.OWNER, self.Role.ADMIN]
 
 
 class OrganizationInvite(models.Model):
@@ -213,3 +269,89 @@ class OrganizationInvite(models.Model):
     def __str__(self):
         return f"Invite for {self.email} to {self.organization.name} ({self.role})"
 
+
+
+class UserProfile(models.Model):
+    """Extended profile information for a User. Created automatically on user creation."""
+
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    full_name = models.CharField(max_length=200, blank=True)
+    phone = models.CharField(max_length=30, blank=True)
+    company = models.CharField(max_length=200, blank=True)
+    avatar_url = models.URLField(blank=True)
+    timezone = models.CharField(max_length=64, default='Asia/Kolkata')
+    language = models.CharField(max_length=10, default='en')
+    onboarding_completed_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self) -> str:
+        return f"Profile({self.user.email})"
+
+
+class AccountEvent(models.Model):
+    """Immutable audit log for all significant account lifecycle events."""
+
+    class EventType(models.TextChoices):
+        ACCOUNT_CREATED = 'account_created', 'Account Created'
+        EMAIL_VERIFICATION_SENT = 'email_verification_sent', 'Email Verification Sent'
+        EMAIL_VERIFIED = 'email_verified', 'Email Verified'
+        PASSWORD_SET = 'password_set', 'Password Set'
+        PASSWORD_CHANGED = 'password_changed', 'Password Changed'
+        PASSWORD_RESET_REQUESTED = 'password_reset_requested', 'Password Reset Requested'
+        PASSWORD_RESET = 'password_reset', 'Password Reset'
+        LOGIN = 'login', 'Login'
+        LOGIN_FAILED = 'login_failed', 'Login Failed'
+        LOGOUT = 'logout', 'Logout'
+        SOCIAL_LINKED = 'social_linked', 'Social Account Linked'
+        WELCOME_EMAIL_SENT = 'welcome_email_sent', 'Welcome Email Sent'
+        PROFILE_UPDATED = 'profile_updated', 'Profile Updated'
+        ONBOARDING_COMPLETED = 'onboarding_completed', 'Onboarding Completed'
+        ACCOUNT_SUSPENDED = 'account_suspended', 'Account Suspended'
+        ACCOUNT_DELETED = 'account_deleted', 'Account Deleted'
+        ACCOUNT_RECOVERED = 'account_recovered', 'Account Recovered'
+
+    user = models.ForeignKey(
+        User, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='events',
+    )
+    # Store public_id separately so we can query events even after user deletion
+    user_public_id = models.UUIDField(null=True, blank=True, db_index=True)
+    event_type = models.CharField(max_length=50, choices=EventType.choices, db_index=True)
+    metadata = models.JSONField(default=dict)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self) -> str:
+        return f"{self.event_type} @ {self.created_at}"
+
+
+class EmailLog(models.Model):
+    """Tracks every transactional email sent through the system."""
+
+    class State(models.TextChoices):
+        QUEUED = 'queued', 'Queued'
+        SENT = 'sent', 'Sent'
+        FAILED = 'failed', 'Failed'
+        DELIVERED = 'delivered', 'Delivered'
+        BOUNCED = 'bounced', 'Bounced'
+
+    user = models.ForeignKey(
+        User, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='email_logs',
+    )
+    email_type = models.CharField(max_length=50, db_index=True)
+    to_address = models.EmailField()
+    state = models.CharField(max_length=15, choices=State.choices, default=State.QUEUED)
+    provider_message_id = models.CharField(max_length=200, blank=True)
+    error = models.TextField(blank=True)
+    queued_at = models.DateTimeField(auto_now_add=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-queued_at']
+
+    def __str__(self) -> str:
+        return f"{self.email_type} → {self.to_address} [{self.state}]"

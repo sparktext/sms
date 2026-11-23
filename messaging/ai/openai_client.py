@@ -85,7 +85,12 @@ class OpenAICompatibleClient(BaseAIClient):
                     self.max_retries + 1,
                 )
                 response = requests.post(endpoint, json=payload, headers=headers, timeout=self.timeout)
-                response.raise_for_status()
+                if response.status_code >= 400:
+                    # If local server rejected strict json_schema, fallback to standard json_object on next attempt
+                    if response.status_code == 400 and payload.get("response_format", {}).get("type") == "json_schema":
+                        payload["response_format"] = {"type": "json_object"}
+                    err_detail = (response.text or "").strip()[:140] or response.reason
+                    raise RuntimeError(f"HTTP {response.status_code}: {err_detail}")
 
                 latency_ms = int((time.perf_counter() - t_start) * 1000)
                 data = response.json()

@@ -11,6 +11,8 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST, require_GET, require_http_methods
 
 from core.models import Organization
+from .lead_dossier import extract_contact_lead_details, label_for
+from .lead_editor import contact_lead_editor, apply_lead_edits
 from .models import Contact, ContactField, ContactList, ImportBatch
 from .services import (
     save_contact,
@@ -249,8 +251,16 @@ def add_contact(request):
     first_name = request.POST.get("first_name", "").strip()
     last_name = request.POST.get("last_name", "").strip()
     email = request.POST.get("email", "").strip()
-    timezone = request.POST.get("timezone", "").strip()
+    source = (request.POST.get("source") or request.POST.get("vendor") or "").strip()
+    consent = request.POST.get("consent") in ("1", "true", "on", True)
     contact_list_id = request.POST.get("contact_list_id", "").strip()
+
+    if not source:
+        err_msg = "Source is compulsory. Please specify a lead source."
+        if _is_ajax(request):
+            return JsonResponse({"status": "error", "message": err_msg}, status=400)
+        messages.error(request, err_msg)
+        return redirect("contacts:list")
 
     # Process custom fields
     custom_fields = {}
@@ -265,7 +275,7 @@ def add_contact(request):
         "first_name": first_name,
         "last_name": last_name,
         "email": email,
-        "timezone": timezone,
+        "source": source,
         "custom_fields": custom_fields,
     }
 
@@ -275,6 +285,16 @@ def add_contact(request):
             data=data,
             source=Contact.Source.MANUAL,
         )
+
+        if consent:
+            from compliance.services import record_consent
+            from compliance.models import ConsentEvent
+            record_consent(
+                contact=contact,
+                event_type=ConsentEvent.EventType.OPT_IN,
+                source=ConsentEvent.Source.MANUAL,
+                proof_text=f"Express consent registered manually upon creation (Source: {source})",
+            )
 
         # Attach to contact list if selected
         if contact_list_id:
@@ -316,14 +336,14 @@ def import_preview(request):
 
     uploaded_file = request.FILES.get("file")
     if not uploaded_file:
-        return JsonResponse({"status": "error", "message": "Please select a CSV file."}, status=400)
+        return JsonResponse({"status": "error", "message": "Please select a CSV or Excel file."}, status=400)
 
     try:
         raw_bytes = uploaded_file.read()
-        preview = preview_csv(raw_bytes, sample_size=5)
+        preview = preview_csv(raw_bytes, sample_size=5, filename=uploaded_file.name)
 
         if not preview["headers"]:
-            return JsonResponse({"status": "error", "message": "The CSV file appears to be empty."}, status=400)
+            return JsonResponse({"status": "error", "message": "The uploaded file appears to be empty."}, status=400)
 
         suggestions = suggest_column_mappings(org, preview["headers"])
         approved_fields = list(ContactField.objects.filter(organization=org).values("key", "label"))
@@ -341,7 +361,7 @@ def import_preview(request):
         err_msg = "; ".join(ve.messages) if hasattr(ve, "messages") else str(ve)
         return JsonResponse({"status": "error", "message": err_msg}, status=400)
     except Exception as exc:
-        return JsonResponse({"status": "error", "message": f"Could not read CSV file: {str(exc)}"}, status=400)
+        return JsonResponse({"status": "error", "message": f"Could not read file: {str(exc)}"}, status=400)
 
 
 @login_required
@@ -375,6 +395,7 @@ def import_process(request):
 
     consent_attested = request.POST.get("consent_attested", "").lower() in ("true", "1", "yes", "on")
     attestation_text = request.POST.get("attestation_text", "").strip()
+    default_source = (request.POST.get("default_source") or request.POST.get("default_vendor") or "").strip() or "Direct"
 
     try:
         report = import_contacts_csv(
@@ -382,6 +403,7 @@ def import_process(request):
             file_or_content=uploaded_file.read(),
             column_mapping=mapping,
             contact_list=target_list,
+            default_source=default_source,
             consent_attestation=consent_attested,
             attestation_text=attestation_text,
             filename=uploaded_file.name,
@@ -405,7 +427,7 @@ def import_process(request):
 def contact_detail(request, contact_id):
     """
     Detailed profile view for a single Contact:
-    - View and edit all contact fields (name, phone, email, timezone, custom fields)
+    - View and edit all contact fields (name, phone, email, source, custom fields)
     - View lists the contact belongs to, with option to manage list assignments
     - Full SMS conversation history + live inline reply capability
     - Complete timeline of consent events from the append-only ledger (with exact proof text)
@@ -421,7 +443,18 @@ def contact_detail(request, contact_id):
     consent_events = contact.consent_events.all().order_by("-created_at")
     all_lists = ContactList.objects.filter(organization=org).order_by("name")
     contact_list_ids = set(contact.lists.values_list("id", flat=True))
-    all_fields = ContactField.objects.filter(organization=org).order_by("label")
+    all_fields = list(ContactField.objects.filter(organization=org).order_by("label"))
+    # Filter out internal raw JSON fields (like detail) from standard text inputs
+    all_fields = [f for f in all_fields if f.key not in ("detail", "lead_data", "payload", "json_data")]
+    current_values = contact.custom_fields if isinstance(contact.custom_fields, dict) else {}
+    for f in all_fields:
+        # "current_insurer" -> "Current Insurer" when the label is just the raw key
+        f.display_label = label_for(f.key) if f.label.strip() == f.key else f.label
+        value = current_values.get(f.key)
+        f.current_value = "" if value is None else value
+
+    lead_dossier = extract_contact_lead_details(contact)
+    lead_editor = contact_lead_editor(contact)
 
     # Fetch conversations for this contact (newest first)
     conversations = list(
@@ -505,7 +538,7 @@ def contact_detail(request, contact_id):
     org_members = list(
         User.objects.filter(organization=org, is_active=True).order_by("first_name", "email")
     )
-    standard_stages = ["New Lead", "Contacted", "Qualified", "Quote Sent", "Won", "Lost"]
+    standard_stages = ["New Lead", "Contacted", "Qualified", "Not Qualified", "Quote Sent", "Won", "Lost"]
 
     if not active_phones and not active_conv:
         can_send = False
@@ -530,6 +563,8 @@ def contact_detail(request, contact_id):
         "active_phones": active_phones,
         "org_members": org_members,
         "standard_stages": standard_stages,
+        "lead_dossier": lead_dossier,
+        "lead_editor": lead_editor,
         "can_send": can_send,
         "block_reason": block_reason,
     }
@@ -817,12 +852,20 @@ def edit_contact(request, contact_id):
         return JsonResponse({"status": "error", "message": "No organization."}, status=400)
 
     contact = get_object_or_404(Contact, id=contact_id, organization=org)
+    contact_custom_fields_before = dict(contact.custom_fields or {}) if isinstance(contact.custom_fields, dict) else {}
 
     phone = request.POST.get("phone", contact.phone).strip()
     first_name = request.POST.get("first_name", "").strip()
     last_name = request.POST.get("last_name", "").strip()
     email = request.POST.get("email", "").strip()
-    timezone = request.POST.get("timezone", "").strip()
+    source = (request.POST.get("source") or request.POST.get("vendor", contact.source)).strip()
+
+    if ("source" in request.POST or "vendor" in request.POST) and not source:
+        err_msg = "Source is compulsory. Please specify a lead source."
+        if _is_ajax(request):
+            return JsonResponse({"status": "error", "message": err_msg}, status=400)
+        messages.error(request, err_msg)
+        return redirect("contacts:detail", contact_id=contact.id)
 
     # Process custom fields
     custom_fields = {}
@@ -837,12 +880,28 @@ def edit_contact(request, contact_id):
         "first_name": first_name,
         "last_name": last_name,
         "email": email,
-        "timezone": timezone,
+        "source": source,
         "custom_fields": custom_fields,
     }
 
     try:
         updated = update_contact(contact=contact, data=data)
+        # The form only edits the fields it shows: keep everything else the contact carries
+        # (lead-form JSON - hidden from the form even when it's an approved field -, stage,
+        # qualification notes...), which saving used to wipe. A shown field left empty is removed.
+        on_form = {k[len("custom_field_"):] for k in request.POST if k.startswith("custom_field_")}
+        previous = contact_custom_fields_before if isinstance(contact_custom_fields_before, dict) else {}
+        kept = {k: v for k, v in previous.items() if k not in on_form}
+        if kept:
+            updated.custom_fields = {**kept, **(updated.custom_fields or {})}
+            updated.save(update_fields=["custom_fields"])
+        # Edited lead-form values: only the ones that changed are written back into the lead JSON
+        lead_edits = [(k, v) for k, v in request.POST.items() if k.startswith("lead::")]
+        if lead_edits:
+            new_fields, n_changed = apply_lead_edits(dict(updated.custom_fields or {}), lead_edits)
+            if n_changed:
+                updated.custom_fields = new_fields
+                updated.save(update_fields=["custom_fields"])
 
         # Update lists if provided in POST
         list_ids = request.POST.getlist("lists")
@@ -1102,6 +1161,13 @@ def create_list(request):
         if is_json:
             return JsonResponse({"status": "error", "message": "List name cannot be blank."}, status=400)
         messages.error(request, "List name cannot be blank.")
+        return redirect("contacts:lists")
+
+    max_len = ContactList._meta.get_field("name").max_length
+    if len(name) > max_len:
+        if is_json:
+            return JsonResponse({"status": "error", "message": f"List name cannot exceed {max_len} characters."}, status=400)
+        messages.error(request, f"List name cannot exceed {max_len} characters.")
         return redirect("contacts:lists")
 
     if ContactList.objects.filter(organization=org, name__iexact=name).exists():
@@ -1371,7 +1437,7 @@ def lead_ingest_api(request, api_key=None):
             "payload_format": "JSON object, JSON array (batch), or URL-encoded form data",
             "required_fields": ["phone"],
             "optional_fields": [
-                "first_name", "last_name", "email", "timezone", "list", "stage", "form", "consent", "custom_fields"
+                "first_name", "last_name", "email", "list", "stage", "form", "consent", "custom_fields"
             ],
             "sample_json": {
                 "phone": "+16505550199",

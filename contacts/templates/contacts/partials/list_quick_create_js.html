@@ -1,0 +1,140 @@
+{# Behaviour for partials/list_quick_create.html. Include once per page, inside {% block extra_js %} (it ships its own <script>). #}
+<script>
+(function () {
+  const CREATE_URL = "{% url 'contacts:create_list' %}";
+
+  function csrfToken() {
+    const el = document.querySelector('[name=csrfmiddlewaretoken]');
+    if (el && el.value) return el.value;
+    const m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+
+  const q = (root, sel) => root.querySelector(sel);
+
+  function showError(w, msg) {
+    const p = q(w, '[data-ql-error]');
+    p.textContent = msg || '';
+    p.hidden = !msg;
+  }
+
+  function openRow(w) {
+    q(w, '[data-ql-row]').hidden = false;
+    q(w, '[data-ql-toggle]').hidden = true;
+    showError(w, '');
+    q(w, '[data-ql-input]').focus();
+  }
+
+  function closeRow(w) {
+    q(w, '[data-ql-row]').hidden = true;
+    q(w, '[data-ql-toggle]').hidden = false;
+    q(w, '[data-ql-input]').value = '';
+    showError(w, '');
+  }
+
+  // Add the new list to every list <select> on the page (option text may carry a count suffix)
+  function addOptionEverywhere(id, name, selectedId) {
+    document.querySelectorAll('select').forEach((sel) => {
+      const isListPicker = ['ac_list_id', 'csvTargetList', 'remote_list_id'].includes(sel.id)
+        || sel.hasAttribute('data-contact-list-select');
+      if (!isListPicker) return;
+      if ([...sel.options].some((o) => o.value === String(id))) return;
+      const opt = document.createElement('option');
+      opt.value = String(id);
+      opt.textContent = sel.id === 'remote_list_id' ? name + ' (0 contacts)' : name;
+      sel.appendChild(opt);
+    });
+    const target = selectedId && document.getElementById(selectedId);
+    if (target) target.value = String(id);
+  }
+
+  function addChip(container, id, name) {
+    if (container.querySelector('input[name="lists"][value="' + id + '"]')) return;
+    container.querySelectorAll('[data-ql-empty]').forEach((n) => n.remove());
+    const label = document.createElement('label');
+    label.className = 'inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-medium cursor-pointer transition bg-brand-50 border-brand-200 text-brand-900';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.name = 'lists';
+    cb.value = String(id);
+    cb.checked = true;
+    cb.className = 'rounded text-brand-600 focus:ring-brand-500';
+    const span = document.createElement('span');
+    span.textContent = name;
+    label.append(cb, span);
+    container.appendChild(label);
+  }
+
+  async function save(w) {
+    const input = q(w, '[data-ql-input]');
+    const btn = q(w, '[data-ql-save]');
+    const name = input.value.trim().replace(/\s+/g, ' ');
+    if (!name) { showError(w, 'Enter a list name.'); input.focus(); return; }
+
+    const selectId = w.dataset.selectId || '';
+    const chipsId = w.dataset.chipsId || '';
+    const chips = chipsId ? document.getElementById(chipsId) : null;
+
+    // A list with this name already exists on the page: just pick it instead of erroring.
+    const lower = name.toLowerCase();
+    if (selectId) {
+      const sel = document.getElementById(selectId);
+      const hit = sel && [...sel.options].find((o) => o.value && o.textContent.replace(/\s*\(\d+ contacts?\)\s*$/, '').trim().toLowerCase() === lower);
+      if (hit) { sel.value = hit.value; closeRow(w); return; }
+    }
+    if (chips) {
+      const hit = [...chips.querySelectorAll('label')].find((l) => (l.textContent || '').trim().toLowerCase() === lower);
+      if (hit) { const cb = hit.querySelector('input'); if (cb) cb.checked = true; closeRow(w); return; }
+    }
+
+    btn.disabled = true;
+    const prev = btn.textContent;
+    btn.textContent = 'Creating…';
+    showError(w, '');
+    try {
+      const body = new FormData();
+      body.append('name', name);
+      const resp = await fetch(CREATE_URL, {
+        method: 'POST',
+        body,
+        headers: { 'X-CSRFToken': csrfToken(), 'X-Requested-With': 'XMLHttpRequest' },
+      });
+      let data = {};
+      try { data = await resp.json(); } catch (_) { /* non-JSON error page */ }
+      if (!resp.ok || data.status !== 'success') {
+        showError(w, data.message || 'Could not create the list. Please try again.');
+        return;
+      }
+      addOptionEverywhere(data.id, data.name, selectId);
+      if (chips) addChip(chips, data.id, data.name);
+      closeRow(w);
+    } catch (err) {
+      showError(w, 'Network error while creating the list.');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = prev;
+    }
+  }
+
+  document.addEventListener('click', (e) => {
+    const w = e.target.closest('[data-quick-list]');
+    if (!w) return;
+    if (e.target.closest('[data-ql-toggle]')) openRow(w);
+    else if (e.target.closest('[data-ql-cancel]')) closeRow(w);
+    else if (e.target.closest('[data-ql-save]')) save(w);
+  });
+
+  // Enter creates the list (and must not submit the surrounding form)
+  document.addEventListener('keydown', (e) => {
+    if (!e.target.matches || !e.target.matches('[data-ql-input]')) return;
+    const w = e.target.closest('[data-quick-list]');
+    if (e.key === 'Enter') { e.preventDefault(); save(w); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeRow(w); }
+  });
+
+  // Resetting a form (e.g. closing the Add Contact modal) collapses any open widget
+  document.addEventListener('reset', (e) => {
+    e.target.querySelectorAll && e.target.querySelectorAll('[data-quick-list]').forEach(closeRow);
+  }, true);
+})();
+</script>

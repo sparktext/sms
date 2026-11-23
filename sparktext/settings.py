@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 
 from pathlib import Path
 import environ
+import json
 import os
 import sys
 
@@ -30,8 +31,7 @@ env = environ.Env(
     TELNYX_API_KEY=(str, ""),
     TELNYX_PUBLIC_KEY=(str, ""),
     TELNYX_PHONE_NUMBER=(str, ""),
-    TELNYX_VALIDATE_WEBHOOKS=(bool, False),
-    MESSAGING_PROVIDER=(str, "telnyx"),
+    MESSAGING_PROVIDER=(str, "twilio"),
     MESSAGING_REPLY_WINDOW_HOURS=(int, 24),
     AI_CLIENT=(str, "openai"),
     AI_BASE_URL=(str, "http://localhost:1235/v1"),
@@ -39,11 +39,23 @@ env = environ.Env(
     AI_API_KEY=(str, ""),
     AI_TIMEOUT_SECONDS=(int, 45),
     AI_MAX_RETRIES=(int, 1),
-    REDIS_URL=(str, "redis://localhost:6380?protocol=2&socket_timeout=30"),
+    # Auth / Email additions
+    BREVO_API_KEY=(str, ""),
+    GOOGLE_OAUTH_JSON_PATH=(str, "secrets/google_oauth.json"),
+    GOOGLE_CLIENT_ID=(str, ""),
+    GOOGLE_CLIENT_SECRET=(str, ""),
+    ANYMAIL_WEBHOOK_SECRET=(str, ""),
+    REDIS_URL=(str, "redis://localhost:6379/0"),
+    HTTPS_ONLY=(bool, False),
+    TURNSTILE_ENABLED=(bool, False),
+    TURNSTILE_SITE_KEY=(str, ""),
+    TURNSTILE_SECRET_KEY=(str, ""),
+    
     EMAIL_BACKEND=(str, "django.core.mail.backends.smtp.EmailBackend"),
     EMAIL_HOST=(str, "smtp.hostinger.com"),
     EMAIL_PORT=(int, 465),
     EMAIL_USE_SSL=(bool, True),
+    EMAIL_USE_TLS=(bool, False),
     EMAIL_HOST_USER=(str, "info@sparktext.si"),
     EMAIL_HOST_PASSWORD=(str, ""),
     DEFAULT_FROM_EMAIL=(str, "info@sparktext.si"),
@@ -77,22 +89,39 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.sites',          # required by allauth
     # Channels
     'channels',
-    # Local apps
+    # Local apps first so our templates override allauth's defaults
+    'accounts',
     'rest_framework',
+    # Allauth
+    'allauth',
+    'allauth.account',
+    'allauth.socialaccount',
+    'allauth.socialaccount.providers.google',
+    # Axes (brute-force protection)
+    'axes',
     'messaging',
     'contacts',
     'compliance',
     'campaigns',
     'core',
     'website',
+    
 ]
 
+SITE_ID = 1
+
+# PUBLIC_BASE_URL is used by allauth to build email verification links.
+# Set this in .env — e.g. http://127.0.0.1:8000 for dev, https://sparktext.si for prod.
+PUBLIC_BASE_URL = env("PUBLIC_BASE_URL", default="http://127.0.0.1:8000" if DEBUG else "https://sparktext.si")
+
 AUTH_USER_MODEL = "core.User"      # must be set BEFORE the first migrate
-LOGIN_URL = "login"
-LOGIN_REDIRECT_URL = "messaging:dashboard"
-LOGOUT_REDIRECT_URL = "website:home"
+# allauth handles login/logout; keep these for Django built-ins compatibility
+LOGIN_URL = "/accounts/login/"
+LOGIN_REDIRECT_URL = "/app/me/"  # → accounts:me_redirect → /app/<public_id>/ → dashboard
+LOGOUT_REDIRECT_URL = "/accounts/login/"
 
 
 MIDDLEWARE = [
@@ -101,8 +130,17 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'allauth.account.middleware.AccountMiddleware',   # required by allauth
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'axes.middleware.AxesMiddleware',
+    'accounts.middleware.InactivityLogoutMiddleware',  # 30-min inactivity logout
+]
+
+AUTHENTICATION_BACKENDS = [
+    'axes.backends.AxesStandaloneBackend',
+    'django.contrib.auth.backends.ModelBackend',
+    'allauth.account.auth_backends.AuthenticationBackend',
 ]
 
 ROOT_URLCONF = 'sparktext.urls'
@@ -134,13 +172,22 @@ if TESTING:
         }
     }
 else:
+    _REDIS_URL = env("REDIS_URL", default="redis://localhost:6379")
     CHANNEL_LAYERS = {
         "default": {
             # Redis channel layer — shared across ALL processes (web server, AI worker, campaign worker).
             # This means WebSocket broadcasts from any process instantly reach connected browsers.
+            # socket_timeout=None is REQUIRED: channels_redis holds long-lived blocking pub/sub
+            # connections that wait indefinitely for messages. A finite timeout causes
+            # redis.exceptions.TimeoutError and WebSocket disconnects.
             "BACKEND": "channels_redis.core.RedisChannelLayer",
             "CONFIG": {
-                "hosts": [env("REDIS_URL", default="redis://localhost:6379")],
+                "hosts": [{
+                    "address": _REDIS_URL,
+                    "protocol": 2,
+                    "socket_timeout": None,
+                    "socket_connect_timeout": 5,
+                }],
             },
         }
     }
@@ -155,10 +202,21 @@ DATABASES = {
         'NAME': 'sparktext',
         'USER': 'postgres',
         'PASSWORD': 'sparktext',
-        'HOST': 'localhost',
+        'HOST': env("DB_HOST", default="localhost") ,
         'PORT': '5432',
     }
 }
+
+# Ensure sslmode='require' for Supabase PostgreSQL
+# Database SSL configuration
+if DATABASES['default']['ENGINE'] == 'django.db.backends.postgresql':
+    db_sslmode = env(
+        "DB_SSLMODE",
+        default="require" if not DEBUG else "disable"
+    )
+
+    DATABASES['default'].setdefault('OPTIONS', {})
+    DATABASES['default']['OPTIONS']['sslmode'] = db_sslmode
 
 
 # Password validation
@@ -170,6 +228,7 @@ AUTH_PASSWORD_VALIDATORS = [
     },
     {
         'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        'OPTIONS': {'min_length': 10},
     },
     {
         'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
@@ -177,6 +236,12 @@ AUTH_PASSWORD_VALIDATORS = [
     {
         'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
     },
+]
+
+# ---- Argon2 password hashing ----
+PASSWORD_HASHERS = [
+    'django.contrib.auth.hashers.Argon2PasswordHasher',
+    'django.contrib.auth.hashers.PBKDF2PasswordHasher',  # fallback for existing hashes
 ]
 
 
@@ -199,33 +264,49 @@ STATIC_URL = '/static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
 
-# Email (Standard Django SMTP Configuration via Environment)
+
+# Email configuration (Brevo API preferred; Hostinger SMTP fallback)
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
- 
-DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="info@sparktext.si")
+
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="SparkText <sparktext_auth@sparktext.si>")
+SERVER_EMAIL = env("SERVER_EMAIL", default="sparktext_auth@sparktext.si")
 CONTACT_EMAIL = env("CONTACT_EMAIL", default="info@sparktext.si")
-EMAIL_BACKEND = env("EMAIL_BACKEND", default="django.core.mail.backends.smtp.EmailBackend")
+
+BREVO_API_KEY = env('BREVO_API_KEY', default='')
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
 EMAIL_HOST = env("EMAIL_HOST", default="smtp.hostinger.com")
 EMAIL_PORT = env.int("EMAIL_PORT", default=465)
 EMAIL_USE_SSL = env.bool("EMAIL_USE_SSL", default=True)
+EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=False)
 EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="info@sparktext.si")
-EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
+
+if BREVO_API_KEY:
+    EMAIL_BACKEND = 'anymail.backends.brevo.EmailBackend'
+    ANYMAIL = {
+        'BREVO_API_KEY': BREVO_API_KEY,
+        'WEBHOOK_SECRET': env('ANYMAIL_WEBHOOK_SECRET', default=''),
+    }
+elif EMAIL_HOST_PASSWORD:
+    EMAIL_BACKEND = env("EMAIL_BACKEND", default="django.core.mail.backends.smtp.EmailBackend")
+else:
+    # In development or when credentials are not configured, print to console rather than timing out
+    EMAIL_BACKEND = env("EMAIL_BACKEND", default="django.core.mail.backends.console.EmailBackend")
 
 # Messaging & Provider Settings
 TWILIO_ACCOUNT_SID = env("TWILIO_ACCOUNT_SID", default="")
 TWILIO_AUTH_TOKEN = env("TWILIO_AUTH_TOKEN", default="")
 TWILIO_PHONE_NUMBER = env("TWILIO_PHONE_NUMBER", default="")
-PUBLIC_BASE_URL = env("PUBLIC_BASE_URL", default="")
 TWILIO_VALIDATE_WEBHOOKS = env("TWILIO_VALIDATE_WEBHOOKS", default=True)
 
 # Telnyx Settings
 TELNYX_API_KEY = env("TELNYX_API_KEY", default="")
 TELNYX_PUBLIC_KEY = env("TELNYX_PUBLIC_KEY", default="")
 TELNYX_PHONE_NUMBER = env("TELNYX_PHONE_NUMBER", default="")
-TELNYX_VALIDATE_WEBHOOKS = env("TELNYX_VALIDATE_WEBHOOKS", default=False)
 
-MESSAGING_PROVIDER = env("MESSAGING_PROVIDER", default="telnyx")
+MESSAGING_PROVIDER = env("MESSAGING_PROVIDER", default="twilio")
 MESSAGING_REPLY_WINDOW_HOURS = env("MESSAGING_REPLY_WINDOW_HOURS", default=24)
 
 # AI Assistant Settings
@@ -235,3 +316,105 @@ AI_MODEL = env("AI_MODEL", default="google/gemma-4-12b-qat")
 AI_API_KEY = env("AI_API_KEY", default="")
 AI_TIMEOUT_SECONDS = env("AI_TIMEOUT_SECONDS", default=45)
 AI_MAX_RETRIES = env("AI_MAX_RETRIES", default=1)
+# How many conversations the AI worker replies to at once (keep <= LM Studio "Max Concurrent Predictions")
+AI_WORKER_CONCURRENCY = env.int("AI_WORKER_CONCURRENCY", default=1)
+
+
+# =============================================================================
+# django-allauth (v65.x) configuration
+# =============================================================================
+
+# allauth 0.63+ uses ACCOUNT_LOGIN_METHODS instead of ACCOUNT_AUTHENTICATION_METHOD
+# django-allauth configuration
+ACCOUNT_USER_MODEL_USERNAME_FIELD = None
+
+ACCOUNT_LOGIN_METHODS = {'email'}
+
+ACCOUNT_SIGNUP_FIELDS = [
+    'email*',
+    'password1*',
+    'password2*',
+]
+
+ACCOUNT_EMAIL_VERIFICATION = 'mandatory'
+ACCOUNT_SESSION_REMEMBER = None      # let user choose "remember me"
+ACCOUNT_SIGNUP_REDIRECT_URL = '/accounts/check-email/'
+ACCOUNT_EMAIL_CONFIRMATION_EXPIRE_DAYS = 1
+ACCOUNT_ADAPTER = 'accounts.adapters.AccountAdapter'
+ACCOUNT_FORMS = {'login': 'accounts.forms.CustomLoginForm'}
+ACCOUNT_PREVENT_ENUMERATION = True
+# Login-by-code (magic OTP) conflicts with Google OAuth social login flow — keep disabled
+ACCOUNT_LOGIN_BY_CODE_ENABLED = False
+
+SOCIALACCOUNT_ADAPTER = 'accounts.adapters.SocialAccountAdapter'
+SOCIALACCOUNT_EMAIL_VERIFICATION = 'none'   # Google verifies emails
+SOCIALACCOUNT_AUTO_SIGNUP = True
+SOCIALACCOUNT_LOGIN_ON_GET = True           # allow GET-based callback (needed for OAuth)
+
+# Parse Google credentials from environment variables or JSON file
+_google_client_id = env('GOOGLE_CLIENT_ID', default='').strip()
+_google_client_secret = env('GOOGLE_CLIENT_SECRET', default='').strip()
+
+if not (_google_client_id and _google_client_secret):
+    _google_json_path = BASE_DIR / env('GOOGLE_OAUTH_JSON_PATH', default='secrets/google_oauth.json')
+    try:
+        import json as _json
+        with open(_google_json_path) as _f:
+            _file_data = _json.load(_f)
+            _google_creds = _file_data.get('web') or _file_data.get('installed') or _file_data
+            _google_client_id = _google_client_id or _google_creds.get('client_id', '')
+            _google_client_secret = _google_client_secret or _google_creds.get('client_secret', '')
+    except (FileNotFoundError, KeyError, Exception):
+        pass
+
+SOCIALACCOUNT_PROVIDERS = {
+    'google': {
+        'APPS': [{
+            'client_id': _google_client_id or 'not-configured',
+            'secret': _google_client_secret or 'not-configured',
+            'key': '',
+        }],
+        'SCOPE': ['openid', 'email', 'profile'],
+        'AUTH_PARAMS': {'access_type': 'online'},
+    }
+}
+
+# =============================================================================
+# django-axes (brute-force protection)
+# =============================================================================
+
+AXES_FAILURE_LIMIT = 5
+AXES_COOLOFF_TIME = 0.25         # 15 minutes
+AXES_LOCKOUT_TEMPLATE = 'accounts/lockout.html'
+AXES_RESET_ON_SUCCESS = True
+
+# =============================================================================
+# Session security
+# =============================================================================
+
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = 'Lax'
+INACTIVITY_TIMEOUT = 1800        # 30 minutes in seconds
+
+# =============================================================================
+# Redis / Celery
+# =============================================================================
+
+REDIS_URL = env('REDIS_URL', default='redis://localhost:6379/0')
+CELERY_BROKER_URL = REDIS_URL
+CELERY_RESULT_BACKEND = REDIS_URL
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = False
+CELERY_BROKER_CONNECTION_TIMEOUT = 1
+
+# NOTE: CHANNEL_LAYERS is configured above (lines ~170-185) using Redis for multi-process support.
+# DO NOT redefine it here — InMemoryChannelLayer does not work across processes (web + AI worker).
+
+# =============================================================================
+# Turnstile CAPTCHA (disabled by default; enable in .env for production)
+# =============================================================================
+
+TURNSTILE_ENABLED = env('TURNSTILE_ENABLED', default=False)
+TURNSTILE_SITE_KEY = env('TURNSTILE_SITE_KEY', default='')
+TURNSTILE_SECRET_KEY = env('TURNSTILE_SECRET_KEY', default='')

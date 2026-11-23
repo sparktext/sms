@@ -1,9 +1,11 @@
-<!doctype html>
+{% load static %}<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}SparkText{% endblock %}</title>
+<link rel="icon" type="image/png" href="{% static 'img/favicon.png' %}">
+<link rel="shortcut icon" href="{% static 'img/favicon.ico' %}">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
 <style>
   :root { --ink:#101828; --muted:#5B6478; --line:#D9DCE5; --brand:#4F46E5; --brand-dark:#4338CA; --deep:#16123A; --err:#B42318; }
@@ -11,8 +13,7 @@
   body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px;
          font-family:Inter,system-ui,sans-serif; color:var(--ink); background:var(--deep); }
   .wrap { width:100%; max-width:440px; }
-  .logo { display:flex; align-items:center; gap:10px; color:#fff; font-weight:700; font-size:20px; text-decoration:none; margin-bottom:24px; }
-  .mark { width:34px; height:34px; border-radius:10px; background:var(--brand); }
+  .logo { display:flex; align-items:center; text-decoration:none; margin-bottom:24px; }
   .card { background:#fff; border-radius:16px; padding:32px; }
   h1 { margin:0 0 4px; font-size:24px; }
   .sub { margin:0 0 24px; color:var(--muted); font-size:14px; }
@@ -31,13 +32,34 @@
   .alert { background:#FEF3F2; color:var(--err); border-radius:10px; padding:12px 14px; font-size:14px; margin-bottom:16px; }
   .alt { text-align:center; margin:20px 0 0; font-size:14px; color:var(--muted); }
   .alt a { color:var(--brand-dark); font-weight:500; }
+  .pw-wrap { position:relative; }
+  .pw-wrap input { padding-right:46px; }
+  .pw-toggle { position:absolute; top:50%; right:6px; transform:translateY(-50%); width:36px; height:36px; display:flex;
+               align-items:center; justify-content:center; border:0; border-radius:8px; background:transparent; color:var(--muted); cursor:pointer; }
+  .pw-toggle:hover { color:var(--ink); background:#F2F4F7; }
+  .pw-toggle .eye-on { display:none; }
+  .pw-toggle[aria-pressed="true"] .eye-on { display:block; }
+  .pw-toggle[aria-pressed="true"] .eye-off { display:none; }
   @media (max-width:480px) { .row { grid-template-columns:1fr; } .card { padding:24px; } }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <a class="logo" href="/"><span class="mark"></span>SparkText</a>
+  <a class="logo" href="/"><img src="{% static 'img/logo-dark.png' %}" alt="SparkText" style="height:34px;width:auto;"></a>
   <div class="card">{% block content %}{% endblock %}</div>
 </div>
+<script>
+  // Show / hide password: <button class="pw-toggle" data-pw-toggle="input-id"> next to a password input
+  document.addEventListener("click", function (e) {
+    var btn = e.target.closest("[data-pw-toggle]");
+    if (!btn) return;
+    var input = document.getElementById(btn.getAttribute("data-pw-toggle"));
+    if (!input) return;
+    var show = input.type === "password";
+    input.type = show ? "text" : "password";
+    btn.setAttribute("aria-pressed", show ? "true" : "false");
+    btn.setAttribute("aria-label", show ? "Hide password" : "Show password");
+  });
+</script>
 </body>
 </html>
