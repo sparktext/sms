@@ -529,7 +529,7 @@ class AIAssistantTests(TestCase):
 
     def test_update_conversation_ai_mode_endpoint(self):
         """POST /inbox/<id>/ai-mode/ switches mode and records system audit note on takeover."""
-        self.client.login(username=self.user_a.email, password="password123")
+        self.client.force_login(self.user_a)
         res = self.client.post(
             f"/inbox/{self.conv_a.id}/ai-mode/",
             {"ai_mode": "off"},
@@ -601,7 +601,7 @@ class AIAssistantTests(TestCase):
 
     def test_human_send_triggers_automatic_ai_takeover(self):
         """When staff sends an outbound message via inbox, AI is automatically paused (ai_mode='off')."""
-        self.client.login(username=self.user_a.email, password="password123")
+        self.client.force_login(self.user_a)
         self.assertEqual(self.conv_a.ai_mode, Conversation.AIMode.DEFAULT)
 
         res = self.client.post(

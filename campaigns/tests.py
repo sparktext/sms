@@ -197,7 +197,7 @@ class CampaignsTestSuite(TestCase):
 
     def test_campaign_create_with_custom_ai_playbook(self):
         """Creating a campaign via POST correctly stores custom AI playbook and qualification questions."""
-        self.client.login(username=self.user_a.email, password="password123")
+        self.client.force_login(self.user_a)
         questions_payload = json.dumps([
             {"key": "roof_age", "question": "How old is your roof?", "required": True},
             {"key": "home_type", "question": "Single family or condo?", "required": False},
@@ -232,7 +232,7 @@ class CampaignsTestSuite(TestCase):
 
     def test_campaign_clone(self):
         """1-Click cloning duplicates all settings, target lists, and AI playbook into a DRAFT campaign."""
-        self.client.login(username=self.user_a.email, password="password123")
+        self.client.force_login(self.user_a)
         original = Campaign.objects.create(
             organization=self.org_a,
             created_by=self.user_a,
@@ -303,7 +303,7 @@ class CampaignsTestSuite(TestCase):
         self.assertEqual(pending_count, 0)
 
     def test_audience_preview_ajax_endpoint(self):
-        self.client.login(username=self.user_a.email, password="password123")
+        self.client.force_login(self.user_a)
         res = self.client.get(
             f"/campaigns/api/audience-preview/?lists[]={self.list_1.id}&stage=Intake"
         )
@@ -316,7 +316,7 @@ class CampaignsTestSuite(TestCase):
         self.assertEqual(data["opted_out"], 1)  # c3
 
     def test_cross_organization_isolation(self):
-        self.client.login(username=self.user_a.email, password="password123")
+        self.client.force_login(self.user_a)
         
         # Campaign for Org B
         camp_b = Campaign.objects.create(
@@ -359,7 +359,7 @@ class CampaignsTestSuite(TestCase):
             self.assertIn("status", recip_updates[0])
 
     def test_campaign_detail_renders_websocket_elements(self):
-        self.client.login(username=self.user_a.email, password="password123")
+        self.client.force_login(self.user_a)
         campaign = Campaign.objects.create(
             organization=self.org_a,
             created_by=self.user_a,
@@ -376,7 +376,7 @@ class CampaignsTestSuite(TestCase):
         self.assertContains(resp, '"/ws/campaign/" + campaignId')
 
     def test_campaign_clone_and_edit_workflow(self):
-        self.client.login(username=self.user_a.email, password="password123")
+        self.client.force_login(self.user_a)
         original = Campaign.objects.create(
             organization=self.org_a,
             created_by=self.user_a,
@@ -438,7 +438,7 @@ class CampaignsTestSuite(TestCase):
 
     def test_campaign_create_save_as_draft(self):
         from django.urls import reverse
-        self.client.login(username=self.user_a.email, password="password123")
+        self.client.force_login(self.user_a)
         get_resp = self.client.get(reverse("campaigns:create"))
         self.assertEqual(get_resp.status_code, 200)
         self.assertContains(get_resp, "Save as Draft")
@@ -484,7 +484,7 @@ class CampaignsTestSuite(TestCase):
         self.assertEqual(partial_draft.message_template, "")
 
     def test_campaign_delete_workflow(self):
-        self.client.login(username=self.user_a.email, password="password123")
+        self.client.force_login(self.user_a)
 
         draft = Campaign.objects.create(
             organization=self.org_a,
