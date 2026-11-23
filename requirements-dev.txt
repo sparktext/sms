@@ -17,3 +17,12 @@ Pygments==2.21.0
 
 # --- Lint & format ---
 ruff==0.17.6               # config in pyproject.toml: ruff check . / ruff format .
+pre-commit==4.7.0          # git hooks: see .pre-commit-config.yaml
+cfgv==3.5.0
+distlib==0.4.4
+filelock==4.3.0
+identify==2.6.20
+nodeenv==1.12.0
+platformdirs==4.14.8
+PyYAML==6.0.4
+virtualenv==21.15.12

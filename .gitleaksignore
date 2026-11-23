@@ -1,0 +1,6 @@
+# gitleaks: reviewed FALSE POSITIVES only. Each line = one exact finding (commit:file:rule:line).
+# Never add real secrets here - rotate them instead. Reviewed 2026-11-23: dummy test password "pw-123456789".
+56c7cd856c922885c97415162dd0d693e57347a4:messaging/tests_ai.py:generic-api-key:909
+56c7cd856c922885c97415162dd0d693e57347a4:messaging/tests_ai.py:generic-api-key:1045
+56c7cd856c922885c97415162dd0d693e57347a4:messaging/tests_ai.py:generic-api-key:1142
+56c7cd856c922885c97415162dd0d693e57347a4:messaging/tests_ai.py:generic-api-key:1407
