@@ -21,8 +21,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Read environment variables
 env = environ.Env(
-    DEBUG=(bool, True),
-    SECRET_KEY=(str, "django-insecure-@^3s@sl(m65*7z*#-d@obnklrqilm_zci@9s)f9p_o)!q@7k=6"),
+    DEBUG=(bool, False),
     TWILIO_ACCOUNT_SID=(str, ""),
     TWILIO_AUTH_TOKEN=(str, ""),
     TWILIO_PHONE_NUMBER=(str, ""),
@@ -61,7 +60,7 @@ env = environ.Env(
     DEFAULT_FROM_EMAIL=(str, "info@sparktext.si"),
     CONTACT_EMAIL=(str, "info@sparktext.si"),
 )
-environ.Env.read_env(BASE_DIR / ".env", overwrite=True)
+environ.Env.read_env(BASE_DIR / ".env", overwrite=False)
 
 
 # Quick-start development settings - unsuitable for production
@@ -72,10 +71,8 @@ SECRET_KEY = env("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env("DEBUG")
-
-ALLOWED_HOSTS = ["localhost", "127.0.0.1", "testserver", "*", "https://denim-creamed-starlit.ngrok-free.dev"]
-
-CSRF_TRUSTED_ORIGINS = ["https://denim-creamed-starlit.ngrok-free.dev", "http://denim-creamed-starlit.ngrok-free.dev"]
+ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
+CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 USE_X_FORWARDED_HOST = True
 USE_X_FORWARDED_PORT = True
@@ -196,29 +193,17 @@ else:
 # Database
 # https://docs.djangoproject.com/en/6.1/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'sparktext',
-        'USER': 'postgres',
-        'PASSWORD': 'sparktext',
-        'HOST': env("DB_HOST", default="localhost") ,
-        'PORT': '5432',
-    }
-}
-
-# Ensure sslmode='require' for Supabase PostgreSQL
-# Database SSL configuration
-if DATABASES['default']['ENGINE'] == 'django.db.backends.postgresql':
-    db_sslmode = env(
-        "DB_SSLMODE",
-        default="require" if not DEBUG else "disable"
-    )
-
-    DATABASES['default'].setdefault('OPTIONS', {})
-    DATABASES['default']['OPTIONS']['sslmode'] = db_sslmode
-
-
+DATABASES = {"default": env.db("DATABASE_URL")}   # no default → fail fast
+DATABASES["default"].setdefault("OPTIONS", {})["sslmode"] = env(
+    "DB_SSLMODE", default="disable" if DEBUG else "require"
+)
+if not DEBUG:
+    SECURE_SSL_REDIRECT = True                  # http:// → https://
+    SECURE_REDIRECT_EXEMPT = [r"^healthz$"]     # internal health checks use plain http
+    SESSION_COOKIE_SECURE = True                # session cookie only sent over HTTPS
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = env.int("SECURE_HSTS_SECONDS", default=3600)
+    SECURE_REFERRER_POLICY = "same-origin"
 # Password validation
 # https://docs.djangoproject.com/en/6.1/ref/settings/#auth-password-validators
 

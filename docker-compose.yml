@@ -4,9 +4,15 @@ services:
     environment:
       POSTGRES_DB: sparktext
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: sparktext
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sparktext}   # local-dev only; override via shell/.env
     volumes:
       - postgres_data:/var/lib/postgresql
+    # "Is Postgres actually accepting connections?" - other services wait for this, not just for the container to start
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d sparktext"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     restart: always
 
   redis:
@@ -20,12 +26,15 @@ services:
       - "8000:8000"
     env_file:
       - .env
-    environment:
+    # "environment" overrides values from env_file, so containers always use the compose database
+    environment: &app_env
       - REDIS_URL=redis://redis:6380?protocol=2&socket_timeout=30
-      - DB_HOST=db
-    depends_on:
-      - db
-      - redis
+      - DATABASE_URL=postgres://postgres:${POSTGRES_PASSWORD:-sparktext}@db:5432/sparktext
+    depends_on: &app_deps
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
     restart: always
 
   ai_worker:
@@ -33,12 +42,8 @@ services:
     command: python manage.py run_ai_worker
     env_file:
       - .env
-    environment:
-      - REDIS_URL=redis://redis:6380?protocol=2&socket_timeout=30
-      - DB_HOST=db
-    depends_on:
-      - db
-      - redis
+    environment: *app_env
+    depends_on: *app_deps
     restart: always
 
   campaign_worker:
@@ -46,12 +51,8 @@ services:
     command: python manage.py run_campaign_worker
     env_file:
       - .env
-    environment:
-      - REDIS_URL=redis://redis:6380?protocol=2&socket_timeout=30
-      - DB_HOST=db
-    depends_on:
-      - db
-      - redis
+    environment: *app_env
+    depends_on: *app_deps
     restart: always
 
 volumes:
