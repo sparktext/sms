@@ -1,8 +1,48 @@
+# Everything listed here never enters the Docker build context:
+# smaller + faster builds, and secrets/data can't accidentally be baked into the image.
+
+# --- Secrets & local config (NEVER in an image: anyone who pulls it could extract them) ---
+.env
+.env.*
+!.env.example
+secrets/
+
+# --- Data dumps ---
+*.sql
+*.dump
+db_backup*.json
+db.sqlite3
+
+# --- Version control & CI ---
+.git/
+.gitignore
+.github/
+
+# --- Local environments, tools & build outputs (rebuilt inside the image) ---
 .venv/
 venv/
-redis/
+node_modules/
+staticfiles/
+media/
 __pycache__/
-*.pyc
-.git/
-.env
-db.sqlite3
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# --- Windows-only local Redis and helper scripts ---
+redis/
+start_redis.*
+
+# --- Editor / OS noise ---
+.vscode/
+.idea/
+.claude/
+*.swp
+.DS_Store
+Thumbs.db
+
+# --- Docker files themselves (changing them shouldn't invalidate the code layer) ---
+Dockerfile
+docker-compose*.yml
+.dockerignore

@@ -1,3 +1,25 @@
+# Local stack that mirrors production: same image, same processes, same dependencies.
+#   docker compose up --build        start everything
+#   docker compose ps                see health status
+#   docker compose logs -f web       follow logs (the app logs to stdout)
+
+# Shared settings for every process that runs the SparkText image ("x-" = reusable YAML block).
+x-app: &app
+  build: .
+  image: sparktext:local          # ONE image, built once, used by web AND both workers
+  env_file:
+    - .env
+  # "environment" overrides values from env_file, so containers always use the compose services
+  environment:
+    - REDIS_URL=redis://redis:6380?protocol=2&socket_timeout=30
+    - DATABASE_URL=postgres://postgres:${POSTGRES_PASSWORD:-sparktext}@db:5432/sparktext
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  restart: always
+
 services:
   db:
     image: postgres:18-alpine
@@ -18,46 +40,35 @@ services:
   redis:
     image: redis:7-alpine
     command: redis-server --port 6380
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "6380", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     restart: always
 
   web:
-    build: .
+    <<: *app
     ports:
       - "8000:8000"
-    env_file:
-      - .env
-    # "environment" overrides values from env_file, so containers always use the compose database
-    environment: &app_env
-      - REDIS_URL=redis://redis:6380?protocol=2&socket_timeout=30
-      - DATABASE_URL=postgres://postgres:${POSTGRES_PASSWORD:-sparktext}@db:5432/sparktext
-    depends_on: &app_deps
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_started
     # User uploads (e.g. custom notification sounds) live OUTSIDE the container,
     # so they survive rebuilds and redeploys. Containers must be disposable.
     volumes:
       - media_data:/app/media
-    restart: always
+    # Uses the image's HEALTHCHECK (GET /healthz)
 
   ai_worker:
-    build: .
+    <<: *app
     command: python manage.py run_ai_worker
-    env_file:
-      - .env
-    environment: *app_env
-    depends_on: *app_deps
-    restart: always
+    # Workers don't serve HTTP, so the image's /healthz probe would always fail here.
+    healthcheck:
+      disable: true
 
   campaign_worker:
-    build: .
+    <<: *app
     command: python manage.py run_campaign_worker
-    env_file:
-      - .env
-    environment: *app_env
-    depends_on: *app_deps
-    restart: always
+    healthcheck:
+      disable: true
 
 volumes:
   postgres_data:
