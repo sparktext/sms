@@ -1717,3 +1717,103 @@ class ReadAnswerPassTests(GemmaJudgedChecksTests):
         self.assertEqual(_read_answer(get_ai_client(), self.config, self.conv, msg), {})
         FakeAIClient.push_response({"question_key": "made_up", "answer": "x"})
         self.assertEqual(_read_answer(get_ai_client(), self.config, self.conv, msg), {})
+
+
+class WorkerConcurrencyTests(GemmaJudgedChecksTests):
+    """With several replies in flight, one conversation never gets two jobs running at once."""
+
+    def _job(self, conv, status=AIJob.Status.PENDING, started_minutes_ago=None):
+        msg = Message.objects.create(organization=self.org, conversation=conv, direction=Message.Direction.INBOUND,
+                                     sender_type=Message.SenderType.CUSTOMER, body="hi", status=Message.Status.RECEIVED)
+        job = AIJob.objects.create(conversation=conv, trigger_message=msg, status=status,
+                                   run_after=timezone.now() - timedelta(seconds=5))
+        if started_minutes_ago is not None:
+            job.started_at = timezone.now() - timedelta(minutes=started_minutes_ago)
+            job.save(update_fields=["started_at"])
+        return job
+
+    def test_claim_skips_conversation_with_reply_in_progress(self):
+        from messaging.management.commands.run_ai_worker import Command
+        other_contact = Contact.objects.create(organization=self.org, phone="+16502531599", first_name="Ola",
+                                               source="Direct", sms_status=Contact.SMSStatus.OPTED_IN)
+        other = Conversation.objects.create(organization=self.org, contact=other_contact, phone_number=self.phone)
+        self._job(self.conv, status=AIJob.Status.RUNNING, started_minutes_ago=1)   # reply being written
+        waiting = self._job(self.conv)                                              # same customer texted again
+        free = self._job(other)
+        cmd = Command()
+        self.assertEqual(cmd._claim_job().id, free.id)      # the other customer goes first
+        self.assertIsNone(cmd._claim_job())                 # Sam's second job waits for the first
+        waiting.refresh_from_db()
+        self.assertEqual(waiting.status, AIJob.Status.PENDING)
+
+    def test_stale_running_job_does_not_block_forever(self):
+        from messaging.management.commands.run_ai_worker import Command, STALE_RUNNING_MINUTES
+        self._job(self.conv, status=AIJob.Status.RUNNING, started_minutes_ago=STALE_RUNNING_MINUTES + 5)
+        waiting = self._job(self.conv)
+        self.assertEqual(Command()._claim_job().id, waiting.id)
+
+
+class CustomerQuestionFirstTests(GemmaJudgedChecksTests):
+    """When the customer asks something, Gemma's answer goes out; code doesn't force the next step over it."""
+
+    def test_customer_question_keeps_gemmas_answer(self):
+        body = self._turn("what services do you offer? also we bought it january 2020", {
+            "reply": "We offer home, auto and life insurance! What kind of coverage are you looking for?",
+            "intent": "inquiry", "collected": {"bought": "January 2020"}, "checks": {},
+        }, pass2={"reply": "Hey! Want a licensed agent to call you? What time works?"})
+        self.assertEqual(body, "We offer home, auto and life insurance! What kind of coverage are you looking for?")
+        self.assertEqual(self.conv.qualification_answers["bought"], "January 2020")   # answer still recorded
+
+    def test_failed_rewrite_falls_back_to_gemmas_reply_not_canned_text(self):
+        body = self._turn("january 2020", {"reply": "Perfect, thanks!", "intent": "answer",
+                                           "collected": {"bought": "January 2020"}, "checks": {}},
+                          pass2={"reply": "Hey! How can I help you today?"})          # unusable rewrite
+        self.assertEqual(body, "Perfect, thanks! What is the policy number?")
+
+    def test_customer_asked_detection(self):
+        from messaging.ai.pipeline import _customer_asked
+        msg = lambda t: type("M", (), {"body": t})()  # noqa: E731
+        self.assertTrue(_customer_asked(msg("what service do you provide")))
+        self.assertTrue(_customer_asked(msg("but why the zip code for sms marketing")))
+        self.assertTrue(_customer_asked(msg("ok"), intent="objection"))
+        self.assertFalse(_customer_asked(msg("93274"), intent="answer"))
+
+
+class OverLengthReplyTests(GemmaJudgedChecksTests):
+    """A reply a few characters over the limit is shortened by Gemma instead of handing the chat to a human."""
+
+    def test_long_reply_is_shortened_not_handed_off(self):
+        long_reply = "We actually specialize in home, auto and other personal insurance, not SMS marketing, " * 3
+        body = self._turn("i want sms marketing", {"reply": long_reply.strip(), "intent": "inquiry", "checks": {}},
+                          pass2={"reply": "We don't do SMS marketing, but we offer home and auto insurance!"})
+        self.assertEqual(body, "We don't do SMS marketing, but we offer home and auto insurance!")
+        self.assertNotEqual(self.conv.status, Conversation.Status.NEEDS_HUMAN)
+
+
+class RealAnswerCheckTests(GemmaJudgedChecksTests):
+    """Saved answers are double-checked: off-topic requests and questions back to us are not answers."""
+
+    def test_unreal_answers_dropped_declines_kept(self):
+        from messaging.ai.pipeline import _keep_real_answers
+        from messaging.ai import get_ai_client
+        FakeAIClient.push_response({"verdicts": {"0": False}})
+        kept = _keep_real_answers(get_ai_client(), self.config, self.conv,
+                                  {"bought": "start sms marketing", "policy_number": "what do you need that for?",
+                                   "insurer": "declined"})
+        self.assertEqual(kept, {"insurer": "declined"})
+
+    def test_off_topic_request_is_not_saved_as_answer(self):
+        FakeAIClient.push_response(dict({"intent": "answer", "needs_human": False, "handoff_reason": None},
+                                        reply="Sorry, we don't do SMS marketing, but we offer home and auto insurance!",
+                                        collected={"bought": "sms marketing"}, checks={}))
+        FakeAIClient.push_response({"verdicts": {"0": False}})
+        from messaging.ai.pipeline import process_ai_job
+        msg = Message.objects.create(organization=self.org, conversation=self.conv, direction=Message.Direction.INBOUND,
+                                     sender_type=Message.SenderType.CUSTOMER, body="i want sms marketing",
+                                     status=Message.Status.RECEIVED)
+        process_ai_job(AIJob.objects.create(conversation=self.conv, trigger_message=msg, status=AIJob.Status.PENDING,
+                                            run_after=timezone.now()))
+        self.conv.refresh_from_db()
+        self.assertNotIn("bought", self.conv.qualification_answers)
+        out = self.conv.messages.filter(direction=Message.Direction.OUTBOUND).order_by("-created_at").first().body
+        self.assertEqual(out, "Sorry, we don't do SMS marketing, but we offer home and auto insurance!")

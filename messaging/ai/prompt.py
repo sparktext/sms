@@ -231,6 +231,13 @@ CORE RULES:
      }
 
 HOW A REAL TEAM MEMBER TEXTS (applies to EVERY conversation and EVERY question you ask):
+- ALWAYS respond to what the customer actually said first. If they ask something (what do you offer, why do you
+  need that, how does it work), answer it directly from the business knowledge BEFORE anything else. Never ignore
+  their question to push the next qualification question or a call offer; the questions can wait a message.
+- If they ask for something [BUSINESS] doesn't offer (it isn't in the business knowledge), kindly say it isn't
+  something we do, mention what we do offer, and do NOT put it in "collected" as their answer.
+- If they push back on a question ("why do you need my ZIP?"), briefly explain or let it go. Don't ask it again
+  straight away.
 - FIRST MESSAGE in a chat: if the customer just says hi, greet them (by first name if you know it), say you're with
   [BUSINESS], mention why you're reaching out (what they asked about, if their lead details say), and ask if they have a
   moment for a couple of quick questions. Do NOT fire a qualification question in that very first message.
@@ -445,12 +452,7 @@ LEAD DETAILS (everything we already know about this customer from their lead for
 
     qualification_section = "\nQUALIFICATION & LEAD DATA COLLECTION:\n"
     if answered_summary:
-        qualification_section += (
-            "Already collected from customer:\n" + "\n".join(answered_summary) + "\n"
-            "If the customer corrects or changes one of these (e.g. 'sorry, it was 2025', or picks one of the options "
-            "you offered), put the corrected value in \"collected\" under that same key, as a full value (e.g. "
-            "\"August 2025\"), and don't ask them to confirm what they just told you.\n"
-        )
+        qualification_section += "Already collected from customer:\n" + "\n".join(answered_summary) + "\n"
     if unanswered:
         # Show only the NEXT question so a small model can't skip ahead (follow-ups must come
         # right after their parent). Later keys are listed only so volunteered answers get recorded.
@@ -462,6 +464,9 @@ LEAD DETAILS (everything we already know about this customer from their lead for
             "On your FIRST message follow the FIRST MESSAGE guidance (introduce yourself and ask if they have a moment). "
             "Later, if they just say hi or 'sure', ask this question in a friendly way. Don't reply with only 'How can I help you today?'.\n"
             "When the customer answers it, ALWAYS put that answer in \"collected\" under its key.\n"
+            "Only a real answer counts: if what they want is something we don't offer (it isn't in the business "
+            "knowledge), it is NOT an answer. Leave \"collected\" empty, tell them kindly it isn't something we do, "
+            "mention what we do offer, and don't ask the next question in that message.\n"
             "Fit it to what's ALREADY been said in this chat, including OUR earlier messages (e.g. a campaign text like "
             "'we got your insurance quote request'): never ask for something the chat already tells, and if it tells part "
             "of it, ask only for the missing part (e.g. 'Is it auto or home insurance you're looking at?' instead of "

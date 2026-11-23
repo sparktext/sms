@@ -267,6 +267,26 @@ def _get_agent_dashboard_data(user, org):
     }
 
 
+def _lead_reach(org, since):
+    """How many leads we texted since `since`, and how many of those leads texted back."""
+    if not org:
+        return 0, 0
+    msgs = Message.objects.filter(organization=org, created_at__gte=since)
+    texted = (
+        msgs.filter(direction=Message.Direction.OUTBOUND)
+        .exclude(status__in=[Message.Status.FAILED, Message.Status.UNDELIVERED])
+        .values("conversation__contact_id")
+    )
+    leads_texted = texted.distinct().count()
+    leads_replied = (
+        msgs.filter(direction=Message.Direction.INBOUND, conversation__contact_id__in=texted)
+        .values("conversation__contact_id")
+        .distinct()
+        .count()
+    )
+    return leads_texted, leads_replied
+
+
 @login_required
 def dashboard(request):
     org = request.user.organization
@@ -285,6 +305,11 @@ def dashboard(request):
         "needs_human": Conversation.objects.filter(organization=org, status=Conversation.Status.NEEDS_HUMAN).count() if org else 0,
         "opt_outs": Contact.objects.filter(organization=org, sms_status=Contact.SMSStatus.OPTED_OUT).count() if org else 0,
     }
+    # Leads, not messages: how many leads we texted today and how many of them replied
+    leads_texted, leads_replied = _lead_reach(org, today_start)
+    stats["leads_texted"] = leads_texted
+    stats["leads_replied"] = leads_replied
+    stats["reply_rate"] = round(100 * leads_replied / leads_texted) if leads_texted else 0
 
     # AJAX endpoint for real-time live dashboard sync (zero full page reloads)
     if _is_ajax_request(request) or request.GET.get("format") == "json":

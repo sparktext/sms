@@ -199,41 +199,41 @@
         </p>
       </a>
 
-      <!-- Admin/Owner Metric 2: Customer Replies -->
-      <a
-        href="{% url 'messaging:inbox' %}?assigned=replied"
-        class="bg-white border border-gray-200/90 hover:border-gray-300 hover:shadow-xs rounded-2xl p-4 sm:p-5 transition group block shadow-2xs"
-      >
-        <div class="flex items-center justify-between gap-2">
-          <p class="text-xs font-semibold uppercase tracking-wider text-gray-500">
-            Customer Replies
-          </p>
-          <svg class="w-4 h-4 text-gray-300 group-hover:text-brand-600 transition shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/></svg>
-        </div>
-        <p class="text-2xl sm:text-3xl font-extrabold text-gray-950 mt-2" id="kpi-admin-replies">
-          {{ stats.replies }}
-        </p>
-        <p class="text-[11px] text-gray-500 mt-1 truncate">
-          Inbound customer messages today
-        </p>
-      </a>
-
-      <!-- Admin/Owner Metric 3: Texts Sent Today -->
+      <!-- Admin/Owner Metric 2: Leads texted today -->
       <a
         href="{% url 'messaging:inbox' %}"
         class="bg-white border border-gray-200/90 hover:border-gray-300 hover:shadow-xs rounded-2xl p-4 sm:p-5 transition group block shadow-2xs"
       >
         <div class="flex items-center justify-between gap-2">
           <p class="text-xs font-semibold uppercase tracking-wider text-gray-500">
-            Texts Sent
+            Leads Texted
           </p>
           <svg class="w-4 h-4 text-gray-300 group-hover:text-brand-600 transition shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
         </div>
-        <p class="text-2xl sm:text-3xl font-extrabold text-gray-950 mt-2" id="kpi-admin-sent">
-          {{ stats.sent_today }}
+        <p class="text-2xl sm:text-3xl font-extrabold text-gray-950 mt-2" id="kpi-admin-leads-texted">
+          {{ stats.leads_texted }}
         </p>
-        <p class="text-[11px] text-gray-500 mt-1 truncate">
-          Outbound messages delivered today
+        <p class="text-[11px] text-gray-500 mt-1 truncate" id="kpi-admin-leads-texted-sub">
+          Leads we texted today · {{ stats.sent_today }} text{{ stats.sent_today|pluralize }}
+        </p>
+      </a>
+
+      <!-- Admin/Owner Metric 3: Of those leads, how many replied -->
+      <a
+        href="{% url 'messaging:inbox' %}?assigned=replied"
+        class="bg-white border border-gray-200/90 hover:border-gray-300 hover:shadow-xs rounded-2xl p-4 sm:p-5 transition group block shadow-2xs"
+      >
+        <div class="flex items-center justify-between gap-2">
+          <p class="text-xs font-semibold uppercase tracking-wider text-gray-500">
+            Leads Replied
+          </p>
+          <svg class="w-4 h-4 text-gray-300 group-hover:text-brand-600 transition shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/></svg>
+        </div>
+        <p class="text-2xl sm:text-3xl font-extrabold text-gray-950 mt-2">
+          <span id="kpi-admin-leads-replied">{{ stats.leads_replied }}</span><span class="text-base sm:text-lg font-semibold text-gray-400"> / <span id="kpi-admin-leads-replied-of">{{ stats.leads_texted }}</span></span>
+        </p>
+        <p class="text-[11px] text-gray-500 mt-1 truncate" id="kpi-admin-leads-replied-sub">
+          {% if stats.leads_texted %}{{ stats.reply_rate }}% of leads texted today replied{% else %}No leads texted yet today{% endif %}
         </p>
       </a>
 
@@ -638,15 +638,28 @@
           kpiAdminNeeds.textContent = data.stats.needs_human;
           flashElement(kpiAdminNeeds);
         }
-        const kpiAdminReplies = document.getElementById("kpi-admin-replies");
-        if (kpiAdminReplies && kpiAdminReplies.textContent.trim() !== String(data.stats.replies)) {
-          kpiAdminReplies.textContent = data.stats.replies;
-          flashElement(kpiAdminReplies);
+        const s = data.stats;
+        const kpiTexted = document.getElementById("kpi-admin-leads-texted");
+        if (kpiTexted && kpiTexted.textContent.trim() !== String(s.leads_texted)) {
+          kpiTexted.textContent = s.leads_texted;
+          flashElement(kpiTexted);
         }
-        const kpiAdminSent = document.getElementById("kpi-admin-sent");
-        if (kpiAdminSent && kpiAdminSent.textContent.trim() !== String(data.stats.sent_today)) {
-          kpiAdminSent.textContent = data.stats.sent_today;
-          flashElement(kpiAdminSent);
+        const kpiTextedSub = document.getElementById("kpi-admin-leads-texted-sub");
+        if (kpiTextedSub) {
+          kpiTextedSub.textContent = `Leads we texted today · ${s.sent_today} text${s.sent_today === 1 ? "" : "s"}`;
+        }
+        const kpiReplied = document.getElementById("kpi-admin-leads-replied");
+        if (kpiReplied && kpiReplied.textContent.trim() !== String(s.leads_replied)) {
+          kpiReplied.textContent = s.leads_replied;
+          flashElement(kpiReplied);
+        }
+        const kpiRepliedOf = document.getElementById("kpi-admin-leads-replied-of");
+        if (kpiRepliedOf) kpiRepliedOf.textContent = s.leads_texted;
+        const kpiRepliedSub = document.getElementById("kpi-admin-leads-replied-sub");
+        if (kpiRepliedSub) {
+          kpiRepliedSub.textContent = s.leads_texted
+            ? `${s.reply_rate}% of leads texted today replied`
+            : "No leads texted yet today";
         }
       }
 

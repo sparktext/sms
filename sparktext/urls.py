@@ -1,4 +1,5 @@
 from django.contrib import admin
+from accounts import views as accounts_views
 from django.urls import path, include, re_path
 from django.conf import settings
 from django.views.static import serve
@@ -11,6 +12,9 @@ urlpatterns = [
     path("admin/", admin.site.urls),
 
     # --- django-allauth (provides /accounts/login/, /accounts/signup/, etc.) ---
+    # Our confirm view first: an already-used confirmation link sends people to sign in instead of a 404
+    re_path(r"^accounts/confirm-email/(?P<key>[-:\w]+)/$", accounts_views.ConfirmEmailView.as_view(),
+            name="account_confirm_email"),
     path("accounts/", include("allauth.urls")),
 
     # --- Custom SparkText auth views ---

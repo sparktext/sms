@@ -56,6 +56,12 @@ class FakeAIClient(BaseAIClient):
             return AIResponse(text=json.dumps({"question_key": "", "answer": ""}), input_tokens=50,
                               output_tokens=10, latency_ms=20)
 
+        # The "are these real answers?" check likewise only uses a response queued for it; otherwise keeps all
+        if schema and "verdicts" in (schema.get("properties") or {}) and not (
+                self.canned_responses and isinstance(self.canned_responses[0], dict)
+                and "verdicts" in self.canned_responses[0]):
+            return AIResponse(text=json.dumps({"verdicts": {}}), input_tokens=50, output_tokens=10, latency_ms=20)
+
         if self.canned_responses:
             next_resp = self.canned_responses.pop(0)
             if isinstance(next_resp, Exception):

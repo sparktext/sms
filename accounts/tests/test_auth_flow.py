@@ -246,3 +246,56 @@ class InactivityMiddlewareTest(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn("reason=inactivity", response["Location"])
 
+
+
+class EmailConfirmLinkTest(TestCase):
+    """A confirmation link used twice (auto-submit + click, or opened again) never shows a 404."""
+
+    def setUp(self):
+        from allauth.account.models import EmailAddress, EmailConfirmationHMAC
+        self.user = User.objects.create_user(email="newbie@example.com", password="TestPass1234!")
+        self.address = EmailAddress.objects.create(user=self.user, email=self.user.email, primary=True, verified=False)
+        self.url = reverse("account_confirm_email", args=[EmailConfirmationHMAC(self.address).key])
+
+    def test_second_submit_and_reopen_go_to_sign_in(self):
+        first = self.client.post(self.url)
+        self.assertEqual(first.status_code, 302)
+        self.address.refresh_from_db()
+        self.assertTrue(self.address.verified)
+
+        again = self.client.post(self.url)                 # the duplicate submit that used to 404
+        self.assertEqual(again.status_code, 302)
+        self.assertEqual(again["Location"], reverse("account_login"))
+
+        reopened = self.client.get(self.url, follow=True)  # opening the email link again later
+        self.assertContains(reopened, "already confirmed")
+
+    def test_invalid_link_shows_expired_page_not_404(self):
+        resp = self.client.post(reverse("account_confirm_email", args=["not-a-real-key"]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Link expired")
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend", AXES_ENABLED=False)
+class SignupAgainSameBrowserTest(TestCase):
+    """Signing up, deleting the account and signing up again in the same browser still needs verification."""
+
+    def _signup(self):
+        return self.client.post(reverse("account_signup"), {
+            "email": "again@example.com", "password1": "StrongPass1234!", "password2": "StrongPass1234!",
+        })
+
+    def test_second_signup_sends_a_new_verification_email(self):
+        from django.core import mail
+        from allauth.account.models import EmailAddress
+        self._signup()
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertFalse(self.client.session.get("account_verified_email"))   # never marks the address verified
+        self.assertEqual(self.client.session.get("sparktext_check_email"), "again@example.com")
+
+        User.objects.filter(email="again@example.com").delete()
+        from django.core.cache import cache
+        cache.clear()   # allauth allows 1 confirmation email per address per 3 min; the real retest was 17 min later
+        self._signup()
+        self.assertEqual(len(mail.outbox), 2)
+        self.assertFalse(EmailAddress.objects.get(email="again@example.com").verified)
