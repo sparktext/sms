@@ -164,7 +164,8 @@ TEMPLATES = [
 WSGI_APPLICATION = 'sparktext.wsgi.application'
 ASGI_APPLICATION = 'sparktext.asgi.application'
 
-TESTING = "test" in sys.argv
+# True under `manage.py test` AND under pytest (pytest-django imports pytest before loading settings).
+TESTING = "test" in sys.argv[1:2] or "pytest" in sys.modules
 if TESTING:
     CHANNEL_LAYERS = {
         "default": {

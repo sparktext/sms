@@ -15,8 +15,8 @@ def get_sms_provider() -> BaseSMSProvider:
     if provider_name == "fake":
         return FakeProvider()
 
-    import sys
-    is_testing = "test" in sys.argv
+    # Single source of truth for "are we under test?" (works for manage.py test AND pytest)
+    is_testing = getattr(settings, "TESTING", False)
     if not is_testing:
         try:
             from pathlib import Path

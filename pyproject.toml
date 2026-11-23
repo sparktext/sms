@@ -1,0 +1,43 @@
+# Central config for Python tooling (pytest, coverage; ruff comes in Lesson 3.3).
+# One file, versioned with the code: every developer and CI run the tools identically.
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "sparktext.settings"
+# Match this project's naming: tests.py, test_*.py and tests_*.py (e.g. messaging/tests_ai.py)
+python_files = ["tests.py", "test_*.py", "tests_*.py"]
+testpaths = ["accounts", "campaigns", "compliance", "contacts", "core", "messaging", "website"]
+addopts = [
+    "-ra",               # summary of every non-passing test at the end
+    "--strict-markers",  # a typo'd @pytest.mark.xyz is an error, not silently ignored
+    "--strict-config",
+]
+filterwarnings = [
+    "default",
+]
+
+[tool.coverage.run]
+branch = true            # measure both sides of every if/else, not just lines
+source = ["."]
+omit = [
+    ".venv/*",
+    "*/migrations/*",
+    "*/tests.py",
+    "*/tests/*",
+    "*/test_*.py",
+    "*/tests_*.py",
+    "manage.py",
+    "sparktext/asgi.py",
+    "sparktext/wsgi.py",
+    "sparktext/celery.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+# RATCHET: CI fails if coverage drops below this. Raise it as coverage improves; never lower it.
+fail_under = 70          # baseline 2026-11-23: 72% (line + branch)
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]

@@ -49,3 +49,10 @@ secrets/
 
 # Google OAuth JSON (covered by secrets/ but explicit for safety)
 google_oauth.json
+
+# Test & coverage artifacts
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml

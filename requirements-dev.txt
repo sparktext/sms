@@ -1,0 +1,16 @@
+# Development & CI tools. NOT installed in the production Docker image
+# (it only uses requirements.txt): test tools in production = bigger image, more attack surface.
+#
+#   pip install -r requirements-dev.txt     (installs the app requirements too)
+-r requirements.txt
+
+# --- Testing ---
+pytest==9.2.0
+pytest-django==4.14.0      # Django integration: test DB, settings, fixtures
+pytest-xdist==3.8.0        # run tests in parallel: pytest -n auto
+pytest-cov==7.1.0          # coverage reports through pytest
+coverage==7.17.5
+execnet==2.1.2
+iniconfig==2.3.1
+pluggy==1.7.0
+Pygments==2.21.0
