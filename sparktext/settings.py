@@ -48,7 +48,7 @@ env = environ.Env(
     TURNSTILE_ENABLED=(bool, False),
     TURNSTILE_SITE_KEY=(str, ""),
     TURNSTILE_SECRET_KEY=(str, ""),
-    
+
     EMAIL_BACKEND=(str, "django.core.mail.backends.smtp.EmailBackend"),
     EMAIL_HOST=(str, "smtp.hostinger.com"),
     EMAIL_PORT=(int, 465),
@@ -104,7 +104,7 @@ INSTALLED_APPS = [
     'campaigns',
     'core',
     'website',
-    
+
 ]
 
 SITE_ID = 1
@@ -207,6 +207,9 @@ if not DEBUG:
     CSRF_COOKIE_SECURE = True
     SECURE_HSTS_SECONDS = env.int("SECURE_HSTS_SECONDS", default=3600)
     SECURE_REFERRER_POLICY = "same-origin"
+    # `check --deploy` gate in CI fails on any warning. These two are deliberate for now: HSTS is
+    # ramping up (3600s first); includeSubDomains/preload come only after the domain is proven stable.
+    SILENCED_SYSTEM_CHECKS = ["security.W005", "security.W021"]
 # Password validation
 # https://docs.djangoproject.com/en/6.1/ref/settings/#auth-password-validators
 
