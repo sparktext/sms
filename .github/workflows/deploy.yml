@@ -73,8 +73,16 @@ jobs:
           DEPLOY_KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
         run: |
           install -d -m 700 ~/.ssh
-          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          # tr -d '\r': a key copied on Windows (clipboard/browser) can carry CRLF line endings,
+          # which OpenSSH on Linux rejects with the cryptic "error in libcrypto".
+          printf '%s\n' "$DEPLOY_SSH_KEY" | tr -d '\r' > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
+          # Fail early with a clear message if the secret is not a valid private key
+          # (e.g. the .pub file was pasted, or lines are missing). Prints only the PUBLIC part.
+          if ! ssh-keygen -y -f ~/.ssh/deploy_key > /tmp/deploy_key.pub; then
+            echo "::error::DEPLOY_SSH_KEY is not a valid OpenSSH private key"; exit 1
+          fi
+          echo "deploy key fingerprint: $(ssh-keygen -lf /tmp/deploy_key.pub)"
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           cat > ~/.ssh/config <<EOF
           Host prod
