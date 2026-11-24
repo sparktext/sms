@@ -1,0 +1,103 @@
+# CD = Continuous Deployment: put one exact, already-tested image into production.
+#
+#   GitHub runner ──(1) OIDC: "I am sparktext/sms, environment production"──► Tailscale
+#                 ◄─(2) short-lived, tagged (tag:ci) tailnet membership ─────
+#                 ──(3) SSH as "deploy", ONLY to vm-sparktext-prod:22 (Tailscale policy) ──► VM
+#                                                   └─ deploy/remote-deploy.sh does the rest
+#
+# Two ways in:
+#   - called by ci.yml after every successful push to main (normal path)
+#   - "Run workflow" in the Actions tab with any earlier commit SHA (manual ROLLBACK / redeploy)
+# Nothing is stored long-term in GitHub except the deploy SSH key: Tailscale access comes from OIDC.
+
+name: Deploy
+
+on:
+  workflow_call:
+    inputs:
+      sha:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Full 40-character commit SHA on main whose image to deploy (rollback = an older one)"
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # GitHub Environment "production": holds the deploy secrets, shows deploy history, and can
+    # require a manual approval later (Settings → Environments → production → Required reviewers).
+    environment:
+      name: production
+      url: https://app.sparktext.si
+    # Never run two deploys at once (migrations!). A second one waits; it is never cancelled midway.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write          # lets this job request a GitHub OIDC token (proof of identity for Tailscale)
+    env:
+      SHA: ${{ inputs.sha }}
+      DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+    steps:
+      - name: Validate input
+        run: |
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::sha must be a full 40-char lowercase commit SHA"; exit 1; }
+
+      # Deploy files (compose, Caddyfile, script) come from the SAME commit as the image,
+      # so a rollback also rolls back the config that belongs to it.
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.sha }}
+
+      - name: Join the tailnet (OIDC, ephemeral node tagged tag:ci)
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ vars.TS_OIDC_CLIENT_ID }}
+          audience: ${{ vars.TS_OIDC_AUDIENCE }}
+          tags: tag:ci
+          ping: ${{ vars.DEPLOY_HOST }}
+
+      - name: Configure SSH (pinned host key, no "trust on first use")
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<EOF
+          Host prod
+            HostName $DEPLOY_HOST
+            User deploy
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            ConnectTimeout 15
+            ServerAliveInterval 15
+          EOF
+
+      # Ship the three deploy files as a tar stream over SSH and run the script on the VM.
+      # The script pulls the image, migrates, switches, health-checks, and rolls back on failure.
+      - name: Deploy sha-${{ inputs.sha }}
+        run: |
+          tar -C deploy -czf - compose.prod.yml Caddyfile remote-deploy.sh \
+            | ssh prod "rm -rf /opt/sparktext/.incoming && mkdir -p /opt/sparktext/.incoming \
+                        && tar -xzf - -C /opt/sparktext/.incoming \
+                        && bash /opt/sparktext/.incoming/remote-deploy.sh sha-$SHA"
+
+      - name: Verify from the internet
+        run: |
+          for url in https://app.sparktext.si/readyz https://sparktext.si/; do
+            curl -fsS --retry 5 --retry-all-errors --retry-delay 3 -o /dev/null -w "$url %{http_code}\n" "$url"
+          done

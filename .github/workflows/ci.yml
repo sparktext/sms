@@ -4,10 +4,12 @@
 #   lint ─────┐
 #   secrets ──┤
 #   audit ────┼──► image (build → smoke test → push to GHCR, main only)
-#   test ─────┘
+#   test ─────┘                                            │ push to main only
+#                                                          ▼
+#                                       deploy (deploy.yml: that exact image → production)
 #
 # The four checks run in PARALLEL (fast feedback). The image is only built from code that passed
-# all of them. Phase 6 (CD) will deploy exactly that image, by its git-SHA tag.
+# all of them, and production only ever runs an image that went through this whole pipeline.
 
 name: CI
 
@@ -218,3 +220,16 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha      # everything is cached from step 1 → this takes seconds
+
+  # CD: runs the reusable deploy workflow with this commit's image (sha-<github.sha>).
+  deploy:
+    name: Deploy
+    needs: [image]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/deploy.yml
+    with:
+      sha: ${{ github.sha }}
+    secrets: inherit
