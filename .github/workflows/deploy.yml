@@ -55,7 +55,7 @@ jobs:
 
       # Deploy files (compose, Caddyfile, script) come from the SAME commit as the image,
       # so a rollback also rolls back the config that belongs to it.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.sha }}
 
