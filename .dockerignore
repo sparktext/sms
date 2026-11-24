@@ -45,4 +45,5 @@ Thumbs.db
 # --- Docker files themselves (changing them shouldn't invalidate the code layer) ---
 Dockerfile
 docker-compose*.yml
+deploy/
 .dockerignore

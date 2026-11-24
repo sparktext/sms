@@ -1,0 +1,83 @@
+# PRODUCTION stack (runs on the VM in /opt/sparktext). Differences from the local docker-compose.yml:
+#   - images are PULLED from GHCR by an immutable tag, never built on the server
+#   - no Postgres container: the database is Azure PostgreSQL Flexible Server (private network)
+#   - Caddy in front: HTTPS (Let's Encrypt), the ONLY service with published ports
+#   - secrets come from app.env / migrate.env on the server (chmod 600, never in git)
+#
+#   Deploy a version:  IMAGE_TAG=sha-<full-commit-sha> docker compose -f compose.prod.yml pull
+#                      IMAGE_TAG=...                   docker compose -f compose.prod.yml --profile tools run --rm migrate
+#                      IMAGE_TAG=...                   docker compose -f compose.prod.yml up -d
+name: sparktext
+
+x-app: &app
+  # ":?" = refuse to start if IMAGE_TAG is missing. No silent fallback to "latest":
+  # you must always know exactly which commit is running in production.
+  image: ghcr.io/sparktext/sms:${IMAGE_TAG:?set IMAGE_TAG to sha-<commit>}
+  env_file: [app.env]                 # least-privilege DB user (sparktext_app)
+  environment:
+    REDIS_URL: redis://redis:6379/0?protocol=2&socket_timeout=30
+  depends_on:
+    redis:
+      condition: service_healthy
+  restart: unless-stopped             # survives crashes and VM reboots
+
+services:
+  caddy:
+    image: caddy:2.11-alpine
+    ports:
+      - "80:80"                       # HTTP → redirect to HTTPS + Let's Encrypt challenge
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data              # certificates: MUST persist (Let's Encrypt rate-limits re-issuing)
+      - caddy_config:/config
+    depends_on:
+      web:
+        condition: service_healthy    # don't route traffic before Django answers /healthz
+    restart: unless-stopped
+
+  web:
+    <<: *app
+    volumes:
+      - media_data:/app/media         # uploads outside the container (containers are disposable)
+    # no "ports:" - only reachable by Caddy on the internal Docker network
+
+  ai_worker:
+    <<: *app
+    command: python manage.py run_ai_worker
+    healthcheck:
+      disable: true
+
+  campaign_worker:
+    <<: *app
+    command: python manage.py run_campaign_worker
+    healthcheck:
+      disable: true
+
+  redis:
+    image: redis:7.4-alpine
+    # Used for WebSocket channels + queues only, not as a database → no persistence needed.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # One-off job, NOT a long-running service (profile "tools" = only runs when asked for).
+  # Same image, but connects as sparktext_migrator (the only role allowed to change tables):
+  # migrate.env is loaded AFTER app.env, so its DATABASE_URL wins - for this container only.
+  migrate:
+    <<: *app
+    env_file: [app.env, migrate.env]
+    command: python manage.py migrate --noinput
+    restart: "no"
+    healthcheck:
+      disable: true
+    profiles: [tools]
+
+volumes:
+  caddy_data:
+  caddy_config:
+  media_data:

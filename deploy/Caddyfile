@@ -1,0 +1,30 @@
+# Caddy = reverse proxy in front of Django. It gets and renews the HTTPS certificate from
+# Let's Encrypt AUTOMATICALLY, as soon as DNS for the site name points at this server.
+
+{
+	# Let's Encrypt sends certificate-expiry warnings here (only if auto-renewal ever fails)
+	email info@sparktext.si
+}
+
+app.sparktext.si {
+	encode zstd gzip
+
+	# Uploads such as CSV imports; Django has its own limits on top of this
+	request_body {
+		max_size 25MB
+	}
+
+	# Daphne runs with --proxy-headers: it trusts X-Forwarded-For/-Proto from Caddy, so Django
+	# sees the real client IP (django-axes lockouts) and knows the request was HTTPS.
+	# WebSockets (live inbox) are proxied automatically.
+	reverse_proxy web:8000
+
+	header {
+		-Server
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}
