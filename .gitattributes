@@ -1,0 +1,5 @@
+# Files that run on Linux must keep LF line endings, even when checked out on Windows.
+# A CRLF ("\r\n") in an env file silently appends "\r" to every value (e.g. a broken DATABASE_URL).
+deploy/** text eol=lf
+*.sh text eol=lf
+Dockerfile text eol=lf
