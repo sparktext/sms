@@ -119,9 +119,16 @@ LOGIN_URL = "/accounts/login/"
 LOGIN_REDIRECT_URL = "/app/me/"  # → accounts:me_redirect → /app/<public_id>/ → dashboard
 LOGOUT_REDIRECT_URL = "/accounts/login/"
 
+# Two public hostnames served by this one project (see core/middleware.py). Leave both empty in
+# dev/CI. Production: MARKETING_HOST=sparktext.si and APP_HOST=app.sparktext.si.
+MARKETING_HOST = env("MARKETING_HOST", default="")
+APP_HOST = env("APP_HOST", default="")
+
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # sparktext.si = landing pages only, app.sparktext.si = everything else (no-op when unset)
+    'core.middleware.HostRoutingMiddleware',
     # Serves /static/ directly from the app (compressed + cache-forever hashed filenames).
     # Must sit right after SecurityMiddleware and before everything else.
     'whitenoise.middleware.WhiteNoiseMiddleware',
