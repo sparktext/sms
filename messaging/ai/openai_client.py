@@ -58,6 +58,9 @@ class OpenAICompatibleClient(BaseAIClient):
             "messages": chat_messages,
             "temperature": 0.4,
         }
+        if getattr(settings, "AI_DISABLE_THINKING", False):
+            # llama.cpp / LM Studio: render the chat template with thinking switched off
+            payload["chat_template_kwargs"] = {"enable_thinking": False}
 
         # Request structured JSON format if schema provided
         if schema:
@@ -126,4 +129,3 @@ class OpenAICompatibleClient(BaseAIClient):
                     time.sleep(1.0)
 
         raise RuntimeError(f"AI generation failed after {self.max_retries + 1} attempt(s): {last_exc}") from last_exc
-

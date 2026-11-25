@@ -1,6 +1,8 @@
+import itertools
 import json
 import unittest
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.core.management import call_command
 from django.test import Client, TestCase, override_settings
@@ -1435,6 +1437,14 @@ class GemmaJudgedChecksTests(TestCase):
     """Plain-language fit rules and follow-up conditions are judged by Gemma; code acts on the verdict."""
 
     def setUp(self):
+        # Strictly increasing test clock: every timezone.now() is 1 ms after the previous call.
+        # These tests play several turns within microseconds; with a real clock two messages can get
+        # the SAME timestamp, and the pipeline's "never double-text" guard (customer message must be
+        # newer than our last reply) then skips the turn. That made CI fail at random.
+        start, ticks = timezone.now(), itertools.count()
+        clock = patch("django.utils.timezone.now", side_effect=lambda: start + timedelta(milliseconds=next(ticks)))
+        clock.start()
+        self.addCleanup(clock.stop)
         FakeAIClient.reset()
         self.org = Organization.objects.create(name="Judge Org", slug="judge-org")
         self.config = AIAssistantConfig.objects.create(

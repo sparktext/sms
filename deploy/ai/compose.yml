@@ -1,0 +1,60 @@
+# AI INFERENCE server (runs on the GPU VM "ai-sparktext-01" in /opt/llm, NOT on the app VM).
+# llama.cpp's llama-server = the same engine LM Studio uses, serving the same GGUF file, with an
+# OpenAI-compatible API (/v1/chat/completions, JSON-schema output). The app only needs AI_BASE_URL.
+#
+#   app VM (ai_worker) ──Tailscale (ACL: only vm-sparktext-prod → tag:ai:8080)──► this server :8080
+#
+# Protection layers: (1) ufw: inbound only via tailscale0 + port bound to the Tailscale IP, (2) Tailscale ACL,
+# (3) API key (api_key file inside /opt/llm, which is root-only 700). The model file is read-only inside the container.
+#
+#   Start/update:  docker compose up -d        Logs: docker compose logs -f llama
+name: llm
+
+services:
+  llama:
+    # Pinned engine build. Upgrade = change this tag, then "docker compose up -d".
+    # cuda12 build: works with a wider range of NVIDIA drivers than cuda13 (provider-managed GPUs).
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda12-b12723
+    restart: unless-stopped
+    # Published ONLY on the Tailscale IP (TS_IP in .env): Docker bypasses ufw for published
+    # ports, so binding to 0.0.0.0 would expose the API on the public IP.
+    ports:
+      - "${TS_IP:?set TS_IP to this server's Tailscale IPv4}:8080:8080"
+    volumes:
+      - ./models:/models:ro
+      - ./api_key:/run/secrets/api_key:ro
+    command:
+      - -m
+      - /models/gemma-4-12B-it-QAT-Q4_0.gguf
+      # The model name the app sends (AI_MODEL). Same name LM Studio served.
+      - --alias
+      - google/gemma-4-12b-qat
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      # Put ALL layers on the GPU (fast). The model is ~7 GB.
+      - -ngl
+      - "999"
+      # Total context is SHARED by the parallel slots: ctx-size / parallel = tokens per request.
+      # Defaults: 4 slots x 8192 tokens (LM Studio settings: context >= 8192, >= 4 concurrent).
+      - --ctx-size
+      - "${LLM_CTX:-32768}"
+      - --parallel
+      - "${LLM_PARALLEL:-4}"
+      # Use the chat template embedded in the GGUF (same as LM Studio)
+      - --jinja
+      - --api-key-file
+      - /run/secrets/api_key
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
