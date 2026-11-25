@@ -1,0 +1,12 @@
+# gitleaks settings: the default rules, plus the one dummy test password the tests log in with.
+# Allowed by exact value, so it stays allowed after "Squash and merge" (which gives the code a new commit
+# id, and .gitleaksignore entries only match the old one). Never add a real secret here - rotate it instead.
+title = "sparktext gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Dummy password used only by the test suite"
+regexTarget = "secret"
+regexes = ['''^pw-123456789$''']
