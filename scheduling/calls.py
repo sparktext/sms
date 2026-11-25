@@ -300,6 +300,51 @@ def next_call_slot(now, tz: str, org=None):
     return slot
 
 
+def first_slot_on(day, tz: str, org=None):
+    """The first time we'd call on `day` (a date where the lead is): 9 AM, or later if the window opens later.
+    None when we can't call that day (a day the team doesn't work)."""
+    window = lead_window(org, tz, day)
+    if not window:
+        return None
+    start, end = window
+    last = (datetime.combine(day, end) - timedelta(minutes=30)).time()
+    first = max(start, FIRST_SLOT_NEXT_DAY)
+    if first >= last:
+        first = start
+    return datetime.combine(day, first, tzinfo=ZoneInfo(tz))
+
+
+def callable_instead(moment, tz: str, org=None, now=None):
+    """The nearest time we CAN call, for a time we can't: Saturday 11 AM -> Monday 11 AM, 7 AM -> 9 AM that day,
+    8 PM -> the last slot that day (5:30 PM when calls end at 6), or the next work day once that's gone.
+    Keeps the lead's time of day when it fits; otherwise that day's first slot."""
+    now = now or timezone.now()
+    zone = ZoneInfo(tz)
+    local = moment.astimezone(zone)
+    for i in range(15):
+        day = local.date() + timedelta(days=i)
+        window = lead_window(org, tz, day)
+        if not window:
+            continue
+        start, end = window
+        last = (datetime.combine(day, end) - timedelta(minutes=30)).time()
+        if i == 0 and local.time() >= last:
+            # "8pm" when calls end at 6: the last slot that day is closest to what they want, if it's still ahead
+            latest = datetime.combine(day, last, tzinfo=zone)
+            if latest > now + timedelta(minutes=10) and can_call_at(latest, tz, org):
+                return latest
+            continue                                   # already gone: the next day we call
+        if start <= local.time() < last:
+            candidate = datetime.combine(day, local.time(), tzinfo=zone)
+        else:
+            candidate = first_slot_on(day, tz, org)
+        if candidate <= now + timedelta(minutes=10):
+            return next_call_slot(now, tz, org)
+        if can_call_at(candidate, tz, org):
+            return candidate
+    return next_call_slot(now, tz, org)
+
+
 def _parse_date(value):
     try:
         return date_cls.fromisoformat(str(value or "").strip()[:10])
@@ -360,7 +405,9 @@ def resolve_call_time(when: dict, tz: str, now=None, org=None):
     elif day:
         if day == local_now.date():
             return next_call_slot(now, tz, org), "asap"
-        moment, how = at_day(day, DEFAULT_DAY_TIME), "their_day"
+        # "anytime on the 28th": that day's first slot; a plain "the 28th": mid-morning
+        first = first_slot_on(day, tz, org) if when.get("asap") else None
+        moment, how = (first or at_day(day, DEFAULT_DAY_TIME)), "their_day"
     elif part_time:
         moment, how = at_day(local_now.date(), part_time), "their_day"
         if moment <= local_now + timedelta(minutes=5):
