@@ -237,7 +237,7 @@ def _handle_inbound_sms(
                     "body": message.body,
                     "direction": message.direction,
                     "sender_type": message.sender_type,
-                    "created_at": format_chat_timestamp(message.created_at),
+                    "created_at": format_chat_timestamp(message.created_at, org=org),
                     "status": message.status,
                 },
             },
@@ -310,6 +310,9 @@ def _handle_inbound_sms(
             )
             if is_stop_phrase(body):
                 _confirm_opt_out(conversation, org)
+            from core import slack
+            slack.notify(org, "opt_out", f"🚫 {slack.lead_name(contact)} opted out of texts",
+                         [contact.phone, f"They texted: “{body[:120]}”"], f"/inbox/{conversation.id}/", "Open the chat")
         elif keyword == "START":
             record_consent(
                 contact=contact,
@@ -324,6 +327,16 @@ def _handle_inbound_sms(
     # inbound text opens the reply window for contacts without consent, so the "Sending Currently
     # Blocked" banner / composer must update live instead of only after a page refresh.
     _broadcast_send_permission(contact)
+
+    # "Call me now": ring the agents straight away, before the AI reply (which takes a few seconds more)
+    try:
+        if (classify_keyword(body) not in ("STOP", "START", "HELP")
+                and contact.sms_status != Contact.SMSStatus.OPTED_OUT
+                and conversation.status != Conversation.Status.CLOSED):
+            from .ai.pipeline import start_hot_lead
+            start_hot_lead(conversation, message)
+    except Exception as exc:
+        logger.exception("Couldn't start ringing for hot lead message %s: %s", message_sid, exc)
 
     # Queue or debounce AI job if AI Assistant is configured and applicable
     try:

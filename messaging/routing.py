@@ -5,6 +5,7 @@ from django.utils import timezone
 
 from core.models import Organization, User
 from messaging.models import Conversation, Message
+from messaging.utils import format_clock
 
 logger = logging.getLogger(__name__)
 
@@ -233,7 +234,7 @@ def assign_qualified_lead(
                     "body": sys_msg.body,
                     "direction": sys_msg.direction,
                     "sender_type": sys_msg.sender_type,
-                    "created_at": sys_msg.created_at.strftime("%I:%M %p"),
+                    "created_at": format_clock(sys_msg.created_at, org=conversation.organization),
                     "status": sys_msg.status,
                 },
             },

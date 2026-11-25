@@ -177,10 +177,13 @@ def _render_campaign_form(request, org, *, campaign=None, is_edit=False, list_id
                      if campaign is not None and campaign.ai_qualification_questions else default_questions)
     if list_ids is None:
         list_ids = list(campaign.lists.values_list("id", flat=True)) if campaign is not None and campaign.pk else []
-    # Only a scheduled campaign pre-fills the date picker, as UTC: the page turns it into the viewer's local time
-    scheduled_iso = (campaign.scheduled_at.isoformat()
-                     if campaign is not None and campaign.status == Campaign.Status.SCHEDULED and campaign.scheduled_at
-                     else "")
+    # The date picker works in the agency's time zone (like every other time in the app). Only a scheduled
+    # campaign pre-fills it.
+    from core.timezones import org_timezone, timezone_label
+    zone = _workspace_zone(org)
+    scheduled_local = (timezone.localtime(campaign.scheduled_at, zone).strftime("%Y-%m-%dT%H:%M")
+                       if campaign is not None and campaign.status == Campaign.Status.SCHEDULED and campaign.scheduled_at
+                       else "")
     context = {
         "is_edit": is_edit,
         "campaign": campaign,
@@ -191,7 +194,9 @@ def _render_campaign_form(request, org, *, campaign=None, is_edit=False, list_id
         "lead_merge_tags": _lead_merge_tags(org),
         "saved_templates": MessageTemplate.objects.filter(organization=org),
         "selected_template": selected_template,
-        "campaign_scheduled_iso": scheduled_iso,
+        "campaign_scheduled_local": scheduled_local,
+        "schedule_min_local": timezone.localtime(timezone.now(), zone).strftime("%Y-%m-%dT%H:%M"),
+        "workspace_tz_label": timezone_label(org_timezone(org)),
         "ai_config": ai_config,
         "campaign_questions_json": json.dumps(questions),
         "default_questions_json": json.dumps(default_questions),
@@ -291,7 +296,8 @@ def campaign_create(request):
             if not scheduled_at and scheduled_at_str:
                 try:
                     # Fallback HTML5 datetime-local format: YYYY-MM-DDTHH:MM
-                    scheduled_at = timezone.make_aware(datetime.strptime(scheduled_at_str, "%Y-%m-%dT%H:%M"))
+                    scheduled_at = timezone.make_aware(datetime.strptime(scheduled_at_str, "%Y-%m-%dT%H:%M"),
+                                                       _workspace_zone(org))       # the agency's time
                 except ValueError:
                     return fail("Invalid scheduled date/time format.")
             if not save_draft_only and (not scheduled_at or scheduled_at <= timezone.now()):
@@ -703,7 +709,8 @@ def campaign_edit(request, campaign_id):
 
             if not scheduled_at and scheduled_at_str:
                 try:
-                    scheduled_at = timezone.make_aware(datetime.strptime(scheduled_at_str, "%Y-%m-%dT%H:%M"))
+                    scheduled_at = timezone.make_aware(datetime.strptime(scheduled_at_str, "%Y-%m-%dT%H:%M"),
+                                                       _workspace_zone(org))       # the agency's time
                 except ValueError:
                     return fail("Invalid scheduled date/time format.")
             if not save_draft_only and (not scheduled_at or scheduled_at <= timezone.now()):

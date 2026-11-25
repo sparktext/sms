@@ -16,6 +16,33 @@ class _PermanentRedirectKeepMethod(HttpResponseRedirect):
     status_code = 308
 
 
+class TimezoneMiddleware:
+    """Show every time in the viewer's time zone: the agency's (Settings > Company Profile), or the one they chose
+    for themselves on the Calendar. Without this, pages showed UTC (the server's clock)."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        from zoneinfo import ZoneInfo
+
+        from django.utils import timezone
+
+        from core.timezones import user_timezone
+        user = getattr(request, "user", None)
+        try:
+            if user is not None and user.is_authenticated:
+                timezone.activate(ZoneInfo(user_timezone(user)))
+            else:
+                timezone.deactivate()
+        except Exception:
+            timezone.deactivate()
+        try:
+            return self.get_response(request)
+        finally:
+            timezone.deactivate()          # never leak one person's zone into the next request on this thread
+
+
 class HostRoutingMiddleware:
     """
     One Django project, two public hostnames:

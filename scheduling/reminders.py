@@ -1,5 +1,5 @@
 """
-Sends call reminders: a heads-up N minutes before (the event's reminder_minutes) and a "time to call"
+Assigns team calls nobody claimed in time, and sends call reminders: a heads-up N minutes before (the event's reminder_minutes) and a "time to call"
 alert when it starts. Runs inside the AI worker every few seconds, or on its own with
 `python manage.py send_call_reminders --loop`.
 """
@@ -8,7 +8,7 @@ from datetime import timedelta
 
 from django.utils import timezone
 
-from .calls import notify_call
+from .calls import assign_unclaimed_calls, escalate_hot_leads, notify_call
 from .models import CalendarEvent, WorkerHeartbeat
 
 logger = logging.getLogger(__name__)
@@ -37,6 +37,15 @@ def send_due_reminders(now=None) -> int:
     """Send every reminder that is due. Returns how many went out."""
     now = now or timezone.now()
     WorkerHeartbeat.objects.update_or_create(name=HEARTBEAT, defaults={"last_seen": timezone.now()})
+    # Team calls nobody claimed in time go to an agent first, so their reminders below go out as usual
+    try:
+        assign_unclaimed_calls(now)
+    except Exception as exc:
+        logger.exception("Assigning unclaimed team calls failed: %s", exc)
+    try:
+        escalate_hot_leads(now)                      # "call me now" leads nobody called within 10 minutes
+    except Exception as exc:
+        logger.exception("Escalating hot leads failed: %s", exc)
     sent = 0
     pending = CalendarEvent.objects.filter(
         status=CalendarEvent.Status.SCHEDULED, reminder_minutes__isnull=False, user__is_active=True,

@@ -88,10 +88,22 @@ def _recent_call_reminders(user):
             CalendarEvent.objects.filter(user=user, status=CalendarEvent.Status.SCHEDULED,
                                          start_at__gte=since, start_at__lte=now + timedelta(hours=2))
             .filter(Q(reminder_sent_at__gte=since) | Q(start_alert_sent_at__gte=since))
+            .exclude(urgent=True)                      # hot leads ring instead of sending reminders
             .select_related("user", "contact", "organization")
             .order_by("-start_at")[:10]
         )
         items = []
+        from core.models import User
+        if getattr(user, "role", None) in (User.Role.OWNER, User.Role.ADMIN):
+            # hot leads nobody called within 10 minutes ("🔥 Hot lead still waiting")
+            for event in (CalendarEvent.objects.filter(organization_id=user.organization_id, urgent=True,
+                                                       escalated_at__gte=since)
+                          .select_related("user", "contact", "organization").order_by("-escalated_at")[:5]):
+                item = call_notification(event, "escalated", now, recipient=user)
+                item["timestamp"] = int(event.escalated_at.timestamp() * 1000)
+                item["is_assigned_to_me"] = True
+                item["read"] = event.answered_at is not None
+                items.append(item)
         for event in events:
             stage = "now" if event.start_alert_sent_at else "soon"
             item = call_notification(event, stage, now)

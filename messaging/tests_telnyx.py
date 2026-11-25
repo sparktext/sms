@@ -325,8 +325,10 @@ class TelnyxIntegrationTests(TestCase):
         self.assertEqual(inbox_resp.status_code, 200)
         inbox_html = inbox_resp.content.decode("utf-8")
         self.assertIn(f'id="msg-status-{msg_del.id}"', inbox_html)
-        self.assertIn(msg_del.created_at.strftime("%b %d, %I:%M %p"), inbox_html)
-        self.assertIn(msg_del.created_at.strftime("%b %d, %Y"), inbox_html)
+        from zoneinfo import ZoneInfo
+        shown = msg_del.created_at.astimezone(ZoneInfo(self.org.timezone))        # the agency's time, not UTC
+        self.assertIn(shown.strftime("%b %d, %I:%M %p"), inbox_html)
+        self.assertIn(shown.strftime("%b %d, %Y"), inbox_html)
         self.assertIn("✕ Undelivered", inbox_html)
         self.assertIn("Blocked as spam by carrier", inbox_html)
         self.assertIn('id="global-breadcrumb-conv"', inbox_html)

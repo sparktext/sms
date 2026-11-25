@@ -138,6 +138,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'core.middleware.TimezoneMiddleware',             # times in the viewer's / agency's zone, not UTC
     'allauth.account.middleware.AccountMiddleware',   # required by allauth
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
@@ -189,7 +190,12 @@ else:
             # socket_timeout=None is REQUIRED: channels_redis holds long-lived blocking pub/sub
             # connections that wait indefinitely for messages. A finite timeout causes
             # redis.exceptions.TimeoutError and WebSocket disconnects.
-            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            # CHANNEL_LAYER_MODE=pubsub (local dev only): plain PUBLISH/SUBSCRIBE, for an old local Redis (< 5.0,
+            # e.g. the Windows port 3.0.x) that lacks BZPOPMIN, which the default layer needs to receive anything.
+            # Production runs Redis 7 and keeps the default.
+            "BACKEND": ("channels_redis.pubsub.RedisPubSubChannelLayer"
+                        if env("CHANNEL_LAYER_MODE", default="core") == "pubsub"
+                        else "channels_redis.core.RedisChannelLayer"),
             "CONFIG": {
                 "hosts": [{
                     "address": _REDIS_URL,

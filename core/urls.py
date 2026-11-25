@@ -15,6 +15,7 @@ urlpatterns = [
     path("settings/profile/", views_settings.company_profile, name="company_profile"),
     path("settings/team/", views_settings.team_members, name="team_members"),
     path("settings/sounds/", views_settings.notification_sound_settings, name="notification_sound_settings"),
+    path("settings/slack/", views_settings.slack_settings, name="slack_settings"),
     path("settings/team/invite/", views_settings.team_invite_create, name="team_invite_create"),
     path("settings/team/invites/<int:invite_id>/revoke/", views_settings.team_invite_revoke, name="team_invite_revoke"),
     path("settings/team/members/<int:user_id>/role/", views_settings.team_member_update_role, name="team_member_update_role"),

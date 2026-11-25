@@ -14,6 +14,7 @@ from django.utils import timezone
 
 from core.timezones import org_timezone, timezone_label, user_timezone
 
+from . import holidays
 from .models import CalendarEvent
 
 logger = logging.getLogger(__name__)
@@ -188,10 +189,19 @@ def call_days(org) -> set:
 
 
 def is_call_day(moment, tz: str, org) -> bool:
-    """A day the team works, judged on the team's own calendar (workspace time zone)."""
+    """A day the team works, judged on the team's own calendar (workspace time zone): one of the call days, and
+    not a closed day (a holiday the office observes, or a date the owner closed)."""
     if org is None:
         return True
-    return moment.astimezone(_team_zone(org)).weekday() in call_days(org)
+    day = moment.astimezone(_team_zone(org)).date()
+    return day.weekday() in call_days(org) and not holidays.is_closed(org, day)
+
+
+def closed_reason_at(moment, org):
+    """Why the office is closed then ("Thanksgiving"), or None (the team's own date)."""
+    if org is None:
+        return None
+    return holidays.closed_reason(org, moment.astimezone(_team_zone(org)).date())
 
 
 def in_calling_hours(moment, tz: str, org=None) -> bool:
@@ -215,7 +225,7 @@ def lead_window(org, lead_tz: str, day):
     team, (start, end), days = _team_zone(org), call_hours(org), call_days(org)
     best = None
     for d in (day - timedelta(days=1), day, day + timedelta(days=1)):     # the team's day may differ near midnight
-        if d.weekday() not in days:
+        if d.weekday() not in days or holidays.is_closed(org, d):
             continue
         s = max(lo, datetime.combine(d, start, tzinfo=team))
         e = min(hi, datetime.combine(d, end, tzinfo=team))
@@ -273,10 +283,64 @@ def contact_name(contact) -> str:
 
 
 # ---------------------------------------------------------------------------
+# How many calls fit in one time slot (team call calendar)
+# ---------------------------------------------------------------------------
+
+def call_team(org):
+    """Active team members who take calls (owners, admins and agents)."""
+    from core.models import User
+    return User.objects.filter(organization=org, is_active=True,
+                               role__in=[User.Role.OWNER, User.Role.ADMIN, User.Role.AGENT])
+
+
+def slot_limit(org) -> int:
+    """How many calls may start at the same time: the owner's number, or else the agents available for leads
+    (everyone active when nobody is marked available, e.g. at night). At least 1."""
+    if org is None:
+        return 1_000
+    if getattr(org, "max_calls_per_slot", None):
+        return int(org.max_calls_per_slot)
+    team = call_team(org)
+    return max(1, team.filter(is_available_for_leads=True).count() or team.count())
+
+
+def calls_at(org, start, end, exclude=None) -> int:
+    """Scheduled calls overlapping [start, end) in this workspace (claimed or not)."""
+    qs = CalendarEvent.objects.filter(organization=org, kind=CalendarEvent.Kind.CALL,
+                                      status=CalendarEvent.Status.SCHEDULED, start_at__lt=end, end_at__gt=start)
+    if exclude is not None and getattr(exclude, "pk", None):
+        qs = qs.exclude(pk=exclude.pk)
+    return qs.count()
+
+
+def slot_is_full(org, moment, exclude=None, minutes: int = DEFAULT_CALL_MINUTES) -> bool:
+    if org is None or moment is None or not getattr(org, "pk", None):
+        return False
+    return calls_at(org, moment, moment + timedelta(minutes=minutes), exclude) >= slot_limit(org)
+
+
+def first_free(moment, tz: str, org=None, exclude=None):
+    """`moment`, or the next quarter hour after it we can call that isn't fully booked yet."""
+    if org is None or moment is None or not getattr(org, "pk", None):
+        return moment
+    candidate = moment
+    for _ in range(4 * 24 * 21):                      # up to three weeks of quarter hours
+        if can_call_at(candidate, tz, org) and not slot_is_full(org, candidate, exclude):
+            return candidate
+        candidate += timedelta(minutes=15)
+    return moment
+
+
+# ---------------------------------------------------------------------------
 # Turning what a lead said into a moment
 # ---------------------------------------------------------------------------
 
 def next_call_slot(now, tz: str, org=None):
+    """The next open slot to call: _next_call_slot, moved later while that time is already fully booked."""
+    return first_free(_next_call_slot(now, tz, org), tz, org)
+
+
+def _next_call_slot(now, tz: str, org=None):
     """The next sensible moment to call: the next quarter hour at least 10 minutes out, inside the time we can call
     the lead (the team's working hours and days, and 8 AM-9 PM their time): Friday night -> Monday morning."""
     zone = ZoneInfo(tz)
@@ -331,7 +395,7 @@ def callable_instead(moment, tz: str, org=None, now=None):
         if i == 0 and local.time() >= last:
             # "8pm" when calls end at 6: the last slot that day is closest to what they want, if it's still ahead
             latest = datetime.combine(day, last, tzinfo=zone)
-            if latest > now + timedelta(minutes=10) and can_call_at(latest, tz, org):
+            if latest > now + timedelta(minutes=10) and can_call_at(latest, tz, org) and not slot_is_full(org, latest):
                 return latest
             continue                                   # already gone: the next day we call
         if start <= local.time() < last:
@@ -341,7 +405,7 @@ def callable_instead(moment, tz: str, org=None, now=None):
         if candidate <= now + timedelta(minutes=10):
             return next_call_slot(now, tz, org)
         if can_call_at(candidate, tz, org):
-            return candidate
+            return first_free(candidate, tz, org)
     return next_call_slot(now, tz, org)
 
 
@@ -455,8 +519,8 @@ def book_call(*, contact, user, start, conversation=None, source=CalendarEvent.S
               notes="", duration_minutes=DEFAULT_CALL_MINUTES, reminder_minutes=CalendarEvent.DEFAULT_REMINDER_MINUTES,
               event=None):
     """
-    Put a call with this lead on `user`'s calendar, or move `event` to the new time.
-    Returns (event, created).
+    Put a call with this lead on `user`'s calendar (user=None: on the team calendar for an agent to claim),
+    or move `event` to the new time. Returns (event, created).
     """
     created = event is None
     if created:
@@ -466,6 +530,8 @@ def book_call(*, contact, user, start, conversation=None, source=CalendarEvent.S
             title=f"Call {contact_name(contact)}"[:200],
         )
     event.user = user
+    if user is None and event.pooled_at is None:
+        event.pooled_at = timezone.now()
     event.start_at = start
     event.end_at = start + timedelta(minutes=max(5, int(duration_minutes or DEFAULT_CALL_MINUTES)))
     event.status = CalendarEvent.Status.SCHEDULED
@@ -495,12 +561,15 @@ STAGE_TITLES = {
     "cancelled": "📅 Call cancelled",
     "soon": "📞 Call coming up",
     "now": "📞 Time to call",
+    "pool": "📅 New call to claim",
+    "assigned": "📅 Call assigned to you",
+    "escalated": "🔥 Hot lead still waiting",
 }
 
 
-def call_notification(event, stage: str, now=None) -> dict:
-    """The notification payload for the person whose calendar this call is on."""
-    user = event.user
+def call_notification(event, stage: str, now=None, recipient=None) -> dict:
+    """The notification payload for the person whose calendar this call is on (or `recipient`)."""
+    user = recipient or event.user
     tz = user_timezone(user)
     local = event.start_at.astimezone(ZoneInfo(tz))
     who = contact_name(event.contact) if event.contact_id else event.title
@@ -514,6 +583,13 @@ def call_notification(event, stage: str, now=None) -> dict:
         body = f"Moved: {who} is now {when}"
     elif stage == "cancelled":
         body = f"Cancelled: {who} no longer wants the call {when}"
+    elif stage == "pool":
+        body = f"{who} {when} · first to claim it gets the lead"
+    elif stage == "assigned":
+        body = f"{who} {when} · nobody claimed it, so it's yours"
+    elif stage == "escalated":
+        waited = max(1, round(((now or timezone.now()) - event.start_at).total_seconds() / 60))
+        body = f"{who} asked for a call right now {waited} min ago and nobody has called yet"
     else:
         by = "Gemma booked" if event.source == CalendarEvent.Source.AI else "Booked"
         body = f"{by}: {who} {when}"
@@ -530,7 +606,7 @@ def call_notification(event, stage: str, now=None) -> dict:
         "conversation_id": event.conversation_id,
         "contact_name": who,
         "contact_phone": phone,
-        "url": event_url(event),
+        "url": f"/calendar/?claim={event.id}" if stage == "pool" else event_url(event),
         "assigned_to_id": user.id,
         "timestamp": int((now or timezone.now()).timestamp() * 1000),
         "notification_sound": getattr(org, "notification_sound", "sales_flourish"),
@@ -539,7 +615,18 @@ def call_notification(event, stage: str, now=None) -> dict:
 
 
 def notify_call(event, stage: str, now=None) -> None:
-    """Live toast + sound + bell entry for whoever has this call (all their open tabs)."""
+    """Live toast + sound + bell entry for whoever has this call (all their open tabs). A team call nobody has
+    claimed yet goes to everyone who could claim it."""
+    if event.user_id is None:
+        # booked / moved: "a call to claim"; cancelled: so nobody claims a call that's gone
+        notify_pool(event, now, stage="cancelled" if stage == "cancelled" else "pool")
+        return
+    if stage in ("booked", "moved") and not event.urgent:
+        from core import slack
+        slack.notify(event.organization, "call_booked",
+                     f"📅 Call {'moved' if stage == 'moved' else 'booked'}: "
+                     f"{contact_name(event.contact) if event.contact_id else event.title} with {caller_name(event)}",
+                     _slack_call_lines(event), event_url(event))
     try:
         from messaging.ws_broadcast import broadcast_user_event
         broadcast_user_event(event.user_id, {"event": "call_reminder", "reminder": call_notification(event, stage, now)})
@@ -556,12 +643,13 @@ def post_chat_note(conversation, body: str):
         status=Message.Status.DELIVERED, body=body[:1600],
     )
     try:
+        from messaging.utils import format_clock
         from messaging.ws_broadcast import broadcast_chat_event
         broadcast_chat_event(conversation.id, {
             "event": "new_message",
             "message": {
                 "id": msg.id, "body": msg.body, "direction": msg.direction, "sender_type": msg.sender_type,
-                "created_at": msg.created_at.strftime("%I:%M %p"), "status": msg.status,
+                "created_at": format_clock(msg.created_at, org=conversation.organization), "status": msg.status,
             },
         })
     except Exception as exc:
@@ -569,11 +657,17 @@ def post_chat_note(conversation, body: str):
     return msg
 
 
+def caller_name(event) -> str:
+    if event.user_id is None:
+        return "the team (not claimed yet)"
+    return event.user.first_name or event.user.email
+
+
 def booking_summary(event, lead_tz: str) -> str:
     """e.g. "Sat, Nov 22 at 9:00 AM PST (lead's time) with Aaron"."""
     local = event.start_at.astimezone(ZoneInfo(lead_tz))
     abbr = fmt_zone_abbr(local)
-    caller = event.user.first_name or event.user.email
+    caller = caller_name(event)
     return f"{fmt_day(local)} at {fmt_time(local)}{(' ' + abbr) if abbr else ''} (lead's time) with {caller}"
 
 
@@ -598,8 +692,7 @@ def upcoming_call_banner(conversation, viewer):
     lead_tz = lead_timezone(event.contact or conversation.contact, conversation.organization)
     return {
         "event_id": event.id,
-        "text": f"{describe_when(event.start_at, user_timezone(viewer))} (your time) with "
-                f"{event.user.first_name or event.user.email}",
+        "text": f"{describe_when(event.start_at, user_timezone(viewer))} (your time) with {caller_name(event)}",
         "lead_time": lead_time_line(event.start_at, lead_tz),
         "by_ai": event.source == CalendarEvent.Source.AI,
     }
@@ -608,3 +701,295 @@ def upcoming_call_banner(conversation, viewer):
 def lead_time_line(moment, lead_tz: str) -> str:
     local = moment.astimezone(ZoneInfo(lead_tz))
     return f"Lead's local time: {fmt_day(local)} at {fmt_time(local)} · {timezone_label(lead_tz, moment)}"
+
+
+# ---------------------------------------------------------------------------
+# Team call calendar: claiming calls, and assigning the ones nobody claims
+# ---------------------------------------------------------------------------
+
+CLAIM_GRACE = timedelta(minutes=2)       # a call booked close to its start still gets a moment to be claimed
+CLAIM_MINUTE_CHOICES = [10, 15, 30, 45, 60, 120]
+
+
+def pool_enabled(org) -> bool:
+    return bool(getattr(org, "call_pool_enabled", True))
+
+
+def claim_minutes(org) -> int:
+    value = getattr(org, "call_claim_minutes", None)
+    return int(value) if value else 30
+
+
+def assign_by(event):
+    """When an unclaimed call gets assigned automatically ("call me now": 3 minutes after it starts ringing)."""
+    if event.urgent:
+        return (event.pooled_at or event.created_at) + URGENT_CLAIM
+    deadline = event.start_at - timedelta(minutes=claim_minutes(event.organization))
+    return max(deadline, (event.pooled_at or event.created_at) + CLAIM_GRACE)
+
+
+def pool_recipients(org):
+    """Who hears about a new team call: everyone available for leads (or the whole team when nobody is)."""
+    team = list(call_team(org))
+    available = [u for u in team if u.is_available_for_leads]
+    return available or team
+
+
+def _slack_call_lines(event):
+    """For Slack: the lead's phone and when the call is, in the lead's own time."""
+    contact = event.contact
+    lead_tz = lead_timezone(contact, event.organization) if contact else org_timezone(event.organization)
+    local = event.start_at.astimezone(ZoneInfo(lead_tz))
+    abbr = fmt_zone_abbr(local)
+    return [contact.phone if contact else "", f"{fmt_day(local)} at {fmt_time(local)}{(' ' + abbr) if abbr else ''} "
+                                              "(lead's time)"]
+
+
+def notify_pool(event, now=None, stage: str = "pool") -> None:
+    from core import slack
+    from messaging.ws_broadcast import broadcast_user_event
+    if stage == "pool" and not event.urgent:
+        slack.notify(event.organization, "team_call", f"📅 New call to claim: {contact_name(event.contact) if event.contact_id else event.title}",
+                     [*_slack_call_lines(event), "First agent to claim it gets the lead."],
+                     f"/calendar/?claim={event.id}", "Claim it in SparkText")
+    for user in pool_recipients(event.organization):
+        try:
+            broadcast_user_event(user.id, {"event": "call_reminder",
+                                           "reminder": call_notification(event, stage, now, recipient=user)})
+        except Exception as exc:
+            logger.warning("Couldn't tell %s about team call %s: %s", user.id, event.id, exc)
+
+
+def claim_call(event, user, auto=False, now=None) -> bool:
+    """Give this team call to `user` (they claimed it, or it was assigned automatically). The lead becomes theirs
+    if nobody has it yet. False when someone else got there first."""
+    from messaging.models import Conversation
+    now = now or timezone.now()
+    taken = CalendarEvent.objects.filter(pk=event.pk, user__isnull=True).update(
+        user=user, claimed_at=now, auto_assigned=auto, updated_at=now)
+    if not taken:
+        return False
+    event.refresh_from_db()
+    who = user.first_name or user.email
+    conversation = event.conversation
+    if conversation is not None:
+        Conversation.objects.filter(pk=conversation.pk, assigned_to__isnull=True).update(assigned_to=user)
+        conversation.refresh_from_db(fields=["assigned_to"])
+        lead_tz = lead_timezone(event.contact or conversation.contact, event.organization)
+        how = ("Nobody claimed it, so it was assigned automatically to " if auto else "Claimed by ") + who
+        post_chat_note(conversation, f"📅 {how}: {booking_summary(event, lead_tz)}.")
+    if auto:
+        notify_call(event, "assigned", now)
+    if event.urgent:
+        refresh_urgent(event.organization)            # the new person's screen starts ringing
+    logger.info("Team call %s %s %s", event.id, "auto-assigned to" if auto else "claimed by", user.email)
+    return True
+
+
+def _auto_assignee(event):
+    """Who gets an unclaimed call: the lead's agent if they have one by now, else the lead routing
+    (round-robin / least busy), else the owner."""
+    conversation = event.conversation
+    if conversation is not None:
+        conversation.refresh_from_db(fields=["assigned_to"])
+        if conversation.assigned_to_id and conversation.assigned_to.is_active:
+            return conversation.assigned_to
+        try:
+            from messaging.routing import assign_qualified_lead
+            routed = assign_qualified_lead(conversation, trigger_reason="Unclaimed team call")
+            if routed:
+                return routed
+        except Exception as exc:
+            logger.warning("Routing an unclaimed call (%s) failed: %s", event.id, exc)
+    return fallback_caller(event.organization)
+
+
+def assign_unclaimed_calls(now=None) -> int:
+    """Assign every team call nobody claimed in time. Returns how many were assigned."""
+    now = now or timezone.now()
+    longest = timedelta(minutes=max(CLAIM_MINUTE_CHOICES))
+    due = (CalendarEvent.objects.filter(user__isnull=True, status=CalendarEvent.Status.SCHEDULED,
+                                        start_at__lte=now + longest)
+           .select_related("organization", "conversation", "contact"))
+    assigned = 0
+    for event in due:
+        if assign_by(event) > now:
+            continue
+        user = _auto_assignee(event)
+        if user and claim_call(event, user, auto=True, now=now):
+            assigned += 1
+    return assigned
+
+
+def unclaimed_calls(org, now=None):
+    """Team calls waiting for an agent, soonest first."""
+    now = now or timezone.now()
+    return (CalendarEvent.objects.filter(organization=org, user__isnull=True, status=CalendarEvent.Status.SCHEDULED,
+                                         end_at__gte=now - timedelta(hours=1))
+            .select_related("contact", "conversation", "organization").order_by("start_at"))
+
+
+# ---------------------------------------------------------------------------
+# "Call me now" (hot lead): ring the agents until someone clicks Call
+# ---------------------------------------------------------------------------
+
+URGENT_CLAIM = timedelta(minutes=3)          # nobody clicked Call: assigned automatically after this
+URGENT_ESCALATE = timedelta(minutes=10)      # still nobody called: owners/admins are told
+URGENT_SHOW_FOR = timedelta(minutes=60)      # a hot lead older than this stops showing in the banner
+
+
+def can_call_now(org, lead_tz: str, now=None):
+    """(True, "") when an agent can call this lead right now, else (False, why) in words for the lead."""
+    now = now or timezone.now()
+    closed = closed_reason_at(now, org)
+    if closed:
+        return False, f"our office is closed today ({closed})"
+    if not can_call_at(now + timedelta(minutes=1), lead_tz, org):
+        return False, "our agents aren't available to call right now"
+    if not call_team(org).filter(is_available_for_leads=True).exists():
+        return False, "our agents aren't available to call right now"
+    return True, ""
+
+
+def _bosses(org):
+    from core.models import User
+    return list(User.objects.filter(organization=org, is_active=True, role__in=[User.Role.OWNER, User.Role.ADMIN]))
+
+
+def _is_boss(user) -> bool:
+    from core.models import User
+    return getattr(user, "role", None) in (User.Role.OWNER, User.Role.ADMIN)
+
+
+def ring_targets(event) -> list:
+    """Whose screen rings: the call's agent, or (a team call) everyone available who hasn't clicked Ignore. Once
+    nobody has called for 10 minutes, owners and admins ring too (until they click Call or Ignore)."""
+    ignored = set(event.ignored_by or [])
+    if event.user_id:
+        targets = [event.user] if event.user_id not in ignored else []
+    else:
+        targets = [u for u in pool_recipients(event.organization) if u.id not in ignored]
+    if event.escalated_at:
+        have = {u.id for u in targets}
+        targets += [b for b in _bosses(event.organization) if b.id not in have and b.id not in ignored]
+    return targets
+
+
+def refresh_urgent(org) -> None:
+    """Tell every open tab in the workspace to re-check hot leads (start / stop ringing, show / hide the banner)."""
+    try:
+        from messaging.ws_broadcast import broadcast_inbox_event
+        broadcast_inbox_event(org.id, {"event": "urgent_refresh"})
+    except Exception as exc:
+        logger.warning("Couldn't refresh hot leads for org %s: %s", getattr(org, "id", None), exc)
+
+
+def waiting_hot_leads(org, now=None):
+    """Hot leads nobody has called yet (newest last)."""
+    now = now or timezone.now()
+    return (CalendarEvent.objects.filter(organization=org, urgent=True, answered_at__isnull=True,
+                                         status=CalendarEvent.Status.SCHEDULED,
+                                         start_at__gte=now - URGENT_SHOW_FOR)
+            .select_related("user", "contact", "conversation", "organization").order_by("start_at"))
+
+
+def hot_lead_for(event, viewer, now=None) -> dict:
+    """What one person's screen shows for a hot lead: ring or not, and whether their Call button works."""
+    now = now or timezone.now()
+    targets = {u.id for u in ring_targets(event)}
+    escalated = event.escalated_at is not None
+    mine = event.user_id is None or event.user_id == viewer.id or (escalated and _is_boss(viewer))
+    return {
+        "id": event.id,
+        "name": contact_name(event.contact) if event.contact_id else event.title,
+        "phone": event.contact.phone if event.contact_id else "",
+        "chat_url": f"/inbox/{event.conversation_id}/" if event.conversation_id else "",
+        "waiting_seconds": max(0, int((now - event.start_at).total_seconds())),
+        "asked_at_ms": int(event.start_at.timestamp() * 1000),       # a hot lead's call starts when they asked
+        "ring": viewer.id in targets,
+        "can_call": mine,
+        "escalated": escalated,
+        "waiting_for": "" if event.user_id is None else (event.user.first_name or event.user.email),
+    }
+
+
+def answer_call(event, user, now=None):
+    """`user` clicked Call: a team call becomes theirs (with the lead), the ringing stops everywhere.
+    Returns (True, "") or (False, why)."""
+    now = now or timezone.now()
+    if event.status != CalendarEvent.Status.SCHEDULED:
+        return False, "This call isn't waiting anymore."
+    if event.user_id is None and not claim_call(event, user, now=now):
+        event.refresh_from_db()
+    if event.user_id not in (None, user.id) and event.escalated_at and _is_boss(user) and event.answered_at is None:
+        # nobody called for 10 minutes: an owner/admin takes it over
+        CalendarEvent.objects.filter(pk=event.pk, answered_at__isnull=True).update(user=user, claimed_at=now)
+        event.refresh_from_db()
+    if event.user_id != user.id:
+        return False, f"{event.user.first_name or event.user.email} is already calling this lead."
+    CalendarEvent.objects.filter(pk=event.pk, answered_at__isnull=True).update(answered_at=now, updated_at=now)
+    event.refresh_from_db()
+    if event.conversation_id:
+        post_chat_note(event.conversation, f"📞 {user.first_name or user.email} is calling the lead now.")
+    refresh_urgent(event.organization)
+    return True, ""
+
+
+def ignore_call(event, user, now=None) -> None:
+    """`user` clicked Ignore: their screen stops ringing. When everyone it was ringing for has ignored a team call,
+    it goes straight to the owner instead of waiting out the 3 minutes."""
+    from django.db import transaction
+    now = now or timezone.now()
+    with transaction.atomic():
+        locked = CalendarEvent.objects.select_for_update().get(pk=event.pk)
+        ignored = list(locked.ignored_by or [])
+        if user.id not in ignored:
+            ignored.append(user.id)
+            locked.ignored_by = ignored
+            locked.save(update_fields=["ignored_by", "updated_at"])
+    event.refresh_from_db()
+    if event.user_id is None and event.answered_at is None and not ring_targets(event):
+        owner = fallback_caller(event.organization)
+        if owner and claim_call(event, owner, auto=True, now=now) and event.conversation_id:
+            post_chat_note(event.conversation, "🔥 Everyone who was asked ignored this hot lead, so it went to "
+                                               f"{owner.first_name or owner.email}.")
+    refresh_urgent(event.organization)
+
+
+def escalate_hot_leads(now=None) -> int:
+    """Owners/admins hear about a hot lead nobody has called 10 minutes after it asked. Returns how many."""
+    from core.models import User
+    now = now or timezone.now()
+    due = (CalendarEvent.objects.filter(urgent=True, answered_at__isnull=True, escalated_at__isnull=True,
+                                        status=CalendarEvent.Status.SCHEDULED, start_at__lte=now - URGENT_ESCALATE,
+                                        start_at__gte=now - URGENT_SHOW_FOR)
+           .select_related("organization", "contact", "user"))
+    told = 0
+    for event in due:
+        if not CalendarEvent.objects.filter(pk=event.pk, escalated_at__isnull=True).update(escalated_at=now):
+            continue
+        from messaging.ws_broadcast import broadcast_user_event
+        bosses = User.objects.filter(organization=event.organization, is_active=True,
+                                     role__in=[User.Role.OWNER, User.Role.ADMIN])
+        for boss in bosses:
+            try:
+                broadcast_user_event(boss.id, {"event": "call_reminder",
+                                               "reminder": call_notification(event, "escalated", now, recipient=boss)})
+            except Exception as exc:
+                logger.warning("Couldn't escalate hot lead %s to %s: %s", event.id, boss.id, exc)
+        boss_ids = {b.id for b in bosses}
+        CalendarEvent.objects.filter(pk=event.pk).update(
+            ignored_by=[i for i in (event.ignored_by or []) if i not in boss_ids])
+        if event.conversation_id:
+            post_chat_note(event.conversation, "🔥 Nobody has called this hot lead 10 minutes after they asked. "
+                                               "Owners and admins were alerted.")
+        from core import slack
+        slack.notify(event.organization, "hot_lead_waiting",
+                     f"🔥 Still waiting: {contact_name(event.contact) if event.contact_id else event.title} asked for "
+                     "a call 10 minutes ago and nobody has called",
+                     [event.contact.phone if event.contact_id else "",
+                      f"Waiting for {caller_name(event)}" if event.user_id else "Nobody has taken it yet"],
+                     event_url(event), "Open the chat")
+        refresh_urgent(event.organization)
+        told += 1
+    return told

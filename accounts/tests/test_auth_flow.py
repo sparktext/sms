@@ -243,6 +243,31 @@ class InactivityMiddlewareTest(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn("reason=inactivity", response["Location"])
 
+    def test_background_checks_dont_keep_someone_signed_in(self):
+        """An open tab checking for hot leads every few seconds isn't the person being active."""
+        import time
+        self.client.force_login(self.user)
+        session = self.client.session
+        session["last_activity"] = started = time.time() - 600          # active 10 minutes ago
+        session.save()
+        r = self.client.get("/calls/hot/", HTTP_X_BACKGROUND_POLL="1")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(self.client.session["last_activity"], started)  # the clock wasn't reset
+        self.client.get("/calls/hot/")                                     # a real request does reset it
+        self.assertGreater(self.client.session["last_activity"], started)
+
+    @override_settings(INACTIVITY_TIMEOUT=60)
+    def test_a_background_check_after_the_timeout_signs_out_with_a_json_answer(self):
+        import time
+        self.client.force_login(self.user)
+        session = self.client.session
+        session["last_activity"] = time.time() - 120
+        session.save()
+        r = self.client.get("/calls/hot/", HTTP_X_BACKGROUND_POLL="1")
+        self.assertEqual(r.status_code, 401)
+        self.assertEqual(r.json()["message"], "Signed out after inactivity.")
+        self.assertEqual(self.client.get("/calls/hot/").status_code, 302)  # really signed out
+
 
 
 class EmailConfirmLinkTest(TestCase):

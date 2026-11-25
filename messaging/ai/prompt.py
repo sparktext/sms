@@ -165,7 +165,7 @@ def _booked_call_line(conversation) -> str:
             return ""
         local = event.start_at.astimezone(ZoneInfo(lead_timezone(conversation.contact, conversation.organization)))
         abbr = fmt_zone_abbr(local)
-        agent = event.user.first_name or "our agent"
+        agent = (event.user.first_name or "our agent") if event.user_id else "one of our agents"
         return (f"a phone call with {agent} is booked for {fmt_day(local)} at {fmt_time(local)}"
                 f"{(' ' + abbr) if abbr else ''} (the customer's own time). If they ask about it, tell them. If they "
                 "want a different time, confirm the new time in one short sentence: the booking updates automatically.")
@@ -403,6 +403,12 @@ ADDITIONAL HANDOFF CRITERIA:
         today = f"{local_today:%A, %B} {local_today.day}, {local_today.year}"
         calendar_line = "- Coming days: " + ", ".join(
             f"{d:%a %b} {d.day}" for d in (local_today + _td(days=i) for i in range(1, 15))) + "\n"
+        from scheduling.holidays import closed_days_between
+        closed = [c for c in closed_days_between(conversation.organization, local_today, local_today + _td(days=21))
+                  if c["closed"]]
+        if closed:
+            calendar_line += ("- Office closed (no calls these days): " + ", ".join(
+                f"{c['date']:%a %b} {c['date'].day} ({c['name']})" for c in closed) + "\n")
     except Exception:
         pass
     first_message = not (conversation.pk and conversation.messages.filter(direction=Message.Direction.OUTBOUND).exists())

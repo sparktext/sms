@@ -950,8 +950,8 @@ class DraftEditAndLaunchTests(TestCase):
         page = self.client.get(f"/campaigns/{campaign.id}/edit/").content.decode()
         picker = page[page.index('id="scheduled-at"'):page.index('id="scheduled-at-iso"')]
         self.assertIn("disabled", picker)                        # a hidden picker can't block the Launch button
-        self.assertIn('data-utc=""', picker)
-        self.assertNotIn('min="', picker)
+        self.assertIn('value=""', picker)
+        self.assertNotRegex(picker, r'(?<![-\w])min="')          # no min on a hidden picker (data-min is fine)
 
         with patch("campaigns.services.can_text_now", return_value=True):          # not in quiet hours
             self.client.post(f"/campaigns/{campaign.id}/edit/", self.form())   # Save & Launch, later on
@@ -965,7 +965,19 @@ class DraftEditAndLaunchTests(TestCase):
         campaign = Campaign.objects.get(name="Pilot campaign")
         self.assertEqual((campaign.status, campaign.scheduled_at), (Campaign.Status.SCHEDULED, when))
         page = self.client.get(f"/campaigns/{campaign.id}/edit/").content.decode()
-        self.assertIn(f'data-utc="{when.isoformat()}"', page)  # the page converts it to the viewer's local time
+        from zoneinfo import ZoneInfo
+        local = when.astimezone(ZoneInfo(self.org.timezone)).strftime("%Y-%m-%dT%H:%M")
+        self.assertIn(f'value="{local}"', page)                  # shown in the agency's time zone
+        self.assertIn("your agency's time zone", page)
+
+    def test_the_picked_time_means_the_agencys_time(self):
+        # "Nov 30, 9:00 AM" picked by someone in India means 9:00 AM where the agency is (not India time)
+        from zoneinfo import ZoneInfo
+        day = (timezone.now() + timedelta(days=3)).astimezone(ZoneInfo(self.org.timezone)).date()
+        self.client.post("/campaigns/new/", self.form(timing="scheduled", scheduled_at=f"{day.isoformat()}T09:00"))
+        campaign = Campaign.objects.get(name="Pilot campaign")
+        local = campaign.scheduled_at.astimezone(ZoneInfo(self.org.timezone))
+        self.assertEqual((local.date(), local.hour, local.minute), (day, 9, 0))
 
     def test_scheduling_in_the_past_is_refused(self):
         past = (timezone.now() - timedelta(hours=1)).isoformat()
@@ -1370,6 +1382,10 @@ class EditWaitingCampaignTests(TestCase):
     back to draft first. Once a text went out, it can't."""
 
     def setUp(self):
+        # "Waiting for texting hours" whatever time the tests run (opening the campaign pages sends due texts)
+        waiting = patch("campaigns.services.can_text_now", return_value=False)
+        waiting.start()
+        self.addCleanup(waiting.stop)
         self.org = Organization.objects.create(name="Edit Co", slug="edit-co", address_state="CA")
         self.user = User.objects.create_user(email="owner@edit.test", password="pw-123456789", organization=self.org,
                                              role=User.Role.OWNER)

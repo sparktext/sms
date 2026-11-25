@@ -6,11 +6,12 @@ Team calendar: every team member (owner, admin or agent) has a calendar.
 - Times are stored in UTC and always shown in the viewer's time zone (their own, or the workspace's).
 """
 import json
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.db.models import Q
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -29,7 +30,8 @@ from core.timezones import (
     user_timezone,
 )
 
-from .models import CalendarEvent
+from . import holidays
+from .models import CalendarEvent, ClosedDay
 from .reminders import reminders_running
 
 MAX_EVENT_DAYS = 7          # one event can't run longer than this
@@ -43,6 +45,7 @@ KIND_COLORS = {
     CalendarEvent.Kind.TASK: "#0284c7",
     CalendarEvent.Kind.BUSY: "#64748b",
 }
+UNCLAIMED_COLOR = "#f59e0b"
 MEMBER_COLORS = ["#4f46e5", "#059669", "#d97706", "#db2777", "#0284c7", "#7c3aed", "#0d9488", "#dc2626", "#65a30d", "#475569"]
 
 
@@ -105,7 +108,10 @@ def _can_edit(viewer, event) -> bool:
 def _serialize(event, viewer, tz, color_by_member=False, member_colors=None):
     zone = ZoneInfo(tz)
     editable = _can_edit(viewer, event)
-    if color_by_member:
+    unclaimed = event.user_id is None
+    if unclaimed:
+        color = UNCLAIMED_COLOR
+    elif color_by_member:
         color = (member_colors or {}).get(event.user_id, MEMBER_COLORS[0])
     else:
         color = KIND_COLORS.get(event.kind, KIND_COLORS[CalendarEvent.Kind.CALL])
@@ -121,15 +127,18 @@ def _serialize(event, viewer, tz, color_by_member=False, member_colors=None):
         "backgroundColor": color,
         "borderColor": color,
         "editable": editable,
-        "classNames": [f"ev-kind-{event.kind}", f"ev-status-{event.status}"],
+        "classNames": [f"ev-kind-{event.kind}", f"ev-status-{event.status}"] + (["ev-unclaimed"] if unclaimed else []),
         "extendedProps": {
             "kind": event.kind,
             "kind_label": event.get_kind_display(),
             "status": event.status,
             "status_label": event.get_status_display(),
             "notes": event.notes,
-            "owner": str(event.user.public_id),
-            "owner_name": _display_name(event.user),
+            "owner": str(event.user.public_id) if event.user_id else "",
+            "owner_name": _display_name(event.user) if event.user_id else "Unclaimed",
+            "unclaimed": unclaimed,
+            "can_claim": unclaimed and event.status == CalendarEvent.Status.SCHEDULED,
+            "auto_assigned": event.auto_assigned,
             "contact_name": contact_name,
             "contact_url": reverse("contacts:detail", args=[contact.id]) if contact else "",
             "chat_url": f"/inbox/{event.conversation_id}/" if event.conversation_id else "",
@@ -241,6 +250,7 @@ def _owner_for_write(request, key):
 
 @login_required
 def calendar_page(request):
+    from . import calls
     org = request.user.organization
     if not org:
         messages.error(request, "No organization associated with this account.")
@@ -279,7 +289,11 @@ def calendar_page(request):
             "update": reverse("scheduling:event_update", args=[0]),
             "delete": reverse("scheduling:event_delete", args=[0]),
             "timezone": reverse("scheduling:set_timezone"),
+            "claim": reverse("scheduling:claim_call", args=[0]),
+            "unclaimed": reverse("scheduling:unclaimed_calls"),
+            "closedDays": reverse("scheduling:closed_days"),
         },
+        "claimId": request.GET.get("claim") or "",
     }
     context = {
         "tz": tz,
@@ -298,6 +312,9 @@ def calendar_page(request):
         "default_reminder": CalendarEvent.DEFAULT_REMINDER_MINUTES,
         "reminders_running": reminders_running(),
         "calendar_config": config,
+        "claim_minutes": calls.claim_minutes(org),
+        "slot_limit": calls.slot_limit(org),
+        "slot_limit_custom": bool(org.max_calls_per_slot),
     }
     return render(request, "scheduling/calendar.html", context)
 
@@ -320,15 +337,38 @@ def event_feed(request):
         CalendarEvent.objects.filter(organization=org, start_at__lt=end, end_at__gt=start)
         .select_related("user", "user__profile", "contact")
     )
+    unclaimed = Q(user__isnull=True, status=CalendarEvent.Status.SCHEDULED)     # team calls: on everyone's calendar
     if member == "all":
         team = _team(org)
-        qs = qs.filter(user__in=team)
+        qs = qs.filter(Q(user__in=team) | unclaimed)
         colors = _member_colors(team)
         events = [_serialize(e, request.user, tz, color_by_member=True, member_colors=colors) for e in qs]
     else:
-        qs = qs.filter(user=member)
+        qs = qs.filter(Q(user=member) | unclaimed)
         events = [_serialize(e, request.user, tz) for e in qs]
+    events += _closed_day_events(org, start, end, tz)
     return JsonResponse({"events": events, "timeZone": tz})
+
+
+def _closed_day_events(org, start, end, tz):
+    """Closed days (and holidays the office is open after all) as shaded days on the calendar."""
+    zone = ZoneInfo(tz)
+    out = []
+    for day in holidays.closed_days_between(org, start.astimezone(zone).date(), end.astimezone(zone).date()):
+        # All-day: month view only shades all-day background events (week/day views shade the whole column)
+        out.append({
+            "id": f"closed-{day['date'].isoformat()}",
+            "title": f"Closed · {day['name']}" if day["closed"] else f"Open · {day['name']}",
+            "start": day["date"].isoformat(),
+            "end": (day["date"] + timedelta(days=1)).isoformat(),
+            "allDay": True,
+            "display": "background",
+            "backgroundColor": "#fecaca" if day["closed"] else "#bbf7d0",
+            "classNames": ["closed-day" if day["closed"] else "reopened-day"],
+            "editable": False,
+            "extendedProps": {"closed_day": True, "closed": day["closed"], "name": day["name"]},
+        })
+    return out
 
 
 @login_required
@@ -338,16 +378,188 @@ def event_create(request):
     if not org:
         return _error("No organization associated with this account.", status=403)
     data = _payload(request)
-    owner = _owner_for_write(request, data.get("member"))
-    if owner is None:
+    to_team = data.get("member") == "pool" and _is_manager(request.user)     # a team call for agents to claim
+    owner = None if to_team else _owner_for_write(request, data.get("member"))
+    if owner is None and not to_team:
         return _error("That team member wasn't found.")
     tz = user_timezone(request.user)
-    event = CalendarEvent(organization=org, user=owner, created_by=request.user)
+    event = CalendarEvent(organization=org, user=owner, created_by=request.user,
+                          pooled_at=timezone.now() if to_team else None)
     err = _apply_changes(event, data, tz, org)
     if err:
         return _error(err)
     event.save()
     return JsonResponse({"status": "success", "event": _serialize(event, request.user, tz)})
+
+
+# ---------------------------------------------------------------------------
+# Team calls: claiming the calls Gemma put on the team calendar
+# ---------------------------------------------------------------------------
+
+def _unclaimed_row(event, viewer_tz):
+    from . import calls
+    lead_tz = calls.lead_timezone(event.contact, event.organization) if event.contact_id else viewer_tz
+    return {
+        "id": event.id,
+        "title": event.title,
+        "contact_name": calls.contact_name(event.contact) if event.contact_id else "",
+        "contact_phone": event.contact.phone if event.contact_id else "",
+        "when_text": calls.describe_when(event.start_at, viewer_tz),
+        "lead_time": calls.lead_time_line(event.start_at, lead_tz),
+        "start": event.start_at.astimezone(ZoneInfo(viewer_tz)).isoformat(),
+        "assign_at_text": calls.describe_when(calls.assign_by(event), viewer_tz),
+        "chat_url": f"/inbox/{event.conversation_id}/" if event.conversation_id else "",
+        "notes": event.notes,
+    }
+
+
+@login_required
+@require_GET
+def unclaimed_calls(request):
+    """The team calls waiting for someone to claim them (the panel on the calendar polls this)."""
+    from . import calls
+    org = request.user.organization
+    if not org:
+        return JsonResponse({"status": "success", "calls": []})
+    tz = user_timezone(request.user)
+    rows = [_unclaimed_row(e, tz) for e in calls.unclaimed_calls(org)]
+    return JsonResponse({"status": "success", "calls": rows,
+                         "claim_minutes": calls.claim_minutes(org)})
+
+
+@login_required
+@require_POST
+def claim_call(request, event_id):
+    """Take a team call (any team member), or give it to someone (owners/admins, with "member")."""
+    from . import calls
+    org = request.user.organization
+    event = CalendarEvent.objects.filter(id=event_id, organization=org).select_related(
+        "organization", "conversation", "contact").first() if org else None
+    if not event:
+        return _error("That call wasn't found.", status=404)
+    if event.status != CalendarEvent.Status.SCHEDULED:
+        return _error("That call isn't scheduled anymore.")
+    data = _payload(request)
+    who = request.user
+    if data.get("member") and _is_manager(request.user):
+        who = _owner_for_write(request, data.get("member"))
+        if who is None:
+            return _error("That team member wasn't found.")
+    if event.user_id is not None:
+        taker = _display_name(event.user)
+        return _error(f"{'You' if event.user_id == request.user.id else taker} already "
+                      f"{'have' if event.user_id == request.user.id else 'has'} this call.", status=409)
+    if not calls.claim_call(event, who):
+        return _error("Someone else just claimed this call.", status=409)
+    if who.id != request.user.id:
+        event.refresh_from_db()
+        calls.notify_call(event, "booked")
+    tz = user_timezone(request.user)
+    return JsonResponse({"status": "success", "event": _serialize(event, request.user, tz),
+                         "message": "The call is yours" if who.id == request.user.id
+                         else f"Given to {_display_name(who)}"})
+
+
+# ---------------------------------------------------------------------------
+# "Call me now" (hot leads): what rings on each screen, and the Call / Ignore buttons
+# ---------------------------------------------------------------------------
+
+@login_required
+@require_GET
+def hot_leads(request):
+    """Hot leads nobody has called yet, as this person's screen should show them (every page polls this)."""
+    from . import calls
+    org = request.user.organization
+    if not org:
+        return JsonResponse({"status": "success", "leads": []})
+    now = timezone.now()
+    leads = [calls.hot_lead_for(e, request.user, now) for e in calls.waiting_hot_leads(org, now)]
+    return JsonResponse({"status": "success", "leads": leads, "server_now_ms": int(now.timestamp() * 1000)})
+
+
+def _hot_event(request, event_id):
+    org = request.user.organization
+    return CalendarEvent.objects.filter(id=event_id, organization=org, urgent=True).select_related(
+        "user", "contact", "conversation", "organization").first() if org else None
+
+
+@login_required
+@require_POST
+def answer_hot_lead(request, event_id):
+    """Call: the hot lead is yours (if nobody has it yet) and the ringing stops for everyone."""
+    from . import calls
+    event = _hot_event(request, event_id)
+    if not event:
+        return _error("That call wasn't found.", status=404)
+    ok, why = calls.answer_call(event, request.user)
+    if not ok:
+        return _error(why, status=409)
+    return JsonResponse({"status": "success", "phone": event.contact.phone if event.contact_id else "",
+                         "chat_url": f"/inbox/{event.conversation_id}/" if event.conversation_id else ""})
+
+
+@login_required
+@require_POST
+def ignore_hot_lead(request, event_id):
+    """Ignore: stop ringing on my screen."""
+    from . import calls
+    event = _hot_event(request, event_id)
+    if not event:
+        return _error("That call wasn't found.", status=404)
+    calls.ignore_call(event, request.user)
+    return JsonResponse({"status": "success"})
+
+
+# ---------------------------------------------------------------------------
+# Closed days (owners/admins): close a date, or open the office on a holiday
+# ---------------------------------------------------------------------------
+
+def _closed_day_rows(org, today):
+    rows = []
+    for day in holidays.closed_days_between(org, today, today + timedelta(days=366)):
+        rows.append({"date": day["date"].isoformat(), "label": f"{day['date']:%a, %b} {day['date'].day}, "
+                                                                f"{day['date'].year}",
+                     "name": day["name"], "closed": day["closed"], "kind": day["kind"],
+                     "holiday": bool(day.get("holiday"))})
+    return rows
+
+
+@login_required
+def closed_days(request):
+    """GET: closed days for the next year. POST (owners/admins): {date, action: close|open|reset, name}."""
+    org = request.user.organization
+    if not org:
+        return _error("No organization associated with this account.", status=403)
+    today = timezone.now().astimezone(ZoneInfo(org_timezone(org))).date()
+    if request.method == "POST":
+        if not _is_manager(request.user):
+            return _error("Only owners and admins can change closed days.", status=403)
+        data = _payload(request)
+        try:
+            day = date.fromisoformat(str(data.get("date") or "").strip())
+        except ValueError:
+            return _error("Pick a valid date.")
+        if day < today:
+            return _error("That date has already passed.")
+        action = str(data.get("action") or "").strip()
+        name = " ".join(str(data.get("name") or "").split())[:80]
+        holiday = holidays.holiday_on(day)
+        if action == "close":
+            ClosedDay.objects.update_or_create(organization=org, date=day, defaults={
+                "closed": True, "name": name or (holidays.HOLIDAY_NAMES[holiday] if holiday else "Closed"),
+                "created_by": request.user})
+        elif action == "open":
+            if holiday and holiday in holidays.closed_holidays(org):
+                ClosedDay.objects.update_or_create(organization=org, date=day, defaults={
+                    "closed": False, "name": holidays.HOLIDAY_NAMES[holiday], "created_by": request.user})
+            else:
+                ClosedDay.objects.filter(organization=org, date=day).delete()
+        elif action == "reset":
+            ClosedDay.objects.filter(organization=org, date=day).delete()
+        else:
+            return _error("Unknown action.")
+        holidays.forget_closed_days(org)
+    return JsonResponse({"status": "success", "days": _closed_day_rows(org, today)})
 
 
 def _editable_event(request, event_id):
@@ -366,10 +578,18 @@ def event_update(request, event_id):
         return _error("Event not found.", status=404)
     data = _payload(request)
     if "member" in data:
-        owner = _owner_for_write(request, data.get("member"))
-        if owner is None:
-            return _error("That team member wasn't found.")
-        event.user = owner
+        if data.get("member") == "pool" and _is_manager(request.user):
+            if event.user_id is not None:                 # back to the team: anyone can claim it again
+                event.user, event.claimed_at, event.auto_assigned = None, None, False
+                event.pooled_at = timezone.now()
+        else:
+            owner = _owner_for_write(request, data.get("member"))
+            if owner is None:
+                return _error("That team member wasn't found.")
+            if event.user_id is None and owner is not None:
+                from . import calls
+                calls.claim_call(event, owner)            # an owner/admin gave the team call to someone: lead too
+            event.user = owner
     tz = user_timezone(request.user)
     old_start = event.start_at
     err = _apply_changes(event, data, tz, request.user.organization, partial=True)
@@ -455,13 +675,13 @@ def call_options(request):
 
     existing = calls.upcoming_call(conversation=conversation) if conversation else calls.upcoming_call(contact=contact)
     existing_data = None
-    if existing and _can_edit(request.user, existing):
+    if existing and (_can_edit(request.user, existing) or existing.user_id is None):   # scheduling it claims it
         existing_data = {
             "event_id": existing.id,
             "start": _wall(existing.start_at, tz),
             "duration": max(5, int((existing.end_at - existing.start_at).total_seconds() // 60)),
-            "member": str(existing.user.public_id),
-            "member_name": _display_name(existing.user),
+            "member": str(existing.user.public_id) if existing.user_id else "",
+            "member_name": _display_name(existing.user) if existing.user_id else "Unclaimed (team call)",
             "reminder_minutes": existing.reminder_minutes,
             "notes": existing.notes,
             "when_text": calls.describe_when(existing.start_at, tz),
@@ -510,7 +730,8 @@ def schedule_call(request):
 
     existing = None
     if data.get("event_id"):
-        existing = _editable_event(request, data.get("event_id"))
+        existing = _editable_event(request, data.get("event_id")) or CalendarEvent.objects.filter(
+            id=data.get("event_id"), organization=org, user__isnull=True).first()     # a team call: anyone may take it
         if not existing:
             return _error("That call wasn't found.", status=404)
 
@@ -539,6 +760,8 @@ def schedule_call(request):
 
     moved = existing is not None
     previous_user_id = existing.user_id if existing else None
+    if existing and existing.user_id is None:
+        existing.claimed_at = timezone.now()          # giving a team call a caller claims it for them
     if existing:
         existing.notes = notes          # the window shows the current notes, so what comes back replaces them
         notes = ""
@@ -549,6 +772,10 @@ def schedule_call(request):
     )
 
     lead_tz = calls.lead_timezone(contact, org)
+    if moved and previous_user_id is None and event.conversation_id:
+        # a team call nobody had claimed: whoever it's now booked with gets the lead too
+        from messaging.models import Conversation
+        Conversation.objects.filter(pk=event.conversation_id, assigned_to__isnull=True).update(assigned_to=event.user)
     if event.conversation_id:
         calls.refresh_handoff_reason(event.conversation, event, lead_tz)
         calls.post_chat_note(

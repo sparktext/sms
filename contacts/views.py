@@ -671,7 +671,7 @@ def send_contact_message(request, contact_id):
                 "body": sys_msg.body,
                 "direction": sys_msg.direction,
                 "sender_type": sys_msg.sender_type,
-                "created_at": format_chat_timestamp(sys_msg.created_at),
+                "created_at": format_chat_timestamp(sys_msg.created_at, org=conversation.organization),
                 "status": sys_msg.status,
             }
             try:
@@ -716,7 +716,7 @@ def send_contact_message(request, contact_id):
                     "sender_type": msg.sender_type,
                     "sent_by": request.user.first_name or request.user.email,
                     "status": msg.status,
-                    "created_at": format_chat_timestamp(msg.sent_at or msg.created_at),
+                    "created_at": format_chat_timestamp(msg.sent_at or msg.created_at, org=conversation.organization),
                 },
                 "system_message": sys_msg_data,
                 "ai_mode": conversation.ai_mode,

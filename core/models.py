@@ -19,6 +19,17 @@ def default_call_days():
     return [0, 1, 2, 3, 4]          # Monday-Friday (Python weekday numbers)
 
 
+def default_slack_events():
+    # What goes to the agency's Slack channel by default (core/slack.py has the full list)
+    return ["hot_lead", "hot_lead_waiting", "team_call", "needs_human"]
+
+
+def default_closed_holidays():
+    # Federal holidays the office is closed by default (scheduling/holidays.py has the full list); the owner can
+    # change these, and reopen any single date on the calendar
+    return ["new_year", "memorial", "independence", "labor", "thanksgiving", "christmas"]
+
+
 class Organization(models.Model):
     """One customer company. Everything else (contacts, messages...) points to this."""
 
@@ -41,6 +52,18 @@ class Organization(models.Model):
     # Hours the team calls leads, in the LEAD's local time (kept inside the legal 8 AM-9 PM window)
     call_start = models.TimeField(default=time(8, 0))
     call_end = models.TimeField(default=time(21, 0))
+    # Team call calendar: a lead's first call goes to the team to claim; unclaimed calls are assigned this many
+    # minutes before they start. Calls at the same time: empty = the number of agents available for leads.
+    call_pool_enabled = models.BooleanField(default=True)
+    call_claim_minutes = models.PositiveSmallIntegerField(default=30)
+    max_calls_per_slot = models.PositiveSmallIntegerField(null=True, blank=True)
+    # Federal holidays the office is closed (keys from scheduling/holidays.py)
+    closed_holidays = models.JSONField(default=default_closed_holidays, blank=True)
+    # Slack: an incoming-webhook URL (a secret: never shown in full) and which alerts go to that channel
+    slack_webhook_url = models.CharField(max_length=500, blank=True, default="")
+    slack_events = models.JSONField(default=default_slack_events, blank=True)
+    slack_last_ok_at = models.DateTimeField(null=True, blank=True)
+    slack_last_error = models.CharField(max_length=300, blank=True, default="")
     ein =models.CharField(max_length=30, blank=True, default="")
     registration_status = models.CharField(
         max_length=20,
