@@ -1,9 +1,11 @@
-<!DOCTYPE html>
+{% load static %}<!DOCTYPE html>
 <html lang="en" class="h-full bg-slate-50">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Page Not Found (404) — SparkText</title>
+  <link rel="icon" type="image/png" href="{% static 'img/favicon.png' %}">
+  <link rel="shortcut icon" href="{% static 'img/favicon.ico' %}">
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -14,9 +16,9 @@
 </head>
 <body class="h-full flex items-center justify-center p-6 text-gray-900">
   <div class="max-w-md w-full bg-white rounded-3xl border border-gray-200/80 p-8 sm:p-10 text-center shadow-lg shadow-gray-100/50 space-y-6">
-    <div class="w-16 h-16 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center mx-auto text-2xl font-bold">
-      ⚡
-    </div>
+    <a href="/" class="inline-block transition-opacity hover:opacity-90">
+      <img src="{% static 'img/logo.png' %}" alt="SparkText" class="h-9 w-auto mx-auto mb-1">
+    </a>
     
     <div class="space-y-2">
       <span class="text-xs font-bold uppercase tracking-widest text-indigo-600">Error 404</span>

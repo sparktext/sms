@@ -1,17 +1,17 @@
 import csv
-import io
 import difflib
+import io
 import logging
 import re
-from typing import Dict, Any, List, Optional, Tuple, Set
+from typing import Any
 
 from django.conf import settings
-from django.db import transaction
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
+from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 
-from .models import Contact, ContactField, ContactList, ImportBatch, RESERVED_FIELD_NAMES, KEY_REGEX
+from .models import KEY_REGEX, RESERVED_FIELD_NAMES, Contact, ContactField, ContactList, ImportBatch
 from .utils import normalize_phone
 
 logger = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ def _canonical_header(header: str) -> str:
     return re.sub(r"[\s_\-]+", "", str(header).strip().lower())
 
 
-def decode_csv_content(raw_bytes: bytes) -> Tuple[str, Optional[str]]:
+def decode_csv_content(raw_bytes: bytes) -> tuple[str, str | None]:
     """
     Decodes CSV content:
     1. Try utf-8-sig (handles UTF-8 and UTF-8 with BOM).
@@ -51,14 +51,14 @@ def decode_csv_content(raw_bytes: bytes) -> Tuple[str, Optional[str]]:
         try:
             decoded = raw_bytes.decode("cp1252")
             return decoded, "File was decoded using Windows-1252 (cp1252) fallback because it was not valid UTF-8."
-        except UnicodeDecodeError:
-            raise ValidationError(_("Unable to decode CSV file. Please provide a UTF-8 or Windows-1252 encoded file."))
+        except UnicodeDecodeError as exc:
+            raise ValidationError(_("Unable to decode CSV file. Please provide a UTF-8 or Windows-1252 encoded file.")) from exc
 
 
 def validate_custom_fields(
     organization,
-    custom_fields: Dict[str, Any],
-    approved_keys: Optional[Set[str]] = None,
+    custom_fields: dict[str, Any],
+    approved_keys: set[str] | None = None,
 ) -> None:
     """
     Shared validator for custom_fields dictionary.
@@ -104,7 +104,7 @@ def validate_custom_fields(
             raise ValidationError(msg)
 
 
-def _validate_contact_attributes(data: Dict[str, Any]) -> None:
+def _validate_contact_attributes(data: dict[str, Any]) -> None:
     """
     Validates first_name, last_name and email length and formats.
     """
@@ -130,8 +130,8 @@ def _validate_contact_attributes(data: Dict[str, Any]) -> None:
             raise ValidationError({"email": _("Email cannot exceed %(max)d characters.") % {"max": MAX_EMAIL_LENGTH}})
         try:
             validate_email(email.strip())
-        except ValidationError:
-            raise ValidationError({"email": _("Enter a valid email address.")})
+        except ValidationError as exc:
+            raise ValidationError({"email": _("Enter a valid email address.")}) from exc
 
     source_val = data.get("source") or data.get("vendor")
     if source_val is not None:
@@ -143,11 +143,11 @@ def _validate_contact_attributes(data: Dict[str, Any]) -> None:
 
 def save_contact(
     organization,
-    data: Dict[str, Any],
+    data: dict[str, Any],
     source: str = Contact.Source.MANUAL,
-    region: Optional[str] = None,
-    approved_keys: Optional[Set[str]] = None,
-) -> Tuple[Contact, bool]:
+    region: str | None = None,
+    approved_keys: set[str] | None = None,
+) -> tuple[Contact, bool]:
     """
     Unified entry point for creating or updating a contact by (organization, phone).
     Accepts pre-fetched approved_keys so batch imports don't re-query ContactField once per row.
@@ -223,8 +223,8 @@ def save_contact(
 
 def update_contact(
     contact: Contact,
-    data: Dict[str, Any],
-    region: Optional[str] = None,
+    data: dict[str, Any],
+    region: str | None = None,
 ) -> Contact:
     """
     Dedicated function for editing an existing Contact in-place without duplicating.
@@ -284,7 +284,7 @@ def update_contact(
 _US_TEXT_DATE = re.compile(r"^\s*(\d{1,2})/(\d{1,2})/(\d{4})\s*$")
 
 
-def _us_format_spreadsheet_rows(raw_rows: List[List[Any]], width: int) -> List[List[str]]:
+def _us_format_spreadsheet_rows(raw_rows: list[list[Any]], width: int) -> list[list[str]]:
     """
     Convert spreadsheet cell values to strings for a US audience.
 
@@ -334,8 +334,8 @@ def _us_format_spreadsheet_rows(raw_rows: List[List[Any]], width: int) -> List[L
 
 def extract_tabular_data(
     file_or_content,
-    filename: Optional[str] = None,
-) -> Tuple[List[str], Any, Optional[str]]:
+    filename: str | None = None,
+) -> tuple[list[str], Any, str | None]:
     """
     Parses CSV, XLSX, or XLS files into (headers, rows_generator, warning).
     Supports:
@@ -421,7 +421,7 @@ def extract_tabular_data(
             return headers, iter(_us_format_spreadsheet_rows(raw_rows, len(headers))), None
         except Exception as e:
             if fname.endswith(".xlsx"):
-                raise ValidationError(_("Could not read Excel file (.xlsx): %(error)s") % {"error": str(e)})
+                raise ValidationError(_("Could not read Excel file (.xlsx): %(error)s") % {"error": str(e)}) from e
 
     if is_xls:
         try:
@@ -457,7 +457,7 @@ def extract_tabular_data(
             return headers, iter(_us_format_spreadsheet_rows(raw_rows, len(headers))), None
         except Exception as e:
             if fname.endswith(".xls"):
-                raise ValidationError(_("Could not read Excel file (.xls): %(error)s") % {"error": str(e)})
+                raise ValidationError(_("Could not read Excel file (.xls): %(error)s") % {"error": str(e)}) from e
 
     # Default to CSV decoding
     content, warning = decode_csv_content(raw_bytes)
@@ -477,7 +477,7 @@ def extract_tabular_data(
     return headers, csv_rows_gen(), warning
 
 
-def preview_csv(file_or_content, sample_size: int = 5, filename: Optional[str] = None) -> Dict[str, Any]:
+def preview_csv(file_or_content, sample_size: int = 5, filename: str | None = None) -> dict[str, Any]:
     """
     Step 1 (Preview): Parse the CSV/Excel file and return column names
     along with sample rows and warnings.
@@ -509,7 +509,7 @@ def preview_csv(file_or_content, sample_size: int = 5, filename: Optional[str] =
     }
 
 
-def suggest_column_mappings(organization, headers: List[str]) -> Dict[str, Dict[str, Any]]:
+def suggest_column_mappings(organization, headers: list[str]) -> dict[str, dict[str, Any]]:
     """
     Auto-suggest a mapping when a column header matches an existing
     ContactField key or label (case-insensitive, ignoring spaces and underscores).
@@ -526,7 +526,7 @@ def suggest_column_mappings(organization, headers: List[str]) -> Dict[str, Dict[
     }
 
     contact_fields = list(ContactField.objects.filter(organization=organization))
-    suggestions: Dict[str, Dict[str, Any]] = {}
+    suggestions: dict[str, dict[str, Any]] = {}
 
     for header in headers:
         if not header.strip():
@@ -569,7 +569,7 @@ def suggest_column_mappings(organization, headers: List[str]) -> Dict[str, Dict[
     return suggestions
 
 
-def validate_csv_mapping(organization, headers: List[str], column_mapping: Dict[str, Dict[str, Any]]) -> None:
+def validate_csv_mapping(organization, headers: list[str], column_mapping: dict[str, dict[str, Any]]) -> None:
     """
     Validates the entire mapping UP FRONT before touching rows or creating fields.
     """
@@ -624,16 +624,16 @@ def validate_csv_mapping(organization, headers: List[str], column_mapping: Dict[
 def import_contacts_csv(
     organization,
     file_or_content,
-    column_mapping: Dict[str, Dict[str, str]],
-    contact_list: Optional[ContactList] = None,
+    column_mapping: dict[str, dict[str, str]],
+    contact_list: ContactList | None = None,
     consent_attestation: bool = False,
     attestation_text: str = "",
     filename: str = "upload.csv",
     batch_size: int = 100,
-    region: Optional[str] = None,
+    region: str | None = None,
     default_source: str = "Direct",
-    default_vendor: Optional[str] = None,
-) -> Dict[str, Any]:
+    default_vendor: str | None = None,
+) -> dict[str, Any]:
     """
     Step 3 (Import):
     - Validates mapping upfront
@@ -679,11 +679,11 @@ def import_contacts_csv(
     created_count = 0
     updated_count = 0
     skipped_count = 0
-    errors: List[Dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
 
     # Read rows and check row cap
     rows = []
-    seen_in_file_phones: Set[str] = set()
+    seen_in_file_phones: set[str] = set()
 
     for line_idx, row in enumerate(row_gen, start=2):
         if not any(cell.strip() for cell in row):
@@ -694,7 +694,7 @@ def import_contacts_csv(
             )
         rows.append((line_idx, row))
 
-    processed_contacts: List[Contact] = []
+    processed_contacts: list[Contact] = []
 
     # Process in transactional batches
     for i in range(0, len(rows), batch_size):
@@ -789,8 +789,8 @@ def import_contacts_csv(
 
                         # Handle consent attestation if requested
                         if consent_attestation:
-                            from compliance.services import record_consent
                             from compliance.models import ConsentEvent
+                            from compliance.services import record_consent
                             proof = attestation_text.strip() or f"CSV Import Attestation for {filename}"
                             record_consent(
                                 contact=contact,
@@ -803,7 +803,7 @@ def import_contacts_csv(
                     if len(errors) < MAX_REPORTED_ERRORS:
                         errors.append({"row": line_idx, "error": err_msg})
                     skipped_count += 1
-                except Exception as exc:
+                except Exception:
                     logger.exception(f"Unexpected error importing row {line_idx} for organization {organization.id}")
                     if len(errors) < MAX_REPORTED_ERRORS:
                         errors.append({"row": line_idx, "error": "A system error occurred while processing this row."})
@@ -840,7 +840,7 @@ def import_contacts_csv(
     }
 
 
-def _flatten_dict(d: Dict[str, Any], prefix: str = "") -> Dict[str, str]:
+def _flatten_dict(d: dict[str, Any], prefix: str = "") -> dict[str, str]:
     """
     Recursively flatten a nested dict into snake_case keys with scalar string values.
 
@@ -850,7 +850,7 @@ def _flatten_dict(d: Dict[str, Any], prefix: str = "") -> Dict[str, str]:
 
     Lists are stringified. Null values are skipped.
     """
-    items: Dict[str, str] = {}
+    items: dict[str, str] = {}
     for k, v in d.items():
         # Convert camelCase to snake_case for the key segment
         seg = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", str(k)).lower()
@@ -879,7 +879,7 @@ _PERSON_EMAIL_KEYS = {"email", "e_mail"}
 _PERSON_NAME_KEYS = {"name", "full_name", "contact_name"}
 
 
-def _extract_person_fields(raw_dict: Dict[str, Any]):
+def _extract_person_fields(raw_dict: dict[str, Any]):
     """
     Look for a 'person' (or similar) sub-object and extract core contact fields
     (phone, first_name, last_name, email) from it. Returns extracted values and
@@ -943,12 +943,12 @@ def _extract_person_fields(raw_dict: Dict[str, Any]):
 
 def ingest_lead_data(
     organization,
-    raw_dict: Dict[str, Any],
-    default_list: Optional[ContactList] = None,
+    raw_dict: dict[str, Any],
+    default_list: ContactList | None = None,
     source: str = Contact.Source.API,
     default_consent: bool = True,
-    region: Optional[str] = None,
-) -> Tuple[Contact, bool]:
+    region: str | None = None,
+) -> tuple[Contact, bool]:
     """
     Ingests a single lead dictionary from external API, webhook, or remote feed.
     Parses flexible field names (phone, phone_number, mobile, full_name, etc.),
@@ -1149,9 +1149,9 @@ def fetch_and_import_remote_leads(
     url: str,
     method: str = "GET",
     auth_header: str = "",
-    contact_list_id: Optional[int] = None,
+    contact_list_id: int | None = None,
     consent_attested: bool = True,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Fetches leads from a remote API URL (JSON) and imports them into the organization.
     """
@@ -1168,12 +1168,12 @@ def fetch_and_import_remote_leads(
             resp = requests.get(url, headers=headers, timeout=15)
         resp.raise_for_status()
     except requests.RequestException as exc:
-        raise ValidationError(f"Failed to fetch data from API URL: {exc}")
+        raise ValidationError(f"Failed to fetch data from API URL: {exc}") from exc
 
     try:
         data = resp.json()
-    except Exception:
-        raise ValidationError("The remote API URL did not return valid JSON.")
+    except Exception as exc:
+        raise ValidationError("The remote API URL did not return valid JSON.") from exc
 
     leads_raw = []
     if isinstance(data, list):

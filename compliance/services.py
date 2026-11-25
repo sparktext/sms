@@ -1,12 +1,14 @@
 import re
 import string
 from typing import Optional
-from django.db import transaction
+
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 
-from .models import ConsentEvent
 from contacts.models import Contact
+
+from .models import ConsentEvent
 
 STOP_KEYWORDS = frozenset(["STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"])
 START_KEYWORDS = frozenset(["START", "UNSTOP"])
@@ -40,7 +42,7 @@ def is_stop_phrase(text: Optional[str]) -> bool:
     return "STOP" in words and len(words) > 1 and set(words) <= _POLITE_STOP_WORDS
 
 
-def classify_keyword(text: Optional[str]) -> Optional[str]:
+def classify_keyword(text: str | None) -> str | None:
     """
     Classify incoming text into STOP, START, HELP or None.
     - Case-insensitive.

@@ -8,12 +8,12 @@ from __future__ import annotations
 import logging
 
 from django.contrib import messages
-from django.contrib.auth import get_user_model, login, update_session_auth_hash
+from django.contrib.auth import get_user_model, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.http import JsonResponse
-from django.shortcuts import get_object_or_404, redirect, render
+from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
@@ -198,9 +198,10 @@ def onboarding(request):
 
             # Ensure an Organization workspace is created and assigned to the user
             if not user.organization:
-                from core.models import Organization
                 from django.utils.text import slugify
+
                 from campaigns.services import ensure_default_campaign_templates
+                from core.models import Organization
 
                 company_name = (profile.company or "").strip()
                 org_name = company_name or (f"{profile.full_name}'s Workspace" if profile.full_name else "My Workspace")
@@ -382,6 +383,7 @@ def account_delete(request):
         form = AccountDeleteForm(request.POST)
         if form.is_valid():
             from django.contrib.auth import logout as auth_logout
+
             from accounts.signals import log_event
             from core.models import AccountEvent
 
@@ -410,9 +412,9 @@ from django.http import Http404  # noqa: E402
 
 def _email_already_confirmed(key: str) -> bool:
     """True when this confirmation link belongs to an email address that is already verified."""
-    from django.core import signing
     from allauth.account import app_settings as account_settings
     from allauth.account.models import EmailAddress, EmailConfirmation
+    from django.core import signing
     try:
         max_age = 60 * 60 * 24 * account_settings.EMAIL_CONFIRMATION_EXPIRE_DAYS
         pk = signing.loads(key, max_age=max_age, salt=account_settings.SALT)

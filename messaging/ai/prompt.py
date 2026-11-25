@@ -1,5 +1,5 @@
-import json
-from typing import Dict, Any, List, Optional
+from typing import Any
+
 from messaging.models import AIAssistantConfig, Conversation, Message
 
 AI_RESPONSE_SCHEMA = {
@@ -51,7 +51,7 @@ def _lead_text(value: Any) -> str:
     return text.replace("<", "(").replace(">", ")")
 
 
-def _card_line(card: Dict[str, Any], with_kind: bool = False) -> str:
+def _card_line(card: dict[str, Any], with_kind: bool = False) -> str:
     head = _lead_text(card.get("title") or "")
     kind = _lead_text(card.get("kind") or "")
     if with_kind and kind and kind.lower() not in head.lower():
@@ -71,7 +71,7 @@ def build_lead_context(contact) -> str:
     """
     from contacts.lead_dossier import extract_contact_lead_details
 
-    lines: List[str] = []
+    lines: list[str] = []
 
     # 1) Contact record
     record = []
@@ -433,8 +433,14 @@ LEAD DETAILS (everything we already know about this customer from their lead for
 
     # 5. Qualification Questions (campaign-specific if defined, else business defaults;
     #    lead-field links and fit rules set in AI settings are inherited by key)
-    from .qualification import (effective_questions, questions_in_play, lead_prefilled_answers,
-                                evaluate_fit, pending_checks, NOT_FIT)
+    from .qualification import (
+        NOT_FIT,
+        effective_questions,
+        evaluate_fit,
+        lead_prefilled_answers,
+        pending_checks,
+        questions_in_play,
+    )
     every_question = effective_questions(conversation, config)
     by_key = {q["key"]: q for q in every_question}
     # Step 2 questions are only asked to leads whose form already answered step 1
@@ -600,7 +606,7 @@ LEAD DETAILS (everything we already know about this customer from their lead for
     return rules_section + business_section + campaign_section + customer_section + qualification_section
 
 
-def build_conversation_messages(conversation: Conversation, max_messages: int = 20) -> List[Dict[str, str]]:
+def build_conversation_messages(conversation: Conversation, max_messages: int = 20) -> list[dict[str, str]]:
     """
     Builds structured message history from recent conversation messages.
     - Excludes internal system audit notes (sender_type='system') so model context is clean.
@@ -612,7 +618,7 @@ def build_conversation_messages(conversation: Conversation, max_messages: int = 
     ).order_by("-created_at")[:max_messages]
     recent_msgs = list(reversed(recent_msgs))
 
-    chat_history: List[Dict[str, str]] = []
+    chat_history: list[dict[str, str]] = []
     for msg in recent_msgs:
         if msg.direction == Message.Direction.INBOUND:
             role = "user"

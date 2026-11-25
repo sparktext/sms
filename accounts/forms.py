@@ -5,11 +5,11 @@ Custom forms for SparkText auth pages.
 """
 from __future__ import annotations
 
+from allauth.account.adapter import get_adapter
+from allauth.account.forms import LoginForm as AllauthLoginForm
 from django import forms
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from allauth.account.forms import LoginForm as AllauthLoginForm
-from allauth.account.adapter import get_adapter
 
 User = get_user_model()
 
@@ -25,8 +25,8 @@ class CustomLoginForm(AllauthLoginForm):
         adapter = get_adapter(self.request)
         user = adapter.authenticate(self.request, **credentials)
         if user:
-            from allauth.account.models import Login
             from allauth.account.internal import flows
+            from allauth.account.models import Login
             from allauth.core import context
             login = Login(user=user, email=credentials.get("email"))
             if flows.login.is_login_rate_limited(context.request, login):

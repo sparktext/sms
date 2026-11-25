@@ -1,31 +1,26 @@
-from unittest.mock import patch, MagicMock
-from django.test import TestCase, override_settings
+from unittest.mock import MagicMock, patch
+
+from django.contrib.admin.sites import AdminSite
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
-from django.contrib.admin.sites import AdminSite
+from django.test import TestCase, override_settings
 
-from core.models import Organization
-from contacts.models import Contact, ContactList, ContactField, ImportBatch
-from contacts.utils import normalize_phone
-from contacts.services import (
-    save_contact,
-    update_contact,
-    validate_custom_fields,
-    preview_csv,
-    suggest_column_mappings,
-    validate_csv_mapping,
-    import_contacts_csv,
-    ingest_lead_data,
-)
 from contacts.admin import (
     ContactAdmin,
     ContactAdminForm,
-    ContactListAdmin,
-    ContactListAdminForm,
-    ContactFieldAdmin,
-    ContactFieldAdminForm,
-    ImportBatchAdmin,
 )
+from contacts.models import Contact, ContactField, ContactList, ImportBatch
+from contacts.services import (
+    import_contacts_csv,
+    ingest_lead_data,
+    preview_csv,
+    save_contact,
+    suggest_column_mappings,
+    update_contact,
+    validate_csv_mapping,
+)
+from contacts.utils import normalize_phone
+from core.models import Organization
 
 
 class PhoneNormalizationTests(TestCase):
@@ -194,7 +189,7 @@ class ContactModelAndServiceTests(TestCase):
 
     def test_update_contact_detects_phone_collision(self):
         """Changing phone on existing contact to an existing phone in same org raises ValidationError."""
-        c1 = Contact.objects.create(organization=self.org1, phone="+16502530000", first_name="C1")
+        Contact.objects.create(organization=self.org1, phone="+16502530000", first_name="C1")
         c2 = Contact.objects.create(organization=self.org1, phone="+12062661000", first_name="C2")
 
         with self.assertRaises(ValidationError):
@@ -540,8 +535,8 @@ class ContactsViewAndTemplateTests(TestCase):
         self.assertEqual(fail_resp.status_code, 400)
 
     def test_import_preview_and_process_flow(self):
-        import io
         import json
+
         from django.core.files.uploadedfile import SimpleUploadedFile
 
         csv_content = b"First Name,Last Name,Phone Number\nCharlie,Brown,650 253 2222\n"
@@ -585,6 +580,7 @@ class ContactsViewAndTemplateTests(TestCase):
     def test_import_excel_xlsx_flow(self):
         import io
         import json
+
         import openpyxl
         from django.core.files.uploadedfile import SimpleUploadedFile
 
@@ -916,7 +912,7 @@ class ContactsViewAndTemplateTests(TestCase):
 
     @override_settings(MESSAGING_PROVIDER="fake")
     def test_contact_detail_conversation_history_and_inline_reply(self):
-        from messaging.models import PhoneNumber, Conversation, Message
+        from messaging.models import Conversation, Message, PhoneNumber
 
         phone_num = PhoneNumber.objects.create(
             organization=self.org,
@@ -1028,8 +1024,8 @@ class ContactsViewAndTemplateTests(TestCase):
 
     @override_settings(AI_CLIENT="fake", MESSAGING_PROVIDER="fake")
     def test_contact_conversation_summary_and_ai_endpoint(self):
-        from messaging.models import PhoneNumber, Conversation, Message
         from messaging.ai.fake_client import FakeAIClient
+        from messaging.models import Conversation, Message, PhoneNumber
 
         FakeAIClient.reset()
 
@@ -1107,7 +1103,7 @@ class ContactsViewAndTemplateTests(TestCase):
         self.assertIn("2 total message(s)", fdata["summary"])
 
     def test_contact_detail_stage_status_and_assignee_controls(self):
-        from messaging.models import PhoneNumber, Conversation, Message
+        from messaging.models import Conversation, Message, PhoneNumber
 
         phone_num = PhoneNumber.objects.create(
             organization=self.org,
@@ -1233,8 +1229,10 @@ class ContactsViewAndTemplateTests(TestCase):
 
     def test_contact_detail_loads_latest_35_with_full_summary_counts(self):
         from datetime import timedelta
+
         from django.utils import timezone
-        from messaging.models import PhoneNumber, Conversation, Message
+
+        from messaging.models import Conversation, Message, PhoneNumber
 
         phone_num = PhoneNumber.objects.create(
             organization=self.org,
@@ -1399,6 +1397,7 @@ class SpreadsheetUsDateTests(TestCase):
     @staticmethod
     def _xlsx(rows):
         import io
+
         import openpyxl
         wb = openpyxl.Workbook()
         for r in rows:
@@ -1481,7 +1480,8 @@ class LeadEditorTests(TestCase):
 
     def test_edits_keep_types_and_untouched_values(self):
         import json
-        from contacts.lead_editor import build_lead_editor, apply_lead_edits
+
+        from contacts.lead_editor import apply_lead_edits, build_lead_editor
         cf = {"detail": json.dumps(self.PAYLOAD), "city": "Tulare"}
         fields = self._names(build_lead_editor(self.PAYLOAD))
         posted = [(f["name"], f["value"]) for f in fields.values()]          # everything unchanged
@@ -1512,8 +1512,10 @@ class LeadEditorTests(TestCase):
 
     def test_saving_contact_form_writes_lead_edits(self):
         import json
+
         from django.contrib.auth import get_user_model
         from django.urls import reverse
+
         from contacts.lead_editor import build_lead_editor
         org = Organization.objects.create(name="Edit Org", slug="edit-org")
         user = get_user_model().objects.create_user(email="edit@example.com", password="pw12345!", organization=org,

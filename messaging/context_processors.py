@@ -1,6 +1,7 @@
 import json
 import re
-from django.db.models import Sum, Q
+
+from django.db.models import Q, Sum
 
 
 def unread_inbox_count(request):

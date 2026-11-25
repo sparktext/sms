@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from allauth.account.adapter import DefaultAccountAdapter
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
-from django.conf import settings
 from django.urls import reverse
 
 
@@ -96,7 +95,9 @@ class AccountAdapter(DefaultAccountAdapter):
     def send_mail(self, template_prefix: str, email: str, context: dict) -> None:
         """Override allauth's send_mail to track verification and password reset emails in EmailLog."""
         import logging
+
         from django.utils import timezone
+
         from core.models import EmailLog
 
         logger = logging.getLogger(__name__)
@@ -183,8 +184,9 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
         - Send welcome email (once)
         """
         from django.utils import timezone
-        from core.models import UserProfile
+
         from accounts.email_service import send_welcome_email
+        from core.models import UserProfile
 
         user = super().save_user(request, sociallogin, form=form)
         user.signup_method = "google"

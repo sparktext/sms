@@ -1,25 +1,24 @@
 import json
 from datetime import datetime, timedelta, timezone as dt_timezone
 from unittest.mock import patch
-from django.test import TestCase, Client, override_settings
-from django.utils import timezone
-from django.core.management import call_command
 
-from core.models import Organization, User
-from contacts.models import Contact, ContactList, ContactField
-from compliance.models import ConsentEvent
-from messaging.models import PhoneNumber, Conversation, Message
-from campaigns.models import Campaign, CampaignRecipient, CampaignTemplate, MessageTemplate
+from django.core.management import call_command
+from django.test import Client, TestCase, override_settings
+from django.utils import timezone
+
+from campaigns.models import Campaign, CampaignRecipient, CampaignTemplate
 from campaigns.services import (
-    render_campaign_message,
-    resolve_campaign_contacts,
+    DEFAULT_CAMPAIGN_TEMPLATES,
     build_campaign_recipients,
-    process_campaign_batch,
     cancel_campaign,
     ensure_default_campaign_templates,
-    ensure_default_templates,
-    DEFAULT_CAMPAIGN_TEMPLATES,
+    process_campaign_batch,
+    render_campaign_message,
+    resolve_campaign_contacts,
 )
+from contacts.models import Contact, ContactField, ContactList
+from core.models import Organization, User
+from messaging.models import Conversation, Message, PhoneNumber
 
 
 @override_settings(MESSAGING_PROVIDER="fake", TWILIO_VALIDATE_WEBHOOKS=True)
@@ -721,7 +720,7 @@ class CampaignTemplateViewTests(TestCase):
         self.assertEqual(t.category_display, "VIP Retention")
 
         # 4. API list includes category_label
-        resp_api = self.client.get(f"/campaigns/templates/api/list/?category=vip_retention")
+        resp_api = self.client.get("/campaigns/templates/api/list/?category=vip_retention")
         self.assertEqual(resp_api.status_code, 200)
         api_data = resp_api.json()
         self.assertEqual(len(api_data["templates"]), 1)

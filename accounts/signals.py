@@ -15,17 +15,6 @@ from typing import Any
 from django.contrib.auth.signals import user_logged_in, user_logged_out, user_login_failed
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-from django.db.models.signals import post_save
-from django.contrib.auth.models import User
-from django.dispatch import receiver
-
-
-from django.db.models.signals import post_save
-from django.dispatch import receiver
-
-
-from django.db.models.signals import post_save
-from django.dispatch import receiver
 
 from core.models import User, UserProfile
 
@@ -124,7 +113,7 @@ def ensure_user_profile(sender, instance, created: bool, **kwargs) -> None:
     """Auto-create a UserProfile for every new User."""
     if created:
         try:
-            from core.models import UserProfile, AccountEvent
+            from core.models import AccountEvent, UserProfile
             UserProfile.objects.get_or_create(user=instance)
             log_event(instance, AccountEvent.EventType.ACCOUNT_CREATED)
         except Exception as exc:

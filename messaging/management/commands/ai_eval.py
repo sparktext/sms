@@ -1,16 +1,16 @@
-import os
 import json
+import os
 import time
 from pathlib import Path
-from django.core.management.base import BaseCommand
+
 from django.conf import settings
+from django.core.management.base import BaseCommand
 
 from core.models import Organization
-from contacts.models import Contact
-from messaging.models import AIAssistantConfig, Conversation, PhoneNumber
 from messaging.ai.openai_client import OpenAICompatibleClient
-from messaging.ai.prompt import build_system_prompt, AI_RESPONSE_SCHEMA
-from messaging.ai.validator import parse_ai_output, validate_reply_content, filter_collected_answers
+from messaging.ai.prompt import AI_RESPONSE_SCHEMA, build_system_prompt
+from messaging.ai.validator import filter_collected_answers, parse_ai_output, validate_reply_content
+from messaging.models import AIAssistantConfig, Conversation
 
 
 class Command(BaseCommand):
@@ -45,12 +45,12 @@ class Command(BaseCommand):
             self.stderr.write(self.style.ERROR(f"Eval file not found: {file_path}"))
             return
 
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, encoding="utf-8") as f:
             cases = json.load(f)
 
-        self.stdout.write(self.style.NOTICE(f"\n========================================================"))
+        self.stdout.write(self.style.NOTICE("\n========================================================"))
         self.stdout.write(self.style.NOTICE(f" SparkText AI Assistant Evaluation ({len(cases)} cases)"))
-        self.stdout.write(self.style.NOTICE(f"========================================================\n"))
+        self.stdout.write(self.style.NOTICE("========================================================\n"))
 
         client = OpenAICompatibleClient(
             base_url=base_url_override,
@@ -163,9 +163,9 @@ class Command(BaseCommand):
                 results.append({"id": cid, "status": "exception", "error": str(exc)})
 
         # Summary
-        self.stdout.write(self.style.NOTICE(f"\n========================================================"))
-        self.stdout.write(self.style.NOTICE(f" EVALUATION SUMMARY"))
-        self.stdout.write(self.style.NOTICE(f"========================================================"))
+        self.stdout.write(self.style.NOTICE("\n========================================================"))
+        self.stdout.write(self.style.NOTICE(" EVALUATION SUMMARY"))
+        self.stdout.write(self.style.NOTICE("========================================================"))
         self.stdout.write(f"Total Cases Evaluated: {len(cases)}")
         self.stdout.write(f"Human Handoffs Triggered: {handoff_count} / {len(cases)} ({int(handoff_count/len(cases)*100)}%)")
         if len(cases) > 0:

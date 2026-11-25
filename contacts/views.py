@@ -1,27 +1,29 @@
 import json
 import logging
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
-from django.db.models import Q, Count, ProtectedError
-from django.http import JsonResponse, HttpResponse
-from django.shortcuts import render, redirect, get_object_or_404
+from django.db.models import Count, ProtectedError, Q
+from django.http import HttpResponse, JsonResponse
+from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST, require_GET, require_http_methods
+from django.views.decorators.http import require_POST
 
 from core.models import Organization
+
 from .lead_dossier import extract_contact_lead_details, label_for
-from .lead_editor import contact_lead_editor, apply_lead_edits
-from .models import Contact, ContactField, ContactList, ImportBatch
+from .lead_editor import apply_lead_edits, contact_lead_editor
+from .models import Contact, ContactField, ContactList
 from .services import (
-    save_contact,
-    update_contact,
-    preview_csv,
-    suggest_column_mappings,
+    fetch_and_import_remote_leads,
     import_contacts_csv,
     ingest_lead_data,
-    fetch_and_import_remote_leads,
+    preview_csv,
+    save_contact,
+    suggest_column_mappings,
+    update_contact,
 )
 
 logger = logging.getLogger(__name__)
@@ -50,6 +52,7 @@ def export_contacts_csv(request):
     and all registered custom fields.
     """
     import csv
+
     from django.utils import timezone
 
     org = request.user.organization
@@ -112,7 +115,7 @@ def export_contacts_csv(request):
     for c in contacts_qs.iterator(chunk_size=1000):
         c_fields = c.custom_fields if isinstance(c.custom_fields, dict) else {}
         stage = c_fields.get("stage", "")
-        list_names = ", ".join(l.name for l in c.lists.all())
+        list_names = ", ".join(lst.name for lst in c.lists.all())
         row = [
             c.phone,
             c.first_name,
@@ -287,8 +290,8 @@ def add_contact(request):
         )
 
         if consent:
-            from compliance.services import record_consent
             from compliance.models import ConsentEvent
+            from compliance.services import record_consent
             record_consent(
                 contact=contact,
                 event_type=ConsentEvent.EventType.OPT_IN,
@@ -582,10 +585,11 @@ def send_contact_message(request, contact_id):
     - Supports AJAX requests with full message JSON response.
     """
     from django.core.exceptions import PermissionDenied
+    from django.db.models import Sum
+
     from messaging.models import Conversation, Message, PhoneNumber
     from messaging.services import send_message
     from messaging.ws_broadcast import broadcast_chat_event, broadcast_inbox_event
-    from django.db.models import Sum
 
     org = request.user.organization
     if not org:
@@ -737,8 +741,8 @@ def summarize_contact_conversation(request, contact_id):
     Generates a concise AI summary of the contact's SMS conversation history using Gemma.
     Falls back cleanly to a structured extractive summary if the local LLM endpoint is offline.
     """
-    from messaging.models import Conversation, Message
     from messaging.ai import get_ai_client
+    from messaging.models import Message
 
     org = request.user.organization
     if not org:

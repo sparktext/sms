@@ -1,17 +1,17 @@
-from django.test import TestCase
-from django.core.exceptions import ValidationError
 from django.contrib.admin.sites import AdminSite
+from django.core.exceptions import ValidationError
+from django.test import TestCase
 
-from core.models import Organization
-from contacts.models import Contact
+from compliance.admin import ConsentEventAdmin
 from compliance.models import ConsentEvent
 from compliance.services import (
+    can_reply,
+    can_send_marketing,
     classify_keyword,
     record_consent,
-    can_send_marketing,
-    can_reply,
 )
-from compliance.admin import ConsentEventAdmin
+from contacts.models import Contact
+from core.models import Organization
 
 
 class KeywordClassificationTests(TestCase):

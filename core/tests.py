@@ -1,9 +1,9 @@
-from datetime import timedelta
 from unittest.mock import patch
-from django.test import TestCase, Client
-from django.utils import timezone
+
 from django.core.files.uploadedfile import SimpleUploadedFile
-from core.models import Organization, User, OrganizationInvite
+from django.test import Client, TestCase
+
+from core.models import Organization, OrganizationInvite, User
 
 
 class SettingsAndTeamTests(TestCase):
@@ -264,8 +264,8 @@ class SettingsAndTeamTests(TestCase):
         self.assertContains(resp_again, "Invitation No Longer Valid")
 
     def test_60px_global_header_and_adapted_pages(self):
-        from messaging.models import PhoneNumber
         from campaigns.models import Campaign
+        from messaging.models import PhoneNumber
 
         phone = PhoneNumber.objects.create(
             organization=self.org,

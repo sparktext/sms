@@ -1,0 +1,25 @@
+# Dependabot: GitHub opens PRs to update dependencies. Each PR goes through CI like any other,
+# so an update that breaks tests (or a security fix) is visible before anyone merges it.
+version: 2
+updates:
+  - package-ecosystem: github-actions     # actions/checkout@v5 → v6, etc.
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      actions: { patterns: ["*"] }        # one PR for all action bumps, not ten
+
+  - package-ecosystem: pip                # requirements*.txt
+    directory: /
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]      # majors still come one by one (they need reading)
+
+  - package-ecosystem: docker             # FROM python:3.15-slim-trixie / node base images
+    directory: /
+    schedule: { interval: weekly }
+
+  - package-ecosystem: npm                # tailwind
+    directory: /
+    schedule: { interval: monthly }

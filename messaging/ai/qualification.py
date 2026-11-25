@@ -18,7 +18,7 @@ Campaigns keep their own copy of the questions; lead_field and rules set in AI s
 also apply to any campaign question with the same key unless it sets its own.
 """
 import re
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 from messaging.models import AIAssistantConfig, Conversation
 
@@ -50,20 +50,20 @@ CONDITIONS = (COND_IS, COND_IS_NOT, COND_ANY)
 MAX_FOLLOW_UP_DEPTH = 2
 
 
-def _config_questions(config: AIAssistantConfig) -> Dict[str, Dict[str, Any]]:
+def _config_questions(config: AIAssistantConfig) -> dict[str, dict[str, Any]]:
     if config is None or not isinstance(config.qualification_questions, list):
         return {}
     return {q["key"]: q for q in config.qualification_questions if isinstance(q, dict) and q.get("key")}
 
 
-def question_step(q: Dict[str, Any]) -> int:
+def question_step(q: dict[str, Any]) -> int:
     try:
         return 2 if int(q.get("step") or 1) == 2 else 1
     except (TypeError, ValueError):
         return 1
 
 
-def order_questions(questions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def order_questions(questions: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
     Step 1 then Step 2; each top-level question followed by its follow-ups (and theirs).
     Follow-ups take their top-level question's step. Follow-ups whose parent is missing,
@@ -71,7 +71,7 @@ def order_questions(questions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     Adds "_depth" (0 = main question, 1 = follow-up, 2 = follow-up of a follow-up).
     """
     keys = {q["key"] for q in questions}
-    children: Dict[str, List[Dict[str, Any]]] = {}
+    children: dict[str, list[dict[str, Any]]] = {}
     roots = []
     for q in questions:
         parent = q.get("parent")
@@ -80,7 +80,7 @@ def order_questions(questions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         elif not parent:
             roots.append(q)
 
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
 
     def walk(q, depth, step):
         q = dict(q, _depth=depth, step=step)
@@ -96,7 +96,7 @@ def order_questions(questions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return out
 
 
-def effective_questions(conversation: Conversation, config: AIAssistantConfig) -> List[Dict[str, Any]]:
+def effective_questions(conversation: Conversation, config: AIAssistantConfig) -> list[dict[str, Any]]:
     """
     The questions in effect (a custom campaign's own list, else the business defaults), in asking
     order, with lead_field / rule / rule_values / step inherited from AI settings by key when missing.
@@ -137,7 +137,7 @@ def effective_questions(conversation: Conversation, config: AIAssistantConfig) -
 active_questions = effective_questions
 
 
-def _verdict(checks: Dict[str, Any], check_key: str, answer: Any) -> Dict[str, Any]:
+def _verdict(checks: dict[str, Any], check_key: str, answer: Any) -> dict[str, Any]:
     """Gemma's verdict for this check, only if it was made for the answer we have now."""
     v = (checks or {}).get(check_key)
     if isinstance(v, dict) and _norm(v.get("answer")) == _norm(answer):
@@ -145,8 +145,8 @@ def _verdict(checks: Dict[str, Any], check_key: str, answer: Any) -> Dict[str, A
     return {}
 
 
-def follow_up_active(q: Dict[str, Any], answers: Dict[str, Any], by_key: Dict[str, Dict[str, Any]],
-                     checks: Dict[str, Any] = None) -> bool:
+def follow_up_active(q: dict[str, Any], answers: dict[str, Any], by_key: dict[str, dict[str, Any]],
+                     checks: dict[str, Any] = None) -> bool:
     """
     Main questions are always active. A follow-up is active only when its parent is active,
     the parent has a real answer (not declined/blank), and that answer meets the condition.
@@ -188,7 +188,7 @@ def follow_up_active(q: Dict[str, Any], answers: Dict[str, Any], by_key: Dict[st
 #            question. Leads we know little about get step 1 only, then the call offer.
 # ---------------------------------------------------------------------------
 
-def lead_form_answers_step1(conversation: Conversation, questions: List[Dict[str, Any]]) -> bool:
+def lead_form_answers_step1(conversation: Conversation, questions: list[dict[str, Any]]) -> bool:
     """
     True when the lead's own form/data answers EVERY main (non-follow-up) step-1 question:
     each must be linked to a lead field and the lead must have a value for it. Answers given
@@ -208,7 +208,7 @@ def lead_form_answers_step1(conversation: Conversation, questions: List[Dict[str
     return all(str(q["lead_field"]).strip().lower() in facts for q in step1)
 
 
-def questions_in_play(conversation: Conversation, config: AIAssistantConfig) -> List[Dict[str, Any]]:
+def questions_in_play(conversation: Conversation, config: AIAssistantConfig) -> list[dict[str, Any]]:
     """
     What this lead may be asked, in order: step-1 questions for every lead, step-2 questions
     only for leads whose form answered step 1, and follow-ups only when their condition is met.
@@ -224,9 +224,9 @@ def questions_in_play(conversation: Conversation, config: AIAssistantConfig) -> 
 
 def lead_prefilled_answers(
     conversation: Conversation,
-    questions: List[Dict[str, Any]],
+    questions: list[dict[str, Any]],
     config: AIAssistantConfig = None,
-) -> Dict[str, str]:
+) -> dict[str, str]:
     """Answers available from lead data for questions not answered yet. Never touches the DB."""
     from contacts.lead_dossier import lead_facts
 
@@ -250,7 +250,7 @@ def lead_prefilled_answers(
     return found
 
 
-def answers_with_lead_data(conversation: Conversation, config: AIAssistantConfig) -> Dict[str, Any]:
+def answers_with_lead_data(conversation: Conversation, config: AIAssistantConfig) -> dict[str, Any]:
     """
     All answers for this conversation: what the customer said in chat, plus answers looked up
     LIVE from the lead form for questions linked to a lead field. Nothing from the form is stored,
@@ -262,7 +262,7 @@ def answers_with_lead_data(conversation: Conversation, config: AIAssistantConfig
     return {**from_form, **chat}
 
 
-def next_unanswered_question(conversation: Conversation, config: AIAssistantConfig) -> Dict[str, Any]:
+def next_unanswered_question(conversation: Conversation, config: AIAssistantConfig) -> dict[str, Any]:
     """The next question to ask: Step 1 before Step 2, each question followed by its follow-ups."""
     answers = answers_with_lead_data(conversation, config)
     for q in questions_in_play(conversation, config):
@@ -279,7 +279,7 @@ def _norm(text: Any) -> str:
     return " ".join(re.sub(r"[^a-z0-9]+", " ", str(text or "").lower()).split())
 
 
-def parse_rule_values(raw: Any) -> List[str]:
+def parse_rule_values(raw: Any) -> list[str]:
     """'Allstate, State Farm' / ['Allstate', ...] -> clean list."""
     if isinstance(raw, str):
         raw = re.split(r"[,\n;]", raw)
@@ -293,8 +293,8 @@ def parse_rule_values(raw: Any) -> List[str]:
     return out[:50]
 
 
-def answer_matches(answer: Any, values: List[str]) -> bool:
-    """True when the answer equals, or contains as whole words, any of the values ("statefarm" = "State Farm")."""
+def answer_matches(answer: Any, values: list[str]) -> bool:
+    """True when the answer equals, or contains as whole words, any of the values."""
     a = _norm(answer)
     if not a:
         return False
@@ -367,7 +367,7 @@ _MONTHS = ["january", "february", "march", "april", "may", "june", "july", "augu
            "november", "december"]
 
 
-def year_options(answer: Any, today=None) -> List[str]:
+def year_options(answer: Any, today=None) -> list[str]:
     """The two most recent real dates a year-less answer can mean: "august" on 19 Nov 2026 ->
     ["August 2026", "August 2025"]; "december" -> ["December 2025", "December 2024"] (no future dates)."""
     import datetime as _dt
@@ -393,7 +393,7 @@ def is_unclear_time_answer(answer: Any) -> bool:
     return bool(_DATEISH_RE.search(text)) and not _YEAR_RE.search(text)
 
 
-def is_time_question(key: str, questions: List[Dict[str, Any]]) -> bool:
+def is_time_question(key: str, questions: list[dict[str, Any]]) -> bool:
     """Does a time rule depend on this question (its own fit rule, or a follow-up condition on it)?"""
     for q in questions:
         if q.get("key") == key and q.get("rule") in RULES and parse_time_rule(q.get("rule_values")):
@@ -442,11 +442,11 @@ def time_rule_match(answer: Any, values: Any, today=None):
 
 
 def evaluate_fit(
-    questions: List[Dict[str, Any]],
-    answers: Dict[str, Any],
-    required_from: List[Dict[str, Any]] = None,
-    checks: Dict[str, Any] = None,
-) -> Tuple[str, List[str]]:
+    questions: list[dict[str, Any]],
+    answers: dict[str, Any],
+    required_from: list[dict[str, Any]] = None,
+    checks: dict[str, Any] = None,
+) -> tuple[str, list[str]]:
     """
     (status, reasons). NOT_FIT as soon as any answered question breaks its rule (every
     question is checked, so a known "Allstate" counts even if that question isn't asked).
@@ -484,7 +484,7 @@ def evaluate_fit(
     return PENDING, []
 
 
-def conversation_fit(conversation: Conversation, config: AIAssistantConfig) -> Tuple[str, List[str]]:
+def conversation_fit(conversation: Conversation, config: AIAssistantConfig) -> tuple[str, list[str]]:
     """Fit status using every source: chat answers, the lead form and Gemma's verdicts."""
     return evaluate_fit(
         effective_questions(conversation, config),
@@ -498,7 +498,7 @@ def conversation_fit(conversation: Conversation, config: AIAssistantConfig) -> T
 # Checks Gemma judges (plain-language fit rules and follow-up conditions)
 # ---------------------------------------------------------------------------
 
-def pending_checks(conversation: Conversation, config: AIAssistantConfig, next_key: str = "") -> List[Dict[str, Any]]:
+def pending_checks(conversation: Conversation, config: AIAssistantConfig, next_key: str = "") -> list[dict[str, Any]]:
     """
     Rules and follow-up conditions Gemma should judge now: those whose answer is already known
     but not yet judged for that answer, plus those depending on the question being asked next
@@ -529,7 +529,7 @@ def pending_checks(conversation: Conversation, config: AIAssistantConfig, next_k
     return out
 
 
-def record_checks(conversation: Conversation, config: AIAssistantConfig, raw: Any) -> Dict[str, Any]:
+def record_checks(conversation: Conversation, config: AIAssistantConfig, raw: Any) -> dict[str, Any]:
     """Store Gemma's verdicts (only for checks that exist), tagged with the answer they judged."""
     if not isinstance(raw, dict) or not raw:
         return {}
@@ -566,7 +566,7 @@ def record_checks(conversation: Conversation, config: AIAssistantConfig, raw: An
     return saved
 
 
-def describe_check(c: Dict[str, Any]) -> str:
+def describe_check(c: dict[str, Any]) -> str:
     """One line describing a check for Gemma (used in the main prompt and the judging pass)."""
     subject = c["subject"]
     if c["kind"] == "rule":
@@ -586,7 +586,7 @@ def describe_check(c: Dict[str, Any]) -> str:
             f'Give {{"met": true or false, "reason": "..."}}')
 
 
-def checks_needing_judgement(conversation: Conversation, config: AIAssistantConfig) -> List[Dict[str, Any]]:
+def checks_needing_judgement(conversation: Conversation, config: AIAssistantConfig) -> list[dict[str, Any]]:
     """Known answers with no verdict yet, skipping checks an exact name match already decides."""
     out = []
     for c in pending_checks(conversation, config):

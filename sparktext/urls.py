@@ -1,12 +1,20 @@
-from django.contrib import admin
-from accounts import views as accounts_views
-from django.urls import path, include, re_path
 from django.conf import settings
+from django.contrib import admin
+from django.urls import include, path, re_path
+from django.views.generic import RedirectView
 from django.views.static import serve
-from contacts import views as contacts_views
+
+from accounts import views as accounts_views
 from campaigns import views as campaigns_views
+from contacts import views as contacts_views
+from core import health
 
 urlpatterns = [
+    # --- Health checks (Docker HEALTHCHECK + CD pipeline). Keep first: no auth, no redirects. ---
+    path("healthz", health.healthz, name="healthz"),
+    path("readyz", health.readyz, name="readyz"),
+
+    path("favicon.ico", RedirectView.as_view(url="/static/img/favicon.ico", permanent=True)),
     path("admin/", admin.site.urls),
 
     # --- django-allauth (provides /accounts/login/, /accounts/signup/, etc.) ---

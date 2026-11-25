@@ -10,7 +10,6 @@ import logging
 
 from celery import shared_task
 from django.contrib.auth import get_user_model
-from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +35,7 @@ def task_send_welcome_email(self, user_pk: int) -> None:
         _send_welcome_email_sync(user)
     except Exception as exc:
         logger.exception("task_send_welcome_email failed for user %s: %s", user_pk, exc)
-        raise self.retry(exc=exc)
+        raise self.retry(exc=exc) from exc
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
@@ -54,5 +53,5 @@ def task_send_password_changed_email(self, user_pk: int) -> None:
         _send_password_changed_email_sync(user)
     except Exception as exc:
         logger.exception("task_send_password_changed_email failed for user %s: %s", user_pk, exc)
-        raise self.retry(exc=exc)
+        raise self.retry(exc=exc) from exc
 

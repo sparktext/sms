@@ -1,17 +1,19 @@
 import csv
+
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
-from django.shortcuts import render, redirect, get_object_or_404
+from django.shortcuts import redirect, render
 from django.utils import timezone
-from django.views.decorators.http import require_POST, require_GET
+from django.views.decorators.http import require_GET, require_POST
 
-from .models import ConsentEvent
-from .services import record_consent, classify_keyword
 from contacts.models import Contact
 from contacts.utils import normalize_phone
+
+from .models import ConsentEvent
+from .services import classify_keyword, record_consent
 
 
 @login_required

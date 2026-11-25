@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Optional, Dict, Any, List
+from typing import Any
 
 
 @dataclass
@@ -9,7 +9,7 @@ class AIResponse:
     input_tokens: int = 0
     output_tokens: int = 0
     latency_ms: int = 0
-    raw_data: Optional[Dict[str, Any]] = None
+    raw_data: dict[str, Any] | None = None
 
 
 class BaseAIClient(ABC):
@@ -21,8 +21,8 @@ class BaseAIClient(ABC):
     def generate(
         self,
         system_prompt: str,
-        messages: List[Dict[str, str]],
-        schema: Optional[Dict[str, Any]] = None,
+        messages: list[dict[str, str]],
+        schema: dict[str, Any] | None = None,
     ) -> AIResponse:
         """
         Generate completion from system prompt and conversation messages.

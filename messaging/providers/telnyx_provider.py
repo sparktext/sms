@@ -2,8 +2,9 @@ import base64
 import binascii
 import logging
 import time
-from typing import Optional, Dict, Any, Union
 from pathlib import Path
+from typing import Any
+
 import environ
 import requests
 from django.conf import settings
@@ -45,11 +46,11 @@ def _load_telnyx_public_key(raw_key: str):
 
 
 def verify_telnyx_webhook(
-    raw_body: Union[bytes, str],
+    raw_body: bytes | str,
     signature_b64: str,
     timestamp: str,
-    public_key: Optional[str] = None,
-    now: Optional[float] = None,
+    public_key: str | None = None,
+    now: float | None = None,
     tolerance: int = TELNYX_WEBHOOK_TOLERANCE_SECONDS,
 ) -> bool:
     """
@@ -85,7 +86,7 @@ def verify_telnyx_webhook(
 
     body = raw_body if isinstance(raw_body, bytes) else str(raw_body).encode("utf-8")
     try:
-        key.verify(signature, f"{ts}|".encode("utf-8") + body)
+        key.verify(signature, f"{ts}|".encode() + body)
         return True
     except InvalidSignature:
         return False
@@ -97,7 +98,7 @@ class TelnyxProvider(BaseSMSProvider):
     Never logs or exposes secret API keys.
     """
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: str | None = None):
         self.explicit_api_key = api_key
 
     def _resolve_api_key(self) -> str:
@@ -123,7 +124,7 @@ class TelnyxProvider(BaseSMSProvider):
         from_number: str,
         to_number: str,
         body: str,
-        status_callback_url: Optional[str] = None,
+        status_callback_url: str | None = None,
     ) -> ProviderResult:
         api_key = self._resolve_api_key()
         if not api_key:
@@ -140,7 +141,7 @@ class TelnyxProvider(BaseSMSProvider):
             "Accept": "application/json",
         }
 
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "from": from_number,
             "to": to_number,
             "text": body,
@@ -213,7 +214,7 @@ class TelnyxProvider(BaseSMSProvider):
     def validate_signature(
         self,
         url: str,
-        params: Dict[str, Any],
+        params: dict[str, Any],
         signature: str,
     ) -> bool:
         """

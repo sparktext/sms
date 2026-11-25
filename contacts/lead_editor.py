@@ -11,13 +11,31 @@ a boolean, {year, month, day} dates keep their shape...), so untouched data is n
 import copy
 import json
 import re
-from datetime import timezone as dt_timezone
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from collections.abc import Iterable
+from datetime import UTC
+from typing import Any
 
 from .lead_dossier import (
-    PAYLOAD_FIELD_KEYS, SECTION_TITLES, OVERVIEW_ICON, MAX_CARDS_PER_GROUP, _WRAPPER_KEYS, _ENTITY_PREFIX,
-    _age, _date_from_parts, _entity_stem, _epoch_to_str, _group_title, _infer_title, _is_address,
-    _is_birth_key, _iso_to_str, _ordered_items, _phone, _relation_badge, icon_for, label_for,
+    _ENTITY_PREFIX,
+    _WRAPPER_KEYS,
+    MAX_CARDS_PER_GROUP,
+    OVERVIEW_ICON,
+    PAYLOAD_FIELD_KEYS,
+    SECTION_TITLES,
+    _age,
+    _date_from_parts,
+    _entity_stem,
+    _epoch_to_str,
+    _group_title,
+    _infer_title,
+    _is_address,
+    _is_birth_key,
+    _iso_to_str,
+    _ordered_items,
+    _phone,
+    _relation_badge,
+    icon_for,
+    label_for,
 )
 
 FIELD_PREFIX = "lead::"
@@ -30,7 +48,7 @@ MAX_VALUE_LENGTH = 2000
 # Where the payload lives on the contact
 # ---------------------------------------------------------------------------
 
-def find_payload_slot(custom_fields) -> Tuple[Optional[str], Optional[dict], bool]:
+def find_payload_slot(custom_fields) -> tuple[str | None, dict | None, bool]:
     """(custom_fields key, payload dict, stored_as_json_string) for the contact's lead payload."""
     cf = custom_fields if isinstance(custom_fields, dict) else {}
 
@@ -113,7 +131,7 @@ def _parse_datetime(text: str):
         parsed = _dparser.parse(text.replace("UTC", "").strip())
     except (ValueError, OverflowError, TypeError):
         return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=dt_timezone.utc)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 def _number(text: str, as_type):
@@ -175,7 +193,7 @@ def parse_edit(text: str, original: Any, key) -> Any:
             if not parsed:
                 return t
             if raw.endswith("Z"):
-                return parsed.astimezone(dt_timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+                return parsed.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
             return parsed.isoformat()
     return t
 
@@ -190,7 +208,7 @@ def _items(obj: dict):
     norm = lambda k: re.sub(r"[_\-\s]", "", str(k)).lower()  # noqa: E731
     return sorted(items, key=lambda kv: rank.get(norm(kv[0]), len(rank)))
 
-def _field(label: str, key, value, path: Tuple) -> Dict[str, Any]:
+def _field(label: str, key, value, path: tuple) -> dict[str, Any]:
     text = edit_text(key, value)
     hint = ""
     if _is_birth_key(key):
@@ -205,7 +223,7 @@ def _field(label: str, key, value, path: Tuple) -> Dict[str, Any]:
     }
 
 
-def _fields(obj: dict, path: Tuple, prefix: str = "") -> List[Dict[str, Any]]:
+def _fields(obj: dict, path: tuple, prefix: str = "") -> list[dict[str, Any]]:
     """Every key of an object as a field; nested objects are folded in with a label prefix."""
     out = []
     for k, v in _items(obj):
@@ -224,7 +242,7 @@ def _fields(obj: dict, path: Tuple, prefix: str = "") -> List[Dict[str, Any]]:
     return out
 
 
-def _card(key, obj: dict, path: Tuple, index=None, is_primary=False) -> Dict[str, Any]:
+def _card(key, obj: dict, path: tuple, index=None, is_primary=False) -> dict[str, Any]:
     title, _ = _infer_title(obj)
     if not title:
         title = label_for(_ENTITY_PREFIX.sub("", str(key)) or key)
@@ -234,12 +252,12 @@ def _card(key, obj: dict, path: Tuple, index=None, is_primary=False) -> Dict[str
     return {"title": title, "badge": badge, "is_primary": is_primary, "fields": _fields(obj, path)}
 
 
-def _group_table(cards: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _group_table(cards: list[dict[str, Any]]) -> dict[str, Any]:
     """
     Side-by-side view of a group (vehicles, drivers...): one column per item, one row per field label.
     Labels keep each item's order; a label only some items have is slotted in after its neighbour.
     """
-    labels: List[str] = []
+    labels: list[str] = []
     for card in cards:
         prev = None
         for f in card["fields"]:
@@ -259,12 +277,12 @@ def _group_table(cards: List[Dict[str, Any]]) -> Dict[str, Any]:
             "search_titles": " | ".join(c["title"] for c in cards).lower()}
 
 
-def _section(key, obj: dict) -> Dict[str, Any]:
+def _section(key, obj: dict) -> dict[str, Any]:
     section = {"title": SECTION_TITLES.get(str(key), label_for(key)), "icon": icon_for(key),
                "cards": [], "groups": []}
     main_title, _ = _infer_title(obj)
     main_fields, side_cards = [], []
-    entities: Dict[str, list] = {}   # stem -> [(key, obj, is_primary, from_list, path)]
+    entities: dict[str, list] = {}   # stem -> [(key, obj, is_primary, from_list, path)]
 
     for k, v in _items(obj):
         p = (key, k)
@@ -305,7 +323,7 @@ def _section(key, obj: dict) -> Dict[str, Any]:
     return section
 
 
-def build_lead_editor(payload) -> Optional[Dict[str, Any]]:
+def build_lead_editor(payload) -> dict[str, Any] | None:
     """
     {
       "sections": [{"title", "icon", "cards": [card], "groups": [{"title", "icon", "cards", "truncated"}]}],
@@ -361,7 +379,7 @@ def build_lead_editor(payload) -> Optional[Dict[str, Any]]:
             "empty_count": sum(1 for f in all_fields if f["empty"])}
 
 
-def contact_lead_editor(contact) -> Optional[Dict[str, Any]]:
+def contact_lead_editor(contact) -> dict[str, Any] | None:
     _, payload, _ = find_payload_slot(getattr(contact, "custom_fields", None))
     return build_lead_editor(payload)
 
@@ -370,7 +388,7 @@ def contact_lead_editor(contact) -> Optional[Dict[str, Any]]:
 # Saving edits
 # ---------------------------------------------------------------------------
 
-def apply_lead_edits(custom_fields: dict, posted: Iterable[Tuple[str, str]]) -> Tuple[dict, int]:
+def apply_lead_edits(custom_fields: dict, posted: Iterable[tuple[str, str]]) -> tuple[dict, int]:
     """
     Write changed lead values back into the payload. `posted` is (input name, text) pairs from the form.
     Returns (custom_fields, number of values changed); custom_fields is untouched when nothing changed.

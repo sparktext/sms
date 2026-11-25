@@ -12,6 +12,13 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="{% static_v 'css/app.css' %}" />
+    <link rel="icon" type="image/png" href="{% static 'img/favicon.png' %}" />
+    <link rel="shortcut icon" href="{% static 'img/favicon.ico' %}" />
+
+    <style>
+      html.sidebar-collapsed .sidebar-brand-full { display: none !important; }
+      html.sidebar-collapsed .sidebar-brand-icon { display: flex !important; }
+    </style>
 
     <script>
       if (localStorage.getItem("sparktext_sidebar_collapsed") === "true") {
@@ -40,22 +47,14 @@
         <div class="sidebar-brand-row flex items-center justify-between">
           <a
             href="{% url 'messaging:dashboard' %}"
-            class="flex items-center gap-3 min-w-0"
+            class="flex items-center min-w-0 group"
             title="SparkText"
           >
-            <div
-              class="w-9 h-9 rounded-xl gradient-brand flex items-center justify-center shadow-lg shadow-brand-500/30 text-white font-extrabold text-lg shrink-0"
-            >
-              ⚡
-            </div>
-            <div class="sidebar-label truncate">
-              <span
-                class="text-lg font-bold tracking-tight text-white block leading-tight"
-                >SparkText</span
-              >
-              <span class="text-[11px] font-medium text-slate-400"
-                >SMS Platform</span
-              >
+            <!-- Full brand logo shown when expanded -->
+            <img src="{% static 'img/logo-dark.png' %}" alt="SparkText" class="sidebar-brand-full h-8 w-auto object-contain transition-opacity group-hover:opacity-90" />
+            <!-- Icon-only shown when collapsed -->
+            <div class="sidebar-brand-icon hidden w-9 h-9 rounded-xl bg-slate-800/80 border border-slate-700/60 items-center justify-center shadow-md">
+              <img src="{% static 'img/icon.png' %}" alt="SparkText" class="w-5 h-5 object-contain" />
             </div>
           </a>
           <button

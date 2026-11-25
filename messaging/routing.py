@@ -1,7 +1,7 @@
 import logging
-from typing import Optional
+
+from django.db.models import Count
 from django.utils import timezone
-from django.db.models import Count, Q
 
 from core.models import Organization, User
 from messaging.models import Conversation, Message
@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 def assign_qualified_lead(
     conversation: Conversation,
     trigger_reason: str = "Lead qualified",
-) -> Optional[User]:
+) -> User | None:
     """
     Automated Lead Distribution Engine.
     Routes a qualified conversation to the appropriate sales team member based
@@ -184,7 +184,7 @@ def assign_qualified_lead(
 
     # Real-time WebSocket lead assignment notification
     try:
-        from messaging.ws_broadcast import broadcast_user_event, broadcast_chat_event, broadcast_inbox_event
+        from messaging.ws_broadcast import broadcast_chat_event, broadcast_inbox_event, broadcast_user_event
         contact = conversation.contact
         contact_name = (contact.first_name + (" " + contact.last_name if contact.last_name else "")).strip() if (contact.first_name or contact.last_name) else contact.phone
         phone_display = f" ({contact.phone})" if contact.phone and contact_name != contact.phone else ""

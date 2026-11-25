@@ -1,18 +1,19 @@
-from django.shortcuts import render, redirect, get_object_or_404
-from django.contrib.auth.decorators import login_required
-from django.views.decorators.http import require_POST, require_http_methods
-from django.http import JsonResponse, HttpResponseForbidden
 from django.contrib import messages
-from django.urls import reverse
-from django.utils import timezone
 from django.contrib.auth import login
+from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.db.models import Count
+from django.http import JsonResponse
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
+from django.utils import timezone
+from django.views.decorators.http import require_http_methods, require_POST
 
+<<<<<<< HEAD
 from datetime import time as dt_time
 from zoneinfo import ZoneInfo
 
-from .models import Organization, User, OrganizationInvite
+from .models import Organization, OrganizationInvite, User
 from .timezones import is_valid_timezone, org_timezone, timezone_choices, timezone_label
 
 

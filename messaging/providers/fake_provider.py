@@ -1,5 +1,6 @@
 import uuid
-from typing import Optional, Dict, Any, List
+from typing import Any
+
 from django.conf import settings
 
 from .base import BaseSMSProvider, ProviderResult
@@ -10,8 +11,8 @@ class FakeProvider(BaseSMSProvider):
     Fake SMS provider for unit tests and local mock development.
     Never makes real network requests.
     """
-    sent_messages: List[Dict[str, Any]] = []
-    fail_with_code: Optional[str] = None
+    sent_messages: list[dict[str, Any]] = []
+    fail_with_code: str | None = None
     fail_with_message: str = ""
 
     @classmethod
@@ -25,7 +26,7 @@ class FakeProvider(BaseSMSProvider):
         from_number: str,
         to_number: str,
         body: str,
-        status_callback_url: Optional[str] = None,
+        status_callback_url: str | None = None,
     ) -> ProviderResult:
         if self.fail_with_code is not None:
             return ProviderResult(
@@ -57,7 +58,7 @@ class FakeProvider(BaseSMSProvider):
     def validate_signature(
         self,
         url: str,
-        params: Dict[str, Any],
+        params: dict[str, Any],
         signature: str,
     ) -> bool:
         validate_enabled = getattr(settings, "TWILIO_VALIDATE_WEBHOOKS", True)

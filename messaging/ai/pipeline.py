@@ -1,32 +1,31 @@
-import re
 import json
-import time
 import logging
+import re
+import time
 from datetime import timedelta
-from typing import Tuple, Optional, Dict, Any
+from typing import Any
 
-from django.utils import timezone
-from django.core.exceptions import ValidationError, PermissionDenied
-from django.db import transaction
 from django.db.models import Sum
+from django.utils import timezone
 
-from contacts.models import Contact
 from compliance.services import classify_keyword
-from messaging.models import AIAssistantConfig, Conversation, Message, AIJob, AIReply
-from messaging.services import send_message, can_send_manual
+from contacts.models import Contact
+from messaging.models import AIAssistantConfig, AIJob, AIReply, Conversation, Message
 from messaging.routing import assign_qualified_lead
+from messaging.services import can_send_manual, send_message
+
 from . import get_ai_client
-from .prompt import build_system_prompt, build_conversation_messages, AI_RESPONSE_SCHEMA
-from .validator import parse_ai_output, validate_reply_content, filter_collected_answers
+from .prompt import AI_RESPONSE_SCHEMA, build_conversation_messages, build_system_prompt
+from .validator import filter_collected_answers, parse_ai_output, validate_reply_content
 
 logger = logging.getLogger(__name__)
 
 
 def can_run_ai(
-    config: Optional[AIAssistantConfig],
+    config: AIAssistantConfig | None,
     conversation: Conversation,
     trigger_message: Message,
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     """
     Evaluates whether the AI may process a job and reply.
     Respects conversation-level ai_mode override (Off, Suggest, Auto).
@@ -101,14 +100,14 @@ def can_run_ai(
 def _trigger_handoff(
     conversation: Conversation,
     trigger_message: Message,
-    job: Optional[AIJob],
+    job: AIJob | None,
     reason: str,
     raw_output: str = "",
-    parsed_output: Optional[Dict[str, Any]] = None,
+    parsed_output: dict[str, Any] | None = None,
     error: str = "",
     latency_ms: int = 0,
     model_name: str = "",
-    sent_message: Optional[Message] = None,
+    sent_message: Message | None = None,
 ) -> AIReply:
     """
     Marks the conversation as needs_human, posts a system explanation,
@@ -148,8 +147,8 @@ def _trigger_handoff(
 
         # Broadcast live handoff banner drop-down and system message to conversation room
         try:
-            from messaging.ws_broadcast import broadcast_chat_event, broadcast_inbox_event
             from messaging.utils import format_chat_timestamp, get_org_status_counts
+            from messaging.ws_broadcast import broadcast_chat_event, broadcast_inbox_event
             broadcast_chat_event(
                 conversation.id,
                 {
@@ -276,7 +275,7 @@ JUDGE_SCHEMA = {
 }
 
 
-def _judge_pending_checks(client, config, conversation) -> Dict[str, Any]:
+def _judge_pending_checks(client, config, conversation) -> dict[str, Any]:
     """
     Ask Gemma ONLY to judge the plain-language rules / follow-up conditions whose answer is known
     but not yet judged (e.g. "bought less than 6 months ago" for "20 July 2026"). A focused task
@@ -314,12 +313,12 @@ READ_SCHEMA = {
 }
 
 
-def _read_answer(client, config, conversation, trigger_message) -> Dict[str, str]:
+def _read_answer(client, config, conversation, trigger_message) -> dict[str, str]:
     """
     Gemma decides which of our questions the customer's message answers (if any) and what the answer is.
     Code only checks the key is real and that the answer is new or different from what's saved.
     """
-    from .qualification import questions_in_play, answers_with_lead_data
+    from .qualification import answers_with_lead_data, questions_in_play
     text = ((trigger_message.body if trigger_message else "") or "").strip()
     questions = [q for q in questions_in_play(conversation, config) if q.get("key")]
     if not text or not questions:
@@ -595,7 +594,7 @@ def _call_time_wanted(conversation, trigger_message, parsed_data, pending=None) 
     return _is_call_offer(last) or "what time" in last or ("call" in last and "?" in last)
 
 
-def _read_call_time(client, conversation, trigger_message, lead_tz: str, now) -> Dict[str, Any]:
+def _read_call_time(client, conversation, trigger_message, lead_tz: str, now) -> dict[str, Any]:
     """Gemma reads when the lead wants the call, as dates/times in the lead's own time zone."""
     from zoneinfo import ZoneInfo
     from scheduling.calls import fmt_time
@@ -648,7 +647,7 @@ def _read_call_time(client, conversation, trigger_message, lead_tz: str, now) ->
         return {}
 
 
-def _settle_what_they_said(when: Dict[str, Any], said: str, pending, lead_tz: str) -> None:
+def _settle_what_they_said(when: dict[str, Any], said: str, pending, lead_tz: str) -> None:
     """
     Decide from the lead's own words whether they named the day and made AM/PM clear, and clean up the model's
     reading to match: a bare "11" that the model turned into 23:00 goes back to 11 (code picks AM or PM), and after
@@ -1008,7 +1007,7 @@ VERDICTS_SCHEMA = {
 }
 
 
-def _keep_real_answers(client, config, conversation, collected: Dict[str, Any]) -> Dict[str, Any]:
+def _keep_real_answers(client, config, conversation, collected: dict[str, Any]) -> dict[str, Any]:
     """
     Gemma double-checks newly saved answers: a request for something the business doesn't offer
     ("sms marketing" to an insurance agency) or a question back to us isn't an answer. Declines are kept.
@@ -1144,7 +1143,7 @@ def _reply_for_next_step(client, config, conversation, chat_messages, next_q, fa
         conversation.qualification_answers = answers
         conversation.save(update_fields=["qualification_answers"])
         _check_and_update_stage(conversation, config)
-        from .qualification import conversation_fit, next_unanswered_question, NOT_FIT
+        from .qualification import NOT_FIT, conversation_fit, next_unanswered_question
         if conversation_fit(conversation, config)[0] == NOT_FIT:
             return _closing_reply(client, config, conversation, chat_messages)
         return _reply_for_next_step(client, config, conversation, chat_messages,
@@ -1171,7 +1170,7 @@ def _closing_reply(client, config, conversation, chat_messages) -> str:
     instruction = (
         "The lead is not a fit right now. Close the conversation warmly in your own words (1-2 short sentences): thank "
         "them, don't ask any more questions, don't offer a call or an agent, don't state any internal rule, and leave "
-        f"the door open for later." + (f" What to get across: \"{gist}\"" if gist else "")
+        "the door open for later." + (f" What to get across: \"{gist}\"" if gist else "")
     )
     text = _gemma_rewrite(client, config, conversation, chat_messages, instruction,
                           accept=lambda t: "?" not in t and not _is_call_offer(t) and not _is_generic_greeting_reply(t))
@@ -1205,7 +1204,7 @@ def _check_and_update_stage(conversation: Conversation, config: AIAssistantConfi
     - every required question answered and no rule failed          -> 'Qualified' (+ auto-assign)
     Stages an agent moved further along by hand (Quote Sent, Won, Lost) are never overwritten.
     """
-    from .qualification import effective_questions, questions_in_play, evaluate_fit, FIT, NOT_FIT
+    from .qualification import FIT, NOT_FIT, effective_questions, evaluate_fit, questions_in_play
 
     every_question = effective_questions(conversation, config)
     questions = questions_in_play(conversation, config)   # step 2 only for leads whose form answered step 1
@@ -1254,7 +1253,7 @@ def _check_and_update_stage(conversation: Conversation, config: AIAssistantConfi
             logger.exception("Error during auto lead assignment on qualification: %s", exc)
 
 
-def process_ai_job(job: AIJob) -> Optional[AIReply]:
+def process_ai_job(job: AIJob) -> AIReply | None:
     """
     Main background processing pipeline for an AIJob:
     1. Checks preconditions.
@@ -1332,7 +1331,7 @@ def process_ai_job(job: AIJob) -> Optional[AIReply]:
 
     try:
         raw_text = ""
-        parsed_data: Optional[Dict[str, Any]] = None
+        parsed_data: dict[str, Any] | None = None
         input_tokens = 0
         output_tokens = 0
         latency_ms = 0
@@ -1434,7 +1433,7 @@ def process_ai_job(job: AIJob) -> Optional[AIReply]:
                 conversation.qualification_answers = {}
             conversation.qualification_answers.update(valid_collected)
             conversation.save(update_fields=["qualification_answers"])
-        from .qualification import record_checks, conversation_fit, next_unanswered_question, PENDING, NOT_FIT
+        from .qualification import NOT_FIT, PENDING, conversation_fit, next_unanswered_question, record_checks
         new_checks = record_checks(conversation, config, parsed_data.get("checks"))
         # Anything Gemma didn't judge in its reply gets a short, focused judging pass
         new_checks.update(_judge_pending_checks(client, config, conversation))
@@ -1537,7 +1536,7 @@ def process_ai_job(job: AIJob) -> Optional[AIReply]:
         if parsed_data.get("needs_human"):
             handoff_reason = parsed_data.get("handoff_reason") or "Customer inquiry requires human assistance."
             effective_mode = conversation.get_effective_ai_mode(config)
-            resulting_msg: Optional[Message] = None
+            resulting_msg: Message | None = None
 
             # Deliver closing message to customer before handoff (e.g. "a licensed agent is reviewing your details")
             closing_text = reply_body or "Thank you! A member of our team is reviewing your details and will follow up with you shortly."
@@ -1594,7 +1593,7 @@ def process_ai_job(job: AIJob) -> Optional[AIReply]:
             return reply_obj
 
         # Step 7: Dispatch by Mode (SUGGEST vs AUTO)
-        resulting_msg: Optional[Message] = None
+        resulting_msg: Message | None = None
         final_status = AIReply.Status.DRAFT
 
         effective_mode = conversation.get_effective_ai_mode(config)
@@ -1686,7 +1685,7 @@ def simulate_ai_reply(
     config: AIAssistantConfig,
     message_text: str,
     contact_name: str = "Alex Rivera",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Dry-run simulation of the AI Assistant pipeline for the settings sandbox.
     Builds the live system prompt and validates the reply without persisting any DB records or sending SMS.

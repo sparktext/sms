@@ -1,9 +1,10 @@
 import logging
-from typing import Optional, Dict, Any
+from typing import Any
+
 from django.conf import settings
-from twilio.rest import Client
 from twilio.base.exceptions import TwilioRestException
 from twilio.request_validator import RequestValidator
+from twilio.rest import Client
 
 from .base import BaseSMSProvider, ProviderResult
 
@@ -18,8 +19,8 @@ class TwilioProvider(BaseSMSProvider):
 
     def __init__(
         self,
-        account_sid: Optional[str] = None,
-        auth_token: Optional[str] = None,
+        account_sid: str | None = None,
+        auth_token: str | None = None,
     ):
         self.explicit_account_sid = account_sid
         self.explicit_auth_token = auth_token
@@ -34,6 +35,7 @@ class TwilioProvider(BaseSMSProvider):
         # Always re-read .env with overwrite=True so changes take effect immediately without needing server restart
         try:
             from pathlib import Path
+
             import environ
             env_file = Path(settings.BASE_DIR) / ".env"
             if env_file.exists():
@@ -68,7 +70,7 @@ class TwilioProvider(BaseSMSProvider):
         from_number: str,
         to_number: str,
         body: str,
-        status_callback_url: Optional[str] = None,
+        status_callback_url: str | None = None,
     ) -> ProviderResult:
         try:
             client = self._get_client()
@@ -136,7 +138,7 @@ class TwilioProvider(BaseSMSProvider):
     def validate_signature(
         self,
         url: str,
-        params: Dict[str, Any],
+        params: dict[str, Any],
         signature: str,
     ) -> bool:
         """

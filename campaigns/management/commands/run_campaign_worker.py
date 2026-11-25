@@ -1,9 +1,9 @@
-import time
 import logging
+import time
+
 from django.core.management.base import BaseCommand
-from django.utils import timezone
-from django.db import transaction
 from django.db.models import Q
+from django.utils import timezone
 
 from campaigns.models import Campaign
 from campaigns.services import process_campaign_batch

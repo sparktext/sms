@@ -1,11 +1,11 @@
-import time
-import json
 import logging
-from typing import Optional, Dict, Any, List
+import time
+from typing import Any
+
 import requests
 from django.conf import settings
 
-from .base import BaseAIClient, AIResponse
+from .base import AIResponse, BaseAIClient
 
 logger = logging.getLogger(__name__)
 
@@ -17,16 +17,17 @@ class OpenAICompatibleClient(BaseAIClient):
 
     def __init__(
         self,
-        base_url: Optional[str] = None,
-        model: Optional[str] = None,
-        api_key: Optional[str] = None,
-        timeout: Optional[int] = None,
-        max_retries: Optional[int] = None,
+        base_url: str | None = None,
+        model: str | None = None,
+        api_key: str | None = None,
+        timeout: int | None = None,
+        max_retries: int | None = None,
     ):
         self.base_url = (base_url or getattr(settings, "AI_BASE_URL", "http://localhost:1235/v1")).rstrip("/")
         if not model:
             try:
                 from pathlib import Path
+
                 import environ
                 env_file = Path(settings.BASE_DIR) / ".env"
                 if env_file.exists():
@@ -43,8 +44,8 @@ class OpenAICompatibleClient(BaseAIClient):
     def generate(
         self,
         system_prompt: str,
-        messages: List[Dict[str, str]],
-        schema: Optional[Dict[str, Any]] = None,
+        messages: list[dict[str, str]],
+        schema: dict[str, Any] | None = None,
     ) -> AIResponse:
         endpoint = f"{self.base_url}/chat/completions"
 
@@ -52,11 +53,14 @@ class OpenAICompatibleClient(BaseAIClient):
         for m in messages:
             chat_messages.append({"role": m.get("role", "user"), "content": m.get("content", "")})
 
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "model": self.model,
             "messages": chat_messages,
             "temperature": 0.4,
         }
+        if getattr(settings, "AI_DISABLE_THINKING", False):
+            # llama.cpp / LM Studio: render the chat template with thinking switched off
+            payload["chat_template_kwargs"] = {"enable_thinking": False}
 
         # Request structured JSON format if schema provided
         if schema:
@@ -73,7 +77,7 @@ class OpenAICompatibleClient(BaseAIClient):
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
-        last_exc: Optional[Exception] = None
+        last_exc: Exception | None = None
         for attempt in range(self.max_retries + 1):
             t_start = time.perf_counter()
             try:
@@ -125,4 +129,3 @@ class OpenAICompatibleClient(BaseAIClient):
                     time.sleep(1.0)
 
         raise RuntimeError(f"AI generation failed after {self.max_retries + 1} attempt(s): {last_exc}") from last_exc
-

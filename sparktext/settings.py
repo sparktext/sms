@@ -10,19 +10,17 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
-from pathlib import Path
-import environ
-import json
-import os
 import sys
+from pathlib import Path
+
+import environ
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Read environment variables
 env = environ.Env(
-    DEBUG=(bool, True),
-    SECRET_KEY=(str, "django-insecure-@^3s@sl(m65*7z*#-d@obnklrqilm_zci@9s)f9p_o)!q@7k=6"),
+    DEBUG=(bool, False),
     TWILIO_ACCOUNT_SID=(str, ""),
     TWILIO_AUTH_TOKEN=(str, ""),
     TWILIO_PHONE_NUMBER=(str, ""),
@@ -39,6 +37,7 @@ env = environ.Env(
     AI_API_KEY=(str, ""),
     AI_TIMEOUT_SECONDS=(int, 45),
     AI_MAX_RETRIES=(int, 1),
+    AI_DISABLE_THINKING=(bool, False),
     # Auth / Email additions
     BREVO_API_KEY=(str, ""),
     GOOGLE_OAUTH_JSON_PATH=(str, "secrets/google_oauth.json"),
@@ -50,7 +49,7 @@ env = environ.Env(
     TURNSTILE_ENABLED=(bool, False),
     TURNSTILE_SITE_KEY=(str, ""),
     TURNSTILE_SECRET_KEY=(str, ""),
-    
+
     EMAIL_BACKEND=(str, "django.core.mail.backends.smtp.EmailBackend"),
     EMAIL_HOST=(str, "smtp.hostinger.com"),
     EMAIL_PORT=(int, 465),
@@ -61,7 +60,7 @@ env = environ.Env(
     DEFAULT_FROM_EMAIL=(str, "info@sparktext.si"),
     CONTACT_EMAIL=(str, "info@sparktext.si"),
 )
-environ.Env.read_env(BASE_DIR / ".env", overwrite=True)
+environ.Env.read_env(BASE_DIR / ".env", overwrite=False)
 
 
 # Quick-start development settings - unsuitable for production
@@ -72,10 +71,8 @@ SECRET_KEY = env("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env("DEBUG")
-
-ALLOWED_HOSTS = ["localhost", "127.0.0.1", "testserver", "*", "https://denim-creamed-starlit.ngrok-free.dev"]
-
-CSRF_TRUSTED_ORIGINS = ["https://denim-creamed-starlit.ngrok-free.dev", "http://denim-creamed-starlit.ngrok-free.dev"]
+ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
+CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 USE_X_FORWARDED_HOST = True
 USE_X_FORWARDED_PORT = True
@@ -109,7 +106,7 @@ INSTALLED_APPS = [
     'scheduling',
     'core',
     'website',
-    
+
 ]
 
 SITE_ID = 1
@@ -124,9 +121,19 @@ LOGIN_URL = "/accounts/login/"
 LOGIN_REDIRECT_URL = "/app/me/"  # → accounts:me_redirect → /app/<public_id>/ → dashboard
 LOGOUT_REDIRECT_URL = "/accounts/login/"
 
+# Two public hostnames served by this one project (see core/middleware.py). Leave both empty in
+# dev/CI. Production: MARKETING_HOST=sparktext.si and APP_HOST=app.sparktext.si.
+MARKETING_HOST = env("MARKETING_HOST", default="")
+APP_HOST = env("APP_HOST", default="")
+
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # sparktext.si = landing pages only, app.sparktext.si = everything else (no-op when unset)
+    'core.middleware.HostRoutingMiddleware',
+    # Serves /static/ directly from the app (compressed + cache-forever hashed filenames).
+    # Must sit right after SecurityMiddleware and before everything else.
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -165,7 +172,8 @@ TEMPLATES = [
 WSGI_APPLICATION = 'sparktext.wsgi.application'
 ASGI_APPLICATION = 'sparktext.asgi.application'
 
-TESTING = "test" in sys.argv
+# True under `manage.py test` AND under pytest (pytest-django imports pytest before loading settings).
+TESTING = "test" in sys.argv[1:2] or "pytest" in sys.modules
 if TESTING:
     CHANNEL_LAYERS = {
         "default": {
@@ -197,29 +205,20 @@ else:
 # Database
 # https://docs.djangoproject.com/en/6.1/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'sparktext',
-        'USER': 'postgres',
-        'PASSWORD': 'sparktext',
-        'HOST': env("DB_HOST", default="localhost") ,
-        'PORT': '5432',
-    }
-}
-
-# Ensure sslmode='require' for Supabase PostgreSQL
-# Database SSL configuration
-if DATABASES['default']['ENGINE'] == 'django.db.backends.postgresql':
-    db_sslmode = env(
-        "DB_SSLMODE",
-        default="require" if not DEBUG else "disable"
-    )
-
-    DATABASES['default'].setdefault('OPTIONS', {})
-    DATABASES['default']['OPTIONS']['sslmode'] = db_sslmode
-
-
+DATABASES = {"default": env.db("DATABASE_URL")}   # no default → fail fast
+DATABASES["default"].setdefault("OPTIONS", {})["sslmode"] = env(
+    "DB_SSLMODE", default="disable" if DEBUG else "require"
+)
+if not DEBUG:
+    SECURE_SSL_REDIRECT = True                  # http:// → https://
+    SECURE_REDIRECT_EXEMPT = [r"^healthz$", r"^readyz$"]  # internal health checks use plain http
+    SESSION_COOKIE_SECURE = True                # session cookie only sent over HTTPS
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = env.int("SECURE_HSTS_SECONDS", default=3600)
+    SECURE_REFERRER_POLICY = "same-origin"
+    # `check --deploy` gate in CI fails on any warning. These two are deliberate for now: HSTS is
+    # ramping up (3600s first); includeSubDomains/preload come only after the domain is proven stable.
+    SILENCED_SYSTEM_CHECKS = ["security.W005", "security.W021"]
 # Password validation
 # https://docs.djangoproject.com/en/6.1/ref/settings/#auth-password-validators
 
@@ -263,7 +262,21 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
-STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATIC_ROOT = BASE_DIR / 'staticfiles'   # `collectstatic` gathers everything here (done at Docker build time)
+
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {
+        # Production: gzip/brotli-compressed files with content hashes in their names
+        # (app.css -> app.3f9a1c.css), so browsers can cache them forever and a deploy
+        # automatically busts the cache. Tests use plain storage (no collectstatic needed).
+        "BACKEND": (
+            "django.contrib.staticfiles.storage.StaticFilesStorage"
+            if TESTING
+            else "whitenoise.storage.CompressedManifestStaticFilesStorage"
+        ),
+    },
+}
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
@@ -317,6 +330,9 @@ AI_MODEL = env("AI_MODEL", default="google/gemma-4-12b-qat")
 AI_API_KEY = env("AI_API_KEY", default="")
 AI_TIMEOUT_SECONDS = env("AI_TIMEOUT_SECONDS", default=45)
 AI_MAX_RETRIES = env("AI_MAX_RETRIES", default=1)
+# Reasoning models (e.g. Gemma 4) "think" in hidden tokens before answering: slower, and useless for
+# short SMS replies. True = ask llama.cpp/LM Studio to skip it (chat_template_kwargs.enable_thinking).
+AI_DISABLE_THINKING = env.bool("AI_DISABLE_THINKING", default=False)
 # How many conversations the AI worker replies to at once (keep <= LM Studio "Max Concurrent Predictions")
 AI_WORKER_CONCURRENCY = env.int("AI_WORKER_CONCURRENCY", default=1)
 
@@ -419,3 +435,33 @@ CELERY_BROKER_CONNECTION_TIMEOUT = 1
 TURNSTILE_ENABLED = env('TURNSTILE_ENABLED', default=False)
 TURNSTILE_SITE_KEY = env('TURNSTILE_SITE_KEY', default='')
 TURNSTILE_SECRET_KEY = env('TURNSTILE_SECRET_KEY', default='')
+
+# =============================================================================
+# Logging: everything goes to stdout (12-factor rule XI: logs are event streams)
+# =============================================================================
+# Containers are disposable, so log FILES inside them vanish on every deploy.
+# Docker captures stdout (`docker compose logs web`) and ships it to any log collector.
+LOG_LEVEL = env("LOG_LEVEL", default="INFO")
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "console": {"format": "%(asctime)s %(levelname)s [%(name)s] %(message)s"},
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "stream": "ext://sys.stdout",
+            "formatter": "console",
+        },
+    },
+    "root": {"handlers": ["console"], "level": LOG_LEVEL},
+    "loggers": {
+        "django": {
+            "handlers": ["console"],
+            "level": env("DJANGO_LOG_LEVEL", default="INFO"),
+            "propagate": False,
+        },
+    },
+}

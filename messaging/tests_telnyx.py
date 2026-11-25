@@ -1,16 +1,16 @@
 import base64
 import json
 import time
-from unittest.mock import patch, MagicMock
-from django.test import TestCase, Client, override_settings
-from django.utils import timezone
+from unittest.mock import MagicMock, patch
 
-from core.models import Organization, User
-from contacts.models import Contact
+from django.test import Client, TestCase, override_settings
+
 from compliance.models import ConsentEvent
-from messaging.models import PhoneNumber, Conversation, Message
-from messaging.providers.telnyx_provider import TelnyxProvider
+from contacts.models import Contact
+from core.models import Organization, User
+from messaging.models import Conversation, Message, PhoneNumber
 from messaging.providers import get_sms_provider
+from messaging.providers.telnyx_provider import TelnyxProvider
 
 
 def _new_telnyx_keypair():

@@ -1,14 +1,14 @@
-import time
-import signal
-import logging
 import threading
 import importlib
-from datetime import timedelta
+import logging
+import signal
+import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
-from django.db import transaction, connections
+from django.db import connections, transaction
 from django.db.models import Exists, OuterRef
 from django.utils import timezone
 
@@ -54,11 +54,11 @@ class Command(BaseCommand):
 
     def _reload_pipeline(self):
         """Pick up code edits without restarting (only called while no reply is in progress)."""
-        import messaging.ai.validator
-        import messaging.ai.prompt
         import messaging.ai.pipeline
         import scheduling.calls
         importlib.reload(scheduling.calls)            # call booking rules the pipeline uses
+        import messaging.ai.prompt
+        import messaging.ai.validator
         importlib.reload(messaging.ai.validator)
         importlib.reload(messaging.ai.prompt)
         importlib.reload(messaging.ai.pipeline)

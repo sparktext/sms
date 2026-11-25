@@ -1,0 +1,58 @@
+# pre-commit: quality gates that run on YOUR machine at `git commit`, before code ever reaches GitHub.
+#
+#   One-time setup per clone:   pip install -r requirements-dev.txt  &&  pre-commit install
+#   Run manually on all files:  pre-commit run --all-files
+#   Update hook versions:       pre-commit autoupdate
+#
+# Hooks only check the files you are committing (staged files), so legacy code is cleaned up
+# gradually as it is touched ("leave the campsite cleaner than you found it").
+# Slow checks (full test suite, Docker build, security scans) belong in CI, not here:
+# a commit hook must finish in seconds or people start bypassing it.
+
+default_install_hook_types: [pre-commit]
+fail_fast: false
+
+repos:
+  # --- Generic file hygiene & safety --------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: no-commit-to-branch          # refuse local commits on main: work on a branch + PR
+        args: [--branch, main]
+      - id: check-merge-conflict         # leftover <<<<<<< ======= >>>>>>> markers
+      - id: check-added-large-files      # stop DB dumps / binaries sneaking into git
+        args: [--maxkb=500]
+      - id: detect-private-key           # PEM private keys (SSH / TLS / service-account keys)
+      - id: check-yaml                   # docker-compose.yml, this file, GitHub workflows
+      - id: check-toml                   # pyproject.toml
+      - id: check-json
+      - id: check-ast                    # Python files must at least parse
+      - id: debug-statements             # forgotten breakpoint() / pdb
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+
+  # --- Secret scanning ----------------------------------------------------------------------
+  # Catches API keys/tokens/passwords (Brevo, Twilio, Google, AWS, ...) in staged changes.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  # --- Python lint (config lives in pyproject.toml) ----------------------------------------
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.6                         # keep in sync with ruff in requirements-dev.txt
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      # - id: ruff-format                # enable together with the one-off formatting PR
+
+  # --- Django-specific ----------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: django-missing-migrations
+        name: Django - no missing migrations
+        # Changed a model but forgot `makemigrations`? Production would break at deploy time.
+        entry: python manage.py makemigrations --check --dry-run
+        language: system
+        pass_filenames: false
+        files: (^|/)models(\.py|/)
