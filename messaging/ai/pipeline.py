@@ -934,7 +934,7 @@ def _plan_call(client, conversation, trigger_message, parsed_data):
         # "anytime" / "whenever" to the time we suggested: that suggestion works for them
         if existing and abs((existing.start_at - pending).total_seconds()) < 60:
             return None
-        return {**plan, "action": "book", "moment": pending, "how": "exact"}
+        return _unless_full({**plan, "action": "book", "moment": pending, "how": "exact"}, org)
     pinned =any(str(when.get(k) or "").strip() for k in ("date", "time", "part_of_day")) or when.get("asap")
     if words and _AFFIRM_RE.match(words) and not (_TIME_CUE_RE.search(words) or _DAY_CUE_RE.search(words)):
         words = ""            # the model quoted their "YES" as the time: a plain yes names no time (next open slot)
@@ -971,7 +971,11 @@ def _plan_call(client, conversation, trigger_message, parsed_data):
                else "outside the legal calling window (8 AM-9 PM their time)")
         said_time = bool(str(when.get("time") or "").strip() or str(when.get("part_of_day") or "").strip())
         asked = calls.proposal_text(moment, lead_tz) if said_time else calls.fmt_day(local_req)
-        if not calls.is_call_day(moment, lead_tz, org):
+        closed = calls.closed_reason_at(moment, org)
+        if closed:
+            reason = f"our office is closed on {calls.fmt_day(local_req)} ({closed})"
+            why = f"a day your office is closed ({closed})"
+        elif not calls.is_call_day(moment, lead_tz, org):
             reason = f"our agents don't make calls on {local_req:%A}s"
         else:
             hours = calls.lead_window(org, lead_tz, local_req.date())
@@ -1068,7 +1072,8 @@ def _call_reply(client, config, conversation, chat_messages, plan, booked: bool)
     elif plan.get("how") == "instead":
         # They asked for a time we can't call (Saturday, 7 AM): say why, and suggest the nearest time we can
         asked, reason = plan.get("asked") or "that time", plan.get("reason") or "we can't call then"
-        instruction = (f"They asked for a call on {asked} (their own time), but {reason} (they call "
+        asked_phrase = plan.get("asked_phrase") or f"a call on {asked}"
+        instruction = (f"They asked for {asked_phrase} (their own time), but {reason} (they call "
                        f"{plan.get('window') or '8 AM-9 PM'}, the customer's time), so it was NOT booked. In one "
                        f"or two short, friendly sentences, say that kindly and suggest {proposal} instead, inviting "
                        f"them to pick another time (for example: \"Sorry, {reason}. Would {proposal} work instead, or "
@@ -1832,20 +1837,6 @@ def process_ai_job(job: AIJob) -> AIReply | None:
             parsed_data["handoff_reason"] = ("🔥 Wants a call right now" if call_plan.get("urgent") else
                                              f"Wants a call - best time: "
                                              f"{proposal_text(call_plan['moment'], call_plan['lead_tz'])}")
-
-        # A wrong weekday next to a date ("The 28th is a Thursday" when it's a Saturday) is corrected by code
-        try:
-            from zoneinfo import ZoneInfo
-
-            from scheduling.calls import lead_timezone
-            lead_today = timezone.now().astimezone(
-                ZoneInfo(lead_timezone(conversation.contact, conversation.organization))).date()
-            fixed = _fix_weekdays(reply_body, lead_today)
-            if fixed != reply_body:
-                reply_body = fixed
-                parsed_data["final_reply"] = reply_body
-        except Exception as exc:
-            logger.warning("Weekday check failed for conversation %s: %s", conversation.id, exc)
 
         # A wrong weekday next to a date ("The 28th is a Thursday" when it's a Saturday) is corrected by code
         try:

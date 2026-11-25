@@ -395,7 +395,7 @@ def callable_instead(moment, tz: str, org=None, now=None):
         if i == 0 and local.time() >= last:
             # "8pm" when calls end at 6: the last slot that day is closest to what they want, if it's still ahead
             latest = datetime.combine(day, last, tzinfo=zone)
-            if latest > now + timedelta(minutes=10) and can_call_at(latest, tz, org):
+            if latest > now + timedelta(minutes=10) and can_call_at(latest, tz, org) and not slot_is_full(org, latest):
                 return latest
             continue                                   # already gone: the next day we call
         if start <= local.time() < last:
@@ -405,7 +405,7 @@ def callable_instead(moment, tz: str, org=None, now=None):
         if candidate <= now + timedelta(minutes=10):
             return next_call_slot(now, tz, org)
         if can_call_at(candidate, tz, org):
-            return candidate
+            return first_free(candidate, tz, org)
     return next_call_slot(now, tz, org)
 
 
