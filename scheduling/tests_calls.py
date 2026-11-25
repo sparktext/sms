@@ -21,6 +21,7 @@ UTC = UTC
 LA, NY = ZoneInfo("America/Los_Angeles"), ZoneInfo("America/New_York")
 
 
+@override_settings(MESSAGING_PROVIDER="fake", AI_CLIENT="fake")   # never real texts or Gemma in tests
 class Base(TestCase):
     def setUp(self):
         FakeAIClient.reset()
@@ -925,3 +926,174 @@ class GemmaKnowsTheCallHoursTests(Base):
         self.assertIn("- Call hours: our agents can call this customer 10 AM-6 PM, Monday-Friday", ca)
         ny = build_system_prompt(config, self.conv("NY"))
         self.assertIn("- Call hours: our agents can call this customer 1 PM-9 PM, Monday-Friday", ny)   # 10-6 Pacific
+
+
+def _nth(day):
+    return f"{day}{'th' if 4 <= day <= 20 else {1: 'st', 2: 'nd', 3: 'rd'}.get(day % 10, 'th')}"
+
+
+class WeekendDayChatTests(Base):
+    """Live chat (Nov 25): "i am free on 28" (a Saturday) -> Gemma said "The 28th is a Thursday", then "anytime"
+    proposed a time on the wrong day, and the out-of-hours reply invited Saturday again."""
+
+    def setUp(self):
+        super().setUp()
+        AIAssistantConfig.objects.create(organization=self.org, business_name="Pacific Test",
+                                         mode=AIAssistantConfig.Mode.AUTO)
+        self.org.call_days = [0, 1, 2, 3, 4]
+        self.org.call_start, self.org.call_end = time_cls(9, 0), time_cls(18, 0)
+        self.org.save()
+
+    def today(self):
+        return timezone.now().astimezone(LA).date()
+
+    def next_weekday(self, weekday, after=1):
+        d = self.today() + timedelta(days=after)
+        while d.weekday() != weekday:
+            d += timedelta(days=1)
+        return d
+
+    def say(self, conv, ours, theirs, reply, read=None, reason="Wants a call"):
+        if ours:
+            Message.objects.create(organization=self.org, conversation=conv, direction=Message.Direction.OUTBOUND,
+                                   sender_type=Message.SenderType.AI, status=Message.Status.DELIVERED, body=ours)
+        msg = Message.objects.create(organization=self.org, conversation=conv, direction=Message.Direction.INBOUND,
+                                     sender_type=Message.SenderType.CUSTOMER, body=theirs,
+                                     status=Message.Status.RECEIVED)
+        FakeAIClient.push_response({"reply": reply, "intent": "answer", "collected": {}, "needs_human": True,
+                                    "handoff_reason": reason, "checks": {}})
+        if read is not None:
+            FakeAIClient.push_response({"wants_call": True, "date": "", "time": "", "part_of_day": "", "asap": False,
+                                        "their_words": "", "day_said": False, "am_pm_said": False, **read})
+        process_ai_job(AIJob.objects.create(conversation=conv, trigger_message=msg, status=AIJob.Status.PENDING,
+                                            run_after=timezone.now()))
+        conv.refresh_from_db()
+        return Message.objects.filter(conversation=conv, sender_type=Message.SenderType.AI).order_by(
+            "-created_at").values_list("body", flat=True).first()
+
+    def proposal(self, conv):
+        out = conv.ai_replies.order_by("-created_at").first().parsed_output
+        return datetime.fromisoformat(out["call_proposal"]) if out.get("call_proposal") else None
+
+    def test_a_saturday_by_day_number_gets_monday_suggested_and_yes_books_it(self):
+        conv = self.conv("CA")
+        sat = self.next_weekday(5)
+        mon = sat + timedelta(days=2)
+        reply = self.say(conv, "Would any time between 9 AM and 6 PM on a weekday work for you?",
+                         f"i am free on {sat.day}", f"Got it! The {_nth(sat.day)} is a Thursday, would you like a call?",
+                         read={"their_words": f"on {sat.day}"})       # the reader dropped the date
+        self.assertFalse(CalendarEvent.objects.filter(conversation=conv).exists())
+        self.assertIn("Saturdays", reply)
+        self.assertIn(f"Mon, {mon:%b} {mon.day}", reply)
+        self.assertNotIn("Thursday", reply)
+        self.assertEqual(self.proposal(conv), datetime.combine(mon, time_cls(10, 0), tzinfo=LA))
+        self.assertIn("Gemma suggested 10 AM on Mon", self.call_notes(conv)[-1])
+        self.assertIn(f"Sat, {sat:%b} {sat.day} their time", self.call_notes(conv)[-1])   # no invented "10 AM"
+        # "yes" books the Monday we suggested
+        self.say(conv, None, "yes", "Great!")
+        self.assertEqual(CalendarEvent.objects.get(conversation=conv).start_at,
+                         datetime.combine(mon, time_cls(10, 0), tzinfo=LA))
+
+    def test_a_saturday_time_keeps_the_hour_on_monday(self):
+        conv = self.conv("CA")
+        sat = self.next_weekday(5)
+        reply = self.say(conv, None, "can they call me saturday 11 am", "Sure, Saturday at 11!",
+                         read={"date": sat.isoformat(), "time": "11:00", "day_said": True, "am_pm_said": True,
+                               "their_words": "saturday 11 am"})
+        self.assertFalse(CalendarEvent.objects.filter(conversation=conv).exists())
+        self.assertEqual(self.proposal(conv), datetime.combine(sat + timedelta(days=2), time_cls(11, 0), tzinfo=LA))
+        self.assertNotIn("Sure, Saturday", reply)
+
+    def test_anytime_keeps_the_day_we_were_talking_about(self):
+        conv = self.conv("CA")
+        tue = self.next_weekday(1, after=2)
+        self.say(conv, f"Great, the {_nth(tue.day)} works! What time is best for you?",
+                 "anytime", "Great!", read={"asap": True, "their_words": "anytime"})
+        self.assertEqual(self.proposal(conv), datetime.combine(tue, time_cls(9, 0), tzinfo=LA))   # not "9 AM today"
+        self.assertFalse(CalendarEvent.objects.filter(conversation=conv).exists())
+
+    def test_anytime_to_our_suggestion_books_it(self):
+        conv = self.conv("CA")
+        sat = self.next_weekday(5)
+        self.say(conv, "Would any time on a weekday work for you?", f"how about the {_nth(sat.day)}", "Sure!",
+                 read={"date": sat.isoformat(), "day_said": True, "their_words": f"the {_nth(sat.day)}"})
+        suggested = self.proposal(conv)
+        self.assertIsNotNone(suggested)
+        self.say(conv, None, "anytime", "Great!", read={"asap": True, "their_words": "anytime"})
+        self.assertEqual(CalendarEvent.objects.get(conversation=conv).start_at, suggested)
+
+
+    def test_a_misspelt_saturday_is_not_read_as_today(self):
+        # Live: "can they call me satrday 7 am" was read as 7 AM today
+        conv = self.conv("CA")
+        today, sat = self.today(), self.next_weekday(5, after=0)
+        self.say(conv, None, "can they call me satrday 7 am", "Sure!",
+                 read={"date": today.isoformat(), "time": "07:00", "day_said": True, "am_pm_said": True,
+                       "their_words": "satrday 7 am"})
+        self.assertFalse(CalendarEvent.objects.filter(conversation=conv).exists())
+        self.assertIn(f"Sat, {sat:%b} {sat.day}", self.call_notes(conv)[-1])
+        suggested = self.proposal(conv).astimezone(LA)
+        self.assertEqual((suggested.date(), suggested.hour), (sat + timedelta(days=2), 9))     # Monday 9 AM
+
+
+class DateWordsTests(TestCase):
+    def test_a_day_number_alone_is_the_next_such_date(self):
+        from datetime import date
+
+        from messaging.ai.pipeline import _explicit_date
+        today = date(2026, 11, 25)
+        self.assertEqual(_explicit_date("i am free on 28", today), date(2026, 11, 28))
+        self.assertEqual(_explicit_date("anytime on the 28th", today), date(2026, 11, 28))
+        self.assertEqual(_explicit_date("the 3rd works", today), date(2026, 12, 3))
+        self.assertEqual(_explicit_date("31st", today), date(2026, 12, 31))
+        self.assertEqual(_explicit_date("how about the 25th", today), date(2026, 11, 25))
+        for text in ("call me for 5 min", "on 3pm", "at 3", "in 2 days", "next 2 weeks", "i have 2 cars"):
+            self.assertIsNone(_explicit_date(text, today), text)
+
+    def test_misspelt_weekdays_are_recognised(self):
+        from messaging.ai.pipeline import _typed_weekday
+        for text, day in {"satrday 7 am": 5, "thrusday works": 3, "wensday?": 2, "on Friday": 4, "sunday": 6}.items():
+            self.assertEqual(_typed_weekday(text), day, text)
+        for text in ("today at 3", "tomorrow", "i have money", "thirsty", "call me later"):
+            self.assertIsNone(_typed_weekday(text), text)
+
+    def test_wrong_weekdays_are_corrected(self):
+        from datetime import date
+
+        from messaging.ai.pipeline import _fix_weekdays
+        today = date(2026, 11, 25)                     # a Wednesday; Nov 28 is a Saturday
+        cases = {
+            "Got it! The 28th is a Thursday, would you like a call then?":
+                "Got it! The 28th is a Saturday, would you like a call then?",
+            "Would 9 AM on Thu, Nov 28 work?": "Would 9 AM on Sat, Nov 28 work?",
+            "How about thursday the 28th?": "How about saturday the 28th?",
+            "Nov 28 (Thursday) works": "Nov 28 (Saturday) works",
+            "Would Monday, November 30 work?": "Would Monday, November 30 work?",     # already right
+            "3 is a good time": "3 is a good time",
+            "We're open Monday-Friday, 9 AM-6 PM.": "We're open Monday-Friday, 9 AM-6 PM.",
+        }
+        for wrong, right in cases.items():
+            self.assertEqual(_fix_weekdays(wrong, today), right)
+
+
+class CallableInsteadTests(Base):
+    def setUp(self):
+        super().setUp()
+        self.org.call_days = [0, 1, 2, 3, 4]
+        self.org.call_start, self.org.call_end = time_cls(9, 0), time_cls(18, 0)
+        self.org.save()
+        self.now = datetime(2027, 1, 5, 12, 0, tzinfo=LA)        # Tuesday noon
+
+    def at(self, day, hour):
+        return datetime(2027, 1, day, hour, 0, tzinfo=LA)
+
+    def test_nearest_time_we_can_call(self):
+        tz = "America/Los_Angeles"
+        self.assertEqual(calls.callable_instead(self.at(9, 11), tz, self.org, self.now), self.at(11, 11))  # Sat -> Mon
+        self.assertEqual(calls.callable_instead(self.at(6, 7), tz, self.org, self.now), self.at(6, 9))     # too early
+        late = datetime(2027, 1, 6, 17, 30, tzinfo=LA)
+        self.assertEqual(calls.callable_instead(self.at(6, 20), tz, self.org, self.now), late)  # 8 PM -> last slot
+        self.assertEqual(calls.callable_instead(self.at(5, 20), tz, self.org, self.now),
+                         datetime(2027, 1, 5, 17, 30, tzinfo=LA))                       # today, still ahead
+        evening = datetime(2027, 1, 5, 17, 50, tzinfo=LA)                               # today's last slot is gone
+        self.assertEqual(calls.callable_instead(self.at(5, 20), tz, self.org, evening), self.at(6, 9))

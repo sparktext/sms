@@ -532,12 +532,32 @@ _MONTH_RE = r"(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|
 _DATE_MONTH_DAY_RE = re.compile(_MONTH_RE + r"\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b(?:,?\s+(\d{4}))?", re.I)
 _DATE_DAY_MONTH_RE = re.compile(r"\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?" + _MONTH_RE + r"\b(?:,?\s+(\d{4}))?", re.I)
 _DATE_NUMERIC_RE = re.compile(r"\b(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?\b")
+# A day of the month on its own: "on 28", "on the 28th", "the 28th", "28th" (not "on 3pm", "for 5 min")
+_DATE_DAY_ONLY_RE = re.compile(
+    r"\b(?:on|the)\s+(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)?\b(?!\s*(?:[ap]\.?m\b|:\d|o'?clock|min|hour|hr|"
+    r"day|week|month|year|%))|\b(\d{1,2})(?:st|nd|rd|th)\b", re.I)
+
+
+def _day_of_month(day: int, today):
+    """The next date with that day number: "the 28th" on Nov 25 -> Nov 28; "the 3rd" on Nov 25 -> Dec 3."""
+    from datetime import date as date_cls
+    year, month = today.year, today.month
+    for _ in range(3):
+        try:
+            candidate = date_cls(year, month, day)
+            if candidate >= today:
+                return candidate
+        except ValueError:
+            pass                                       # e.g. the 31st in a 30-day month: try the next month
+        year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+    return None
 
 
 def _explicit_date(text: str, today):
-    """A calendar date the lead wrote out ("march 15", "19 nov", "3/15", "the 15th of March"), or None.
+    """A calendar date the lead wrote out ("march 15", "19 nov", "3/15", "the 15th of March", "on 28"), or None.
     No year given: this year, unless that's more than 60 days ago, then next year ("nov 19" said on Nov 25 is
-    a date that already passed; "march 15" said in November means next March)."""
+    a date that already passed; "march 15" said in November means next March). A day number alone is the next
+    such date ("on 28" said on Nov 25 = Nov 28)."""
     from datetime import date as date_cls
     text = text or ""
     found = None
@@ -552,6 +572,10 @@ def _explicit_date(text: str, today):
             m = _DATE_NUMERIC_RE.search(text)
             if m:
                 found = (int(m.group(1)), int(m.group(2)), m.group(3))
+            else:
+                m = _DATE_DAY_ONLY_RE.search(text)
+                day_num = int(m.group(1) or m.group(2)) if m else 0
+                return _day_of_month(day_num, today) if 1 <= day_num <= 31 else None
     if not found:
         return None
     month, day, year = found
@@ -568,6 +592,66 @@ def _explicit_date(text: str, today):
         except ValueError:
             return None
     return candidate
+
+
+_WEEKDAY_RE = r"(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thu(?:rs?)?|fri|sat|sun)"
+_WEEKDAY_FULL = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+_WEEKDAY_CLAIMS = [
+    # "the 28th is a Thursday", "28 is a Thursday"
+    re.compile(r"\b(?:the\s+)?(?P<d>\d{1,2})(?:st|nd|rd|th)?\s+is\s+(?:a\s+)?(?P<w>" + _WEEKDAY_RE + r")\b", re.I),
+    # "Nov 28 (Thursday)", "November 28th is a Thursday", "Nov 28, Thu"
+    re.compile(r"\b(?P<m>" + _MONTH_RE + r")\.?\s+(?P<d>\d{1,2})(?:st|nd|rd|th)?\s*(?:\(|,|is\s+(?:a\s+)?)\s*(?P<w>"
+               + _WEEKDAY_RE + r")\b", re.I),
+    # "Thursday the 28th", "Thu, 28th"
+    re.compile(r"\b(?P<w>" + _WEEKDAY_RE + r")\.?,?\s+(?:the\s+)?(?P<d>\d{1,2})(?:st|nd|rd|th)\b", re.I),
+    # "Thursday, Nov 28", "Thu (Nov 28)"
+    re.compile(r"\b(?P<w>" + _WEEKDAY_RE + r")\.?,?\s+\(?(?P<m>" + _MONTH_RE + r")\.?\s+(?P<d>\d{1,2})\b", re.I),
+]
+
+
+def _parse_iso_date(value):
+    from datetime import date as date_cls
+    try:
+        return date_cls.fromisoformat(str(value or "").strip()[:10])
+    except ValueError:
+        return None
+
+
+def _typed_weekday(text: str):
+    """The weekday the lead typed, typos included ("satrday", "thrusday", "wensday"): 0 = Monday ... 6 = Sunday."""
+    import difflib
+    names = [n.lower() for n in _WEEKDAY_FULL]
+    for word in re.findall(r"[a-z]{5,}", (text or "").lower()):
+        if word in ("today", "tonight", "yesterday", "tomorrow"):
+            continue
+        match = difflib.get_close_matches(word, names, n=1, cutoff=0.8)
+        if match:
+            return names.index(match[0])
+    return None
+
+
+def _fix_weekdays(text: str, today) -> str:
+    """Correct a wrong weekday next to a date in a reply: Gemma once wrote "The 28th is a Thursday" (it was a
+    Saturday). Code knows the calendar, so the weekday is set from the date."""
+    if not text:
+        return text
+    for pattern in _WEEKDAY_CLAIMS:
+        def fix(m):
+            month = m.groupdict().get("m")
+            date = _explicit_date(f"{month} {m.group('d')}", today) if month else _day_of_month(int(m.group("d")), today)
+            if date is None:
+                return m.group(0)
+            word = m.group("w")
+            right = _WEEKDAY_FULL[date.weekday()]
+            if len(word) <= 5:
+                right = right[:3]                      # keep their short form: "Thu" -> "Sat"
+            if word.islower():
+                right = right.lower()
+            start, end = m.start("w") - m.start(0), m.end("w") - m.start(0)
+            whole = m.group(0)
+            return whole[:start] + right + whole[end:]
+        text = pattern.sub(fix, text)
+    return text
 
 
 def _call_time_wanted(conversation, trigger_message, parsed_data, pending=None) -> bool:
@@ -591,7 +675,10 @@ def _call_time_wanted(conversation, trigger_message, parsed_data, pending=None) 
     if booked:
         return True                                   # a booked call may be moving
     last = _last_outbound_text(conversation, trigger_message).lower()
-    return _is_call_offer(last) or "what time" in last or ("call" in last and "?" in last)
+    # We asked about the call or when to have it ("Would any time on a weekday work for you?"): "i am free on 28"
+    # answers it (the time reader still decides whether they want a call)
+    return _is_call_offer(last) or "what time" in last or (
+        "?" in last and bool(re.search(r"\b(call|time|times|day|days|weekday|when)\b", last)))
 
 
 def _read_call_time(client, conversation, trigger_message, lead_tz: str, now) -> dict[str, Any]:
@@ -735,10 +822,28 @@ def _plan_call(client, conversation, trigger_message, parsed_data):
         return {**plan, "action": "book", "moment": pending, "how": "exact"}
     _settle_what_they_said(when, f"{words} {text}", pending, lead_tz)
     # A date they wrote out is read by code too: the model once dropped "march 15" and the call landed on today
-    written = _explicit_date(text, now.astimezone(ZoneInfo(lead_tz)).date())
+    lead_today = now.astimezone(ZoneInfo(lead_tz)).date()
+    written = _explicit_date(text, lead_today)
+    typed_day = _typed_weekday(text)
     if written:
         when["date"], when["day_said"] = written.isoformat(), True
-    pinned = any(str(when.get(k) or "").strip() for k in ("date", "time", "part_of_day")) or when.get("asap")
+    elif typed_day is not None and (_parse_iso_date(when.get("date")) or lead_today).weekday() != typed_day:
+        # "satrday 7 am": the reader missed the misspelt day and read it as today. The next such weekday it is.
+        day = lead_today + timedelta(days=(typed_day - lead_today.weekday()) % 7)
+        when["date"], when["day_said"] = day.isoformat(), True
+    elif pending is None and not when.get("day_said") and not existing:
+        # "anytime" answering our "The 28th works! What time is best?": the day is the one we were talking about
+        last = _last_outbound_text(conversation, trigger_message)
+        ours = _explicit_date(last, lead_today) if _asks_call_time(last) else None
+        if ours:
+            when["date"], when["day_said"] = ours.isoformat(), True
+    if pending is not None and when.get("asap") and not when.get("day_said") \
+            and not str(when.get("time") or "").strip() and not str(when.get("part_of_day") or "").strip():
+        # "anytime" / "whenever" to the time we suggested: that suggestion works for them
+        if existing and abs((existing.start_at - pending).total_seconds()) < 60:
+            return None
+        return {**plan, "action": "book", "moment": pending, "how": "exact"}
+    pinned =any(str(when.get(k) or "").strip() for k in ("date", "time", "part_of_day")) or when.get("asap")
     if words and _AFFIRM_RE.match(words) and not (_TIME_CUE_RE.search(words) or _DAY_CUE_RE.search(words)):
         words = ""            # the model quoted their "YES" as the time: a plain yes names no time (next open slot)
         plan["words"] = ""
@@ -765,15 +870,26 @@ def _plan_call(client, conversation, trigger_message, parsed_data):
                 "note": f"📅 Couldn't book the call automatically ({how}{f': “{words}”' if words else ''}). "
                         "Please agree a time with the lead."}
     if not calls.can_call_at(moment, lead_tz, org):
-        # 11 PM, or a Saturday when the team doesn't work: don't book it, ask for a time we can call
-        window = calls.lead_hours_text(org, lead_tz, moment.astimezone(ZoneInfo(lead_tz)).date())
+        # 11 PM, or a Saturday when the team doesn't work: don't book it. Suggest the nearest time we CAN call
+        # (Saturday -> Monday) so the lead can just say yes; an open "what time works?" invited Saturday again.
+        local_req = moment.astimezone(ZoneInfo(lead_tz))
+        window = calls.lead_hours_text(org, lead_tz, local_req.date())
         legal = calls.legal_for_lead(moment, lead_tz)
         why = (f"outside your team's call hours ({calls.team_hours_text(org)})" if legal
                else "outside the legal calling window (8 AM-9 PM their time)")
-        return {**plan, "action": "note", "kind": "hours", "why": f"we call {window}", "window": window,
-                "note": f"📅 The lead asked for {calls.proposal_text(moment, lead_tz)} their time"
-                        f"{f' (“{words}”)' if words else ''}, which is {why}. Gemma offered {window} "
-                        "(their time) instead."}
+        said_time = bool(str(when.get("time") or "").strip() or str(when.get("part_of_day") or "").strip())
+        asked = calls.proposal_text(moment, lead_tz) if said_time else calls.fmt_day(local_req)
+        if not calls.is_call_day(moment, lead_tz, org):
+            reason = f"our agents don't make calls on {local_req:%A}s"
+        else:
+            hours = calls.lead_window(org, lead_tz, local_req.date())
+            reason = (f"that's outside our agents' call hours ({calls.fmt_clock(hours[0])}-{calls.fmt_clock(hours[1])} "
+                      "your time)" if hours else "that's outside the hours our agents can call")
+        instead = calls.callable_instead(moment, lead_tz, org, now)
+        return {**plan, "action": "confirm", "moment": instead, "how": "instead", "kind": "hours",
+                "asked": asked, "reason": reason, "window": window,
+                "note": f"📅 The lead asked for {asked} their time{f' (“{words}”)' if words else ''}, which is "
+                        f"{why}. Gemma suggested {calls.proposal_text(instead, lead_tz)} (their time) instead."}
     if existing and abs((existing.start_at - moment).total_seconds()) < 60:
         return None                                    # that time is already booked
 
@@ -826,6 +942,18 @@ def _call_reply(client, config, conversation, chat_messages, plan, booked: bool)
         sounds_booked = re.compile(r"\b(will call|will reach|reach out|all set|booked|scheduled|set up|lined up)\b", re.I)
         accept = lambda t: "?" in t and states_it(t) and not sounds_booked.search(t)    # noqa: E731
         fallback = f"Great! Would {proposal} work for a quick call, or is there a better time for you?"
+    elif plan.get("how") == "instead":
+        # They asked for a time we can't call (Saturday, 7 AM): say why, and suggest the nearest time we can
+        asked, reason = plan.get("asked") or "that time", plan.get("reason") or "we can't call then"
+        instruction = (f"They asked for a call on {asked} (their own time), but {reason} (they call "
+                       f"{plan.get('window') or '8 AM-9 PM'}, the customer's time), so it was NOT booked. In one "
+                       f"or two short, friendly sentences, say that kindly and suggest {proposal} instead, inviting "
+                       f"them to pick another time (for example: \"Sorry, {reason}. Would {proposal} work instead, or "
+                       "is there a better time for you?\"). Say the day and the time with AM or PM. Don't say it's "
+                       f"booked, and don't suggest or agree to {asked}.")
+        sounds_booked = re.compile(r"\b(will call|will reach|reach out|all set|booked|scheduled|set up|lined up)\b", re.I)
+        accept = lambda t: "?" in t and states_it(t) and not sounds_booked.search(t)    # noqa: E731
+        fallback = f"Sorry, {reason}. Would {proposal} work instead, or is there a better time for you?"
     else:
         instruction = (f"Before booking the call, check the time with them: ask in one short, friendly sentence if "
                        f"{proposal} works for them (for example: \"Just to confirm, is {proposal} good for you?\"). "
@@ -914,8 +1042,8 @@ def _apply_call_plan(conversation, plan):
 
     if not plan:
         return None
-    if plan["action"] == "note":
-        calls.post_chat_note(conversation, plan["note"])
+    if plan["action"] == "note" or (plan["action"] == "confirm" and plan.get("note")):
+        calls.post_chat_note(conversation, plan["note"])         # (a suggested time instead: tell the team why)
         return None
     if plan["action"] == "cancel":
         event = plan["existing"]
@@ -1533,6 +1661,20 @@ def process_ai_job(job: AIJob) -> AIReply | None:
             if not parsed_data.get("needs_human") and conversation.status != Conversation.Status.NEEDS_HUMAN:
                 parsed_data["needs_human"] = True          # hand off so an agent is assigned to make the call
                 parsed_data["handoff_reason"] = "Wants a call"
+
+        # A wrong weekday next to a date ("The 28th is a Thursday" when it's a Saturday) is corrected by code
+        try:
+            from zoneinfo import ZoneInfo
+
+            from scheduling.calls import lead_timezone
+            lead_today = timezone.now().astimezone(
+                ZoneInfo(lead_timezone(conversation.contact, conversation.organization))).date()
+            fixed = _fix_weekdays(reply_body, lead_today)
+            if fixed != reply_body:
+                reply_body = fixed
+                parsed_data["final_reply"] = reply_body
+        except Exception as exc:
+            logger.warning("Weekday check failed for conversation %s: %s", conversation.id, exc)
 
         # Step 6: Check if model determined needs_human
         if parsed_data.get("needs_human"):

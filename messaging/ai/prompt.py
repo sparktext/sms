@@ -392,6 +392,19 @@ ADDITIONAL HANDOFF CRITERIA:
     contact_name = f"{contact.first_name} {contact.last_name}".strip() if (contact.first_name or contact.last_name) else "Customer"
     from django.utils import timezone as _tz
     today = _tz.localdate().strftime("%B %d, %Y")
+    calendar_line = ""
+    try:
+        # The customer's own date, with weekdays for the next two weeks (Gemma once called Sat Nov 28 "a Thursday")
+        from datetime import timedelta as _td
+        from zoneinfo import ZoneInfo
+
+        from scheduling.calls import lead_timezone
+        local_today = _tz.now().astimezone(ZoneInfo(lead_timezone(contact, conversation.organization))).date()
+        today = f"{local_today:%A, %B} {local_today.day}, {local_today.year}"
+        calendar_line = "- Coming days: " + ", ".join(
+            f"{d:%a %b} {d.day}" for d in (local_today + _td(days=i) for i in range(1, 15))) + "\n"
+    except Exception:
+        pass
     first_message = not (conversation.pk and conversation.messages.filter(direction=Message.Direction.OUTBOUND).exists())
     state_line = (
         "This will be your FIRST message in this chat (follow the FIRST MESSAGE guidance)."
@@ -410,7 +423,7 @@ CUSTOMER CONTEXT:
 - Name: {contact_name}
 - Phone Number: {contact.phone}
 - Today's date: {today}
-- Conversation: {state_line}
+{calendar_line}- Conversation: {state_line}
 """
     hours = _call_hours_line(conversation)
     if hours:
