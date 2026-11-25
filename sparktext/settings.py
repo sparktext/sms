@@ -37,6 +37,7 @@ env = environ.Env(
     AI_API_KEY=(str, ""),
     AI_TIMEOUT_SECONDS=(int, 45),
     AI_MAX_RETRIES=(int, 1),
+    AI_DISABLE_THINKING=(bool, False),
     # Auth / Email additions
     BREVO_API_KEY=(str, ""),
     GOOGLE_OAUTH_JSON_PATH=(str, "secrets/google_oauth.json"),
@@ -328,6 +329,9 @@ AI_MODEL = env("AI_MODEL", default="google/gemma-4-12b-qat")
 AI_API_KEY = env("AI_API_KEY", default="")
 AI_TIMEOUT_SECONDS = env("AI_TIMEOUT_SECONDS", default=45)
 AI_MAX_RETRIES = env("AI_MAX_RETRIES", default=1)
+# Reasoning models (e.g. Gemma 4) "think" in hidden tokens before answering: slower, and useless for
+# short SMS replies. True = ask llama.cpp/LM Studio to skip it (chat_template_kwargs.enable_thinking).
+AI_DISABLE_THINKING = env.bool("AI_DISABLE_THINKING", default=False)
 # How many conversations the AI worker replies to at once (keep <= LM Studio "Max Concurrent Predictions")
 AI_WORKER_CONCURRENCY = env.int("AI_WORKER_CONCURRENCY", default=1)
 

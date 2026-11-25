@@ -1189,7 +1189,9 @@ def ai_assistant_ping(request):
     base_url = getattr(settings, "AI_BASE_URL", "http://localhost:1235/v1").rstrip("/")
     model = getattr(settings, "AI_MODEL", "google/gemma-4-12b-qat")
     try:
-        resp = requests.get(f"{base_url}/models", timeout=1.5)
+        api_key = getattr(settings, "AI_API_KEY", "")
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        resp = requests.get(f"{base_url}/models", headers=headers, timeout=3)
         if resp.status_code == 200:
             return JsonResponse({
                 "status": "online",
