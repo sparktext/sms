@@ -158,7 +158,8 @@ def _booked_call_line(conversation) -> str:
         return ""
     try:
         from zoneinfo import ZoneInfo
-        from scheduling.calls import upcoming_call, lead_timezone, fmt_day, fmt_time, fmt_zone_abbr
+
+        from scheduling.calls import fmt_day, fmt_time, fmt_zone_abbr, lead_timezone, upcoming_call
         event = upcoming_call(conversation=conversation)
         if not event:
             return ""

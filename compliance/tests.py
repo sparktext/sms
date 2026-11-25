@@ -308,8 +308,9 @@ class QuietHoursTests(TestCase):
         self.assertTrue(self.ok(pa, self.at("America/New_York", 2026, 11, 25, 9, 0)))
 
     def test_holidays(self):
-        from compliance.quiet_hours import federal_holidays
         from datetime import date
+
+        from compliance.quiet_hours import federal_holidays
         days = federal_holidays(2026)
         self.assertIn(date(2026, 11, 26), days)                 # Thanksgiving
         self.assertIn(date(2026, 7, 3), days)                   # July 4 is a Saturday: observed Friday

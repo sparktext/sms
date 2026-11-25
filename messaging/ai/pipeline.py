@@ -597,6 +597,7 @@ def _call_time_wanted(conversation, trigger_message, parsed_data, pending=None) 
 def _read_call_time(client, conversation, trigger_message, lead_tz: str, now) -> dict[str, Any]:
     """Gemma reads when the lead wants the call, as dates/times in the lead's own time zone."""
     from zoneinfo import ZoneInfo
+
     from scheduling.calls import fmt_time
     local_now = now.astimezone(ZoneInfo(lead_tz))
     days = []
@@ -695,6 +696,7 @@ def _plan_call(client, conversation, trigger_message, parsed_data):
       {"action": "note", "note"}                   can't be pinned down: leave it to the agent
     """
     from zoneinfo import ZoneInfo
+
     from scheduling import calls
     if not trigger_message:
         return None
@@ -892,7 +894,7 @@ _CLAIMS_CANCEL_RE = re.compile(r"\b(cancel+ed|called\s+(it|that|the\s+call)?\s*o
 
 def _no_false_cancel_reply(client, config, conversation, chat_messages) -> str:
     """Gemma claimed a cancellation code didn't make: say what's really true (still booked / passed to the agent)."""
-    from scheduling.calls import upcoming_call, lead_timezone, proposal_text
+    from scheduling.calls import lead_timezone, proposal_text, upcoming_call
     booked = upcoming_call(conversation=conversation)
     still = proposal_text(booked.start_at, lead_timezone(conversation.contact, conversation.organization)) if booked else ""
     fact = (f"Their call is still booked for {still}; it was NOT cancelled." if still else

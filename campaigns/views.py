@@ -140,6 +140,7 @@ def _lead_merge_tags(org, sample_size=400):
 
 def _workspace_zone(org):
     from zoneinfo import ZoneInfo
+
     from core.timezones import org_timezone
     return ZoneInfo(org_timezone(org))
 
@@ -215,11 +216,6 @@ def campaign_create(request):
     if not phone_numbers.exists():
         messages.error(request, "You must have at least one active phone number to create a campaign.")
         return redirect("messaging:dashboard")
-
-    contact_lists = ContactList.objects.filter(organization=org).annotate(
-        total_contacts=Count("contacts")
-    )
-    custom_fields = ContactField.objects.filter(organization=org)
 
     if request.method == "POST":
         name = request.POST.get("name", "").strip()
@@ -635,11 +631,6 @@ def campaign_edit(request, campaign_id):
         return redirect("campaigns:detail", campaign_id=campaign.id)
 
     phone_numbers = PhoneNumber.objects.filter(organization=org, is_active=True)
-    contact_lists = ContactList.objects.filter(organization=org).annotate(
-        total_contacts=Count("contacts")
-    )
-    custom_fields = ContactField.objects.filter(organization=org)
-
     if request.method == "POST":
         name = request.POST.get("name", "").strip()
         phone_number_id = request.POST.get("phone_number_id")
@@ -786,6 +777,7 @@ def campaign_test_send(request):
     goes to someone who said STOP), and the text shows in the Inbox like a campaign text, so replies can be tested.
     """
     from datetime import timedelta
+
     from contacts.utils import normalize_phone
     from messaging.models import Conversation, Message
     from messaging.services import send_message

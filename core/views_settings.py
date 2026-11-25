@@ -1,3 +1,6 @@
+from datetime import time as dt_time
+from zoneinfo import ZoneInfo
+
 from django.contrib import messages
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
@@ -8,10 +11,6 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods, require_POST
-
-<<<<<<< HEAD
-from datetime import time as dt_time
-from zoneinfo import ZoneInfo
 
 from .models import Organization, OrganizationInvite, User
 from .timezones import is_valid_timezone, org_timezone, timezone_choices, timezone_label

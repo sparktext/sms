@@ -324,7 +324,7 @@ _PLAIN_RULE_RE = re.compile(
 )
 
 
-def is_name_list(values: List[str]) -> bool:
+def is_name_list(values: list[str]) -> bool:
     """True when every value is a plain name/option, so an exact match in code fully decides the rule."""
     return bool(values) and not any(_PLAIN_RULE_RE.search(str(v)) for v in values)
 

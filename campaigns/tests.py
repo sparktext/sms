@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta, timezone as dt_timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 from django.core.management import call_command
@@ -1065,14 +1065,14 @@ class CampaignPageAuditTests(TestCase):
         hawaii = Contact.objects.create(organization=self.org, phone="+18085550203", first_name="Kai",
                                         sms_status=Contact.SMSStatus.OPTED_IN, custom_fields={"state": "HI"})
         self.lst.contacts.add(hawaii)
-        night_in_ca = datetime(2026, 11, 25, 6, 0, tzinfo=dt_timezone.utc)      # 10 PM in CA, 8 PM in HI
+        night_in_ca = datetime(2026, 11, 25, 6, 0, tzinfo=UTC)      # 10 PM in CA, 8 PM in HI
         with patch("campaigns.services.timezone.now", return_value=night_in_ca):
             self.client.post("/campaigns/new/", self.form())
         campaign = Campaign.objects.get(name="Audit")
         self.assertEqual(campaign.status, Campaign.Status.SENDING)                 # not completed: Maria waits
         statuses = dict(campaign.recipients.values_list("contact__first_name", "status"))
         self.assertEqual(statuses, {"Maria": "pending", "Kai": "sent"})
-        morning_in_ca = datetime(2026, 11, 25, 17, 0, tzinfo=dt_timezone.utc)    # 9 AM in CA
+        morning_in_ca = datetime(2026, 11, 25, 17, 0, tzinfo=UTC)    # 9 AM in CA
         with patch("campaigns.services.timezone.now", return_value=morning_in_ca):
             process_campaign_batch(campaign)
         campaign.refresh_from_db()
@@ -1102,7 +1102,7 @@ class CampaignPageAuditTests(TestCase):
 
     # ---- times shown in the workspace zone
     def test_scheduled_time_is_shown_in_workspace_time(self):
-        when = datetime(2030, 1, 15, 17, 0, tzinfo=dt_timezone.utc)              # 9 AM Pacific
+        when = datetime(2030, 1, 15, 17, 0, tzinfo=UTC)              # 9 AM Pacific
         r = self.client.post("/campaigns/new/", self.form(timing="scheduled", scheduled_at_iso=when.isoformat()),
                              follow=True)
         page = r.content.decode()
@@ -1170,7 +1170,7 @@ class CampaignFlowTests(TestCase):
         return c
 
     def launch(self, lists, **extra):
-        data = {"name": extra.pop("name", "Flow"), "phone_number_id": self.phone.id, "lists": [l.id for l in lists],
+        data = {"name": extra.pop("name", "Flow"), "phone_number_id": self.phone.id, "lists": [lst.id for lst in lists],
                 "message_template": extra.pop("message_template", "Hi {{ first_name }}! STOP to opt out."),
                 "ai_mode": "default", "timing": "immediate", **extra}
         self.client.post("/campaigns/new/", data)
@@ -1302,7 +1302,7 @@ class CampaignWaitingReasonTests(TestCase):
 
     def test_night_in_california_says_waiting_and_when(self):
         from campaigns.services import record_worker_heartbeat
-        night = datetime(2026, 11, 25, 8, 25, tzinfo=dt_timezone.utc)            # 12:25 AM in California
+        night = datetime(2026, 11, 25, 8, 25, tzinfo=UTC)            # 12:25 AM in California
         with patch("campaigns.services.timezone.now", return_value=night):
             record_worker_heartbeat()
         html = self.page(night)
@@ -1317,7 +1317,7 @@ class CampaignWaitingReasonTests(TestCase):
         self.assertIn('id="campaign-live-wrap" class="hidden"', html)               # nothing is going out
 
     def test_a_stopped_worker_is_called_out(self):
-        midday = datetime(2026, 11, 25, 20, 0, tzinfo=dt_timezone.utc)            # noon in California
+        midday = datetime(2026, 11, 25, 20, 0, tzinfo=UTC)            # noon in California
         html = self.page(midday)                                                   # no heartbeat at all
         self.assertIn("Sending has stopped", html)
         self.assertIn("isn't running", html)
@@ -1346,7 +1346,7 @@ class CampaignWaitingReasonTests(TestCase):
 
     def test_campaign_list_says_waiting_not_sending(self):
         from campaigns.services import record_worker_heartbeat
-        night = datetime(2026, 11, 25, 8, 25, tzinfo=dt_timezone.utc)
+        night = datetime(2026, 11, 25, 8, 25, tzinfo=UTC)
         with patch("campaigns.services.timezone.now", return_value=night):
             record_worker_heartbeat()
             html = self.client.get("/campaigns/").content.decode()
@@ -1389,7 +1389,7 @@ class EditWaitingCampaignTests(TestCase):
     def test_waiting_campaign_shows_edit_and_moves_to_draft(self):
         html = self.client.get(f"/campaigns/{self.campaign.id}/").content.decode()
         self.assertIn('id="pauseEditCampaignForm"', html)
-        self.assertIn('id="pauseEditForm%d"' % self.campaign.id, self.client.get("/campaigns/").content.decode())
+        self.assertIn(f'id="pauseEditForm{self.campaign.id}"', self.client.get("/campaigns/").content.decode())
         r = self.client.post(f"/campaigns/{self.campaign.id}/action/", {"action": "edit"})
         self.assertRedirects(r, f"/campaigns/{self.campaign.id}/edit/", fetch_redirect_response=False)
         self.campaign.refresh_from_db()
@@ -1447,7 +1447,7 @@ class CampaignTestSendTests(TestCase):
         return self.client.post("/campaigns/test-send/", {**base, **data}, **self.ajax)
 
     def test_sends_now_even_at_night_and_shows_in_the_inbox(self):
-        night = datetime(2026, 11, 25, 9, 0, tzinfo=dt_timezone.utc)             # 1 AM in California
+        night = datetime(2026, 11, 25, 9, 0, tzinfo=UTC)             # 1 AM in California
         with patch("django.utils.timezone.now", return_value=night):
             r = self.send()
         self.assertEqual(r.json()["status"], "success", r.json())

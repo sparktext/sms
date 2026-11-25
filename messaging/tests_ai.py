@@ -1580,7 +1580,7 @@ class TimeRuleTests(TestCase):
 
     def test_a_name_condition_is_decided_by_code_not_a_contradicting_verdict(self):
         # Live: Gemma said {"met": true, "reason": "GEICO, not State Farm"} and the State-Farm-only question was asked
-        from messaging.ai.qualification import follow_up_active, evaluate_fit, is_name_list, NOT_FIT, PENDING
+        from messaging.ai.qualification import NOT_FIT, evaluate_fit, follow_up_active, is_name_list
         parent = {"key": "insurer"}
         child = {"key": "bought", "parent": "insurer", "condition": {"op": "is", "values": ["State Farm"]}}
         by_key = {"insurer": parent, "bought": child}

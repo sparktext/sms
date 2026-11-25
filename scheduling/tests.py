@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timezone as dt_timezone
+from datetime import UTC, datetime
 
 from django.test import TestCase
 
@@ -7,7 +7,7 @@ from core.models import Organization, User, UserProfile
 from core.timezones import user_timezone
 from scheduling.models import CalendarEvent
 
-UTC = dt_timezone.utc
+UTC = UTC
 
 
 class CalendarTestBase(TestCase):

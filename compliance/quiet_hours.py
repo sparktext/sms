@@ -24,14 +24,13 @@ To change a rule, edit STATE_RULES below; everything else follows.
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from functools import lru_cache
-from typing import Dict, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 from django.utils import timezone
 
-Window = Optional[Tuple[time, time]]          # (start, end) local time; None = no sending that day
+Window = tuple[time, time] | None         # (start, end) local time; None = no sending that day
 
-FEDERAL: Tuple[time, time] = (time(8, 0), time(21, 0))
+FEDERAL: tuple[time, time] = (time(8, 0), time(21, 0))
 
 
 def _w(start_h, end_h, start_m=0, end_m=0):
@@ -40,11 +39,11 @@ def _w(start_h, end_h, start_m=0, end_m=0):
 
 @dataclass(frozen=True)
 class StateRule:
-    weekday: Tuple[time, time]                      # Monday-Friday
+    weekday: tuple[time, time]                      # Monday-Friday
     saturday: Window = None                         # defaults to the weekday window (see SAME)
     sunday: Window = None
     holidays: Window = None                         # federal holidays; SAME = like the weekday
-    effective_from: Optional[date] = None           # rule applies from this date (federal before it)
+    effective_from: date | None = None           # rule applies from this date (federal before it)
     note: str = ""
     saturday_set: bool = field(default=False, repr=False)
     sunday_set: bool = field(default=False, repr=False)
@@ -62,7 +61,7 @@ def rule(weekday, *, saturday="same", sunday="same", holidays="same", effective_
 
 
 # States stricter than the federal 8 AM-9 PM. Everything else: federal.
-STATE_RULES: Dict[str, StateRule] = {
+STATE_RULES: dict[str, StateRule] = {
     "AL": rule(_w(8, 20), sunday=None, holidays=None, note="Ala. Admin. Code r. 770-X-5-.17"),
     "CA": rule(_w(9, 21), note="Automated dialing 9-9 (Cal. Pub. Util. Code 2872)"),
     "CT": rule(_w(9, 20), note="Conn. Gen. Stat. 42-288a(c); texts can be telephonic sales calls"),
@@ -142,7 +141,7 @@ def federal_holidays(year: int) -> frozenset:
 @dataclass(frozen=True)
 class LeadLocation:
     state: str                    # "CA", or "" when unknown
-    zones: Tuple[str, ...]        # one time zone normally; several (or the mainland set) when unsure
+    zones: tuple[str, ...]        # one time zone normally; several (or the mainland set) when unsure
     source: str                   # "lead details" | "phone area code" | "unknown"
 
 
@@ -150,7 +149,9 @@ def _phone_location(phone: str):
     """(state code, time zones) from a US/Canada number's area code; ("", ()) when it can't tell."""
     try:
         import phonenumbers
-        from phonenumbers import geocoder, timezone as pn_tz
+        from phonenumbers import geocoder
+        from phonenumbers import timezone as pn_tz
+
         from scheduling.calls import STATE_NAMES
         parsed = phonenumbers.parse(phone or "", "US")
         zones = tuple(z for z in pn_tz.time_zones_for_number(parsed) if z != "Etc/Unknown")
@@ -246,12 +247,12 @@ def allowed_for(where: LeadLocation, moment: datetime) -> bool:
     return all(allowed_in_zone(moment, z, r) for z in where.zones)
 
 
-def can_text_at(contact, moment: Optional[datetime] = None, org=None) -> bool:
+def can_text_at(contact, moment: datetime | None = None, org=None) -> bool:
     """May a marketing text go to this lead right now? Federal + their state's rules, in their own time."""
     return allowed_for(lead_location(contact, org), moment or timezone.now())
 
 
-def next_allowed_at(where: LeadLocation, moment: Optional[datetime] = None) -> Optional[datetime]:
+def next_allowed_at(where: LeadLocation, moment: datetime | None = None) -> datetime | None:
     """The first moment (to the minute) a campaign text may go out at this location, from now; None if not this week."""
     moment = (moment or timezone.now()).replace(second=0, microsecond=0)
     if allowed_for(where, moment):
@@ -277,7 +278,7 @@ def _join_and(items):
     return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " or " + items[-1]
 
 
-def plain_hours(where: LeadLocation) -> Tuple[str, str]:
+def plain_hours(where: LeadLocation) -> tuple[str, str]:
     """In plain words, for people: ("between 9 AM and 7 PM, and never on Sundays or holidays", "Pennsylvania law")."""
     if where.source == "unknown":
         return "between noon and 8 PM Eastern time, Monday to Saturday", "the rules for an unknown location"

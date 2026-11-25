@@ -1,6 +1,6 @@
-from datetime import timedelta
 import logging
 import re
+from datetime import timedelta
 from typing import Any
 
 from django.db import transaction
@@ -219,7 +219,8 @@ def waiting_summary(campaign, now=None):
     """Why a campaign's texts aren't going out yet, in plain words: who is waiting for allowed texting hours (by
     place: their time now, the hours the law allows there, when it sends), and whether the worker is running."""
     from zoneinfo import ZoneInfo
-    from compliance.quiet_hours import lead_location, next_allowed_at, allowed_for, plain_hours, state_name
+
+    from compliance.quiet_hours import allowed_for, lead_location, next_allowed_at, plain_hours, state_name
     now = now or timezone.now()
     org = campaign.organization
     groups = {}

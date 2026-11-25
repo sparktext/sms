@@ -1,6 +1,5 @@
 import re
 import string
-from typing import Optional
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -30,7 +29,7 @@ _NOT_STOP_RE = re.compile(r"\b(don'?t|do\s+not|never)\s+stop\b", re.I)
 _POLITE_STOP_WORDS = {"PLEASE", "PLS", "PLZ", "NOW", "THANKS", "THANK", "YOU", "OK", "OKAY", "JUST", "STOP", "STOPALL"}
 
 
-def is_stop_phrase(text: Optional[str]) -> bool:
+def is_stop_phrase(text: str | None) -> bool:
     """An opt-out in the lead's own words ("please stop texting me", "remove me from your list"),
     as opposed to the bare STOP keyword that carriers answer automatically."""
     if not text or _NOT_STOP_RE.search(text):

@@ -20,7 +20,12 @@ from django.views.decorators.http import require_GET, require_POST
 from contacts.models import Contact
 from core.models import User, UserProfile
 from core.timezones import (
-    is_valid_timezone, org_timezone, personal_timezone, timezone_choices, timezone_label, timezone_short,
+    is_valid_timezone,
+    org_timezone,
+    personal_timezone,
+    timezone_choices,
+    timezone_label,
+    timezone_short,
     user_timezone,
 )
 

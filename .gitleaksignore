@@ -4,3 +4,21 @@
 56c7cd856c922885c97415162dd0d693e57347a4:messaging/tests_ai.py:generic-api-key:1045
 56c7cd856c922885c97415162dd0d693e57347a4:messaging/tests_ai.py:generic-api-key:1142
 56c7cd856c922885c97415162dd0d693e57347a4:messaging/tests_ai.py:generic-api-key:1407
+# Reviewed 2026-11-25: same dummy test password "pw-123456789" in fix/campaign test files.
+5445342c51b36317fa133da553a77ec06c29eb27:contacts/tests.py:generic-api-key:1559
+5445342c51b36317fa133da553a77ec06c29eb27:contacts/tests.py:generic-api-key:1606
+5445342c51b36317fa133da553a77ec06c29eb27:contacts/tests.py:generic-api-key:1690
+5445342c51b36317fa133da553a77ec06c29eb27:contacts/tests.py:generic-api-key:1756
+5445342c51b36317fa133da553a77ec06c29eb27:campaigns/tests.py:generic-api-key:931
+5445342c51b36317fa133da553a77ec06c29eb27:campaigns/tests.py:generic-api-key:987
+5445342c51b36317fa133da553a77ec06c29eb27:campaigns/tests.py:generic-api-key:1159
+5445342c51b36317fa133da553a77ec06c29eb27:campaigns/tests.py:generic-api-key:1287
+5445342c51b36317fa133da553a77ec06c29eb27:campaigns/tests.py:generic-api-key:1375
+5445342c51b36317fa133da553a77ec06c29eb27:campaigns/tests.py:generic-api-key:1437
+5445342c51b36317fa133da553a77ec06c29eb27:scheduling/tests.py:generic-api-key:17
+5445342c51b36317fa133da553a77ec06c29eb27:scheduling/tests.py:generic-api-key:21
+5445342c51b36317fa133da553a77ec06c29eb27:scheduling/tests.py:generic-api-key:25
+5445342c51b36317fa133da553a77ec06c29eb27:scheduling/tests.py:generic-api-key:30
+5445342c51b36317fa133da553a77ec06c29eb27:scheduling/tests_calls.py:generic-api-key:30
+5445342c51b36317fa133da553a77ec06c29eb27:scheduling/tests_calls.py:generic-api-key:32
+5445342c51b36317fa133da553a77ec06c29eb27:scheduling/tests_calls.py:generic-api-key:906

@@ -1,6 +1,7 @@
 """Call scheduling: Gemma booking calls, the Schedule-call window, and call reminders."""
 import json
-from datetime import datetime, time as time_cls, timedelta, timezone as dt_timezone
+from datetime import UTC, datetime, timedelta
+from datetime import time as time_cls
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
@@ -16,7 +17,7 @@ from scheduling import calls
 from scheduling.models import CalendarEvent
 from scheduling.reminders import send_due_reminders
 
-UTC = dt_timezone.utc
+UTC = UTC
 LA, NY = ZoneInfo("America/Los_Angeles"), ZoneInfo("America/New_York")
 
 

@@ -76,7 +76,9 @@ def _recent_call_reminders(user):
     """Call reminders that went out recently (e.g. while this person was offline) so the bell still shows them."""
     try:
         from datetime import timedelta
+
         from django.utils import timezone
+
         from scheduling.calls import call_notification
         from scheduling.models import CalendarEvent
 

@@ -1085,9 +1085,10 @@ def lists_index(request):
 def _member_search(qs, q: str):
     """Search the way people expect: a name or email that STARTS with what they typed ("ar" finds Arjun, not
     Spark), or any part of the phone number, digits only ("530 684" finds +15306841631)."""
+    import re as _re
+
     from django.db.models import Value
     from django.db.models.functions import Concat
-    import re as _re
     q = " ".join(q.split())
     match = (Q(first_name__istartswith=q) | Q(last_name__istartswith=q) | Q(email__istartswith=q)
              | Q(full_name__istartswith=q))
