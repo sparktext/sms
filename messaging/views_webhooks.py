@@ -12,7 +12,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from compliance.models import ConsentEvent
-from compliance.services import classify_keyword, record_consent
+from compliance.services import classify_keyword, is_stop_phrase, record_consent
 from contacts.models import Contact
 from contacts.services import save_contact
 from contacts.utils import normalize_phone
@@ -105,6 +105,20 @@ def _verify_telnyx_signature(request) -> bool:
         signature_b64=request.headers.get("Telnyx-Signature-Ed25519", ""),
         timestamp=request.headers.get("Telnyx-Timestamp", ""),
     )
+
+
+def _confirm_opt_out(conversation, org) -> None:
+    """They opted out in their own words ("please stop texting me"). Carriers only auto-confirm the bare
+    STOP keyword, so send the single confirmation text ourselves (no marketing, nothing after it)."""
+    from .services import send_message
+    config = getattr(org, "ai_config", None) or AIAssistantConfig.objects.filter(organization=org).first()
+    business = ((getattr(config, "business_name", "") or org.name or "our") if config or org else "our").strip()
+    try:
+        send_message(conversation=conversation, sender_type=Message.SenderType.AI, opt_out_confirmation=True,
+                     body=f"You're unsubscribed from {business} texts and won't get any more messages. "
+                          f"Reply START to resubscribe.")
+    except Exception as exc:
+        logger.exception("Could not send the opt-out confirmation for conversation %s: %s", conversation.id, exc)
 
 
 def _broadcast_send_permission(contact) -> None:
@@ -294,6 +308,8 @@ def _handle_inbound_sms(
                 source=ConsentEvent.Source.KEYWORD,
                 proof_text=f"Inbound STOP keyword ({provider_name} SID: {message_sid}): '{body}'",
             )
+            if is_stop_phrase(body):
+                _confirm_opt_out(conversation, org)
         elif keyword == "START":
             record_consent(
                 contact=contact,

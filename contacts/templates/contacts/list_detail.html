@@ -1,0 +1,497 @@
+{% extends "messaging/base_app.html" %}
+
+{% block title %}{{ cl.name }} · Contact Lists · SparkText{% endblock %}
+{% block global_breadcrumb %}
+<a href="{% url 'contacts:list' %}" class="font-medium text-gray-500 hover:text-gray-900 transition">Contacts</a>
+<span class="text-gray-300">/</span>
+<a href="{% url 'contacts:lists' %}" class="font-medium text-gray-500 hover:text-gray-900 transition">Contact Lists</a>
+<span class="text-gray-300">/</span>
+<span class="font-semibold text-gray-800 truncate">{{ cl.name }}</span>
+{% endblock %}
+{% block header_back %}
+<a
+  href="{% url 'contacts:lists' %}"
+  data-back
+  title="Back"
+  aria-label="Back"
+  class="inline-flex items-center justify-center w-9 h-9 rounded-xl border border-gray-200 bg-white text-gray-500 hover:text-gray-900 hover:bg-gray-50 hover:border-gray-300 transition shadow-2xs shrink-0"
+>
+  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+  </svg>
+</a>
+{% endblock %}
+{% block header_title %}<span id="listTitle">{{ cl.name }}</span>{% endblock %}
+{% block header_subtitle %}{{ counts.total }} member{{ counts.total|pluralize }} · created {{ cl.created_at|date:"M d, Y" }}{% endblock %}
+
+{% block header_actions %}
+<div class="flex items-center flex-wrap gap-2">
+  <a href="{% url 'campaigns:create' %}?list={{ cl.id }}"
+     class="px-3.5 py-2 text-xs font-semibold text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 rounded-xl transition shadow-2xs flex items-center gap-1.5"
+     title="Start a campaign that sends to this list">
+    <svg class="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"/></svg>
+    <span>Send Campaign</span>
+  </a>
+  <button type="button" onclick="openRenameModal()"
+          class="px-3.5 py-2 text-xs font-semibold text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 rounded-xl transition shadow-2xs cursor-pointer flex items-center gap-1.5">
+    <svg class="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+    <span>Rename</span>
+  </button>
+  <button type="button" onclick="confirmDeleteList()"
+          class="px-3.5 py-2 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition cursor-pointer flex items-center gap-1.5">
+    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+    <span>Delete List</span>
+  </button>
+  <button type="button" onclick="openAddContactsModal()"
+          class="px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs cursor-pointer flex items-center gap-1.5">
+    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+    <span>Add Contacts</span>
+  </button>
+</div>
+{% endblock %}
+
+{% block content %}
+{% csrf_token %}
+
+<!-- Counts: click one to filter the members below -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+  {% with active="border-brand-500 bg-brand-50/30 shadow-sm" %}
+  <button type="button" data-status="" onclick="setStatus('')"
+          class="status-card text-left p-4 rounded-2xl bg-white border shadow-xs hover:border-brand-300 transition cursor-pointer {% if not status %}{{ active }}{% else %}border-gray-200{% endif %}">
+    <div class="flex items-center justify-between">
+      <span class="text-xs font-medium text-gray-500">All members</span>
+      <span class="w-7 h-7 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+      </span>
+    </div>
+    <div class="text-2xl font-black text-gray-900 tabular-nums mt-1">{{ counts.total }}</div>
+  </button>
+  <button type="button" data-status="opted_in" onclick="setStatus('opted_in')"
+          class="status-card text-left p-4 rounded-2xl bg-white border shadow-xs hover:border-emerald-300 transition cursor-pointer {% if status == 'opted_in' %}{{ active }}{% else %}border-gray-200{% endif %}">
+    <div class="flex items-center justify-between">
+      <span class="flex items-center gap-1.5 text-xs font-medium text-emerald-700"><span class="w-2 h-2 rounded-full bg-emerald-500"></span>Opted in</span>
+      <span class="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">can be texted</span>
+    </div>
+    <div class="text-2xl font-black text-gray-900 tabular-nums mt-1">{{ counts.opted_in }}</div>
+  </button>
+  <button type="button" data-status="opted_out" onclick="setStatus('opted_out')"
+          class="status-card text-left p-4 rounded-2xl bg-white border shadow-xs hover:border-rose-300 transition cursor-pointer {% if status == 'opted_out' %}{{ active }}{% else %}border-gray-200{% endif %}">
+    <div class="flex items-center gap-1.5 text-xs font-medium text-rose-700"><span class="w-2 h-2 rounded-full bg-rose-500"></span>Opted out</div>
+    <div class="text-2xl font-black text-gray-900 tabular-nums mt-1">{{ counts.opted_out }}</div>
+  </button>
+  <button type="button" data-status="unknown" onclick="setStatus('unknown')"
+          class="status-card text-left p-4 rounded-2xl bg-white border shadow-xs hover:border-gray-400 transition cursor-pointer {% if status == 'unknown' %}{{ active }}{% else %}border-gray-200{% endif %}">
+    <div class="flex items-center gap-1.5 text-xs font-medium text-gray-500"><span class="w-2 h-2 rounded-full bg-gray-400"></span>No consent</div>
+    <div class="text-2xl font-black text-gray-900 tabular-nums mt-1">{{ counts.no_consent }}</div>
+  </button>
+  {% endwith %}
+</div>
+
+<!-- Members card: search as you type, results, paginator -->
+<div class="bg-white border border-gray-200 rounded-2xl shadow-xs overflow-hidden">
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-4 border-b border-gray-100">
+    <div class="relative flex-1 max-w-md">
+      <svg class="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+      <input type="search" id="memberSearch" value="{{ q }}" autocomplete="off" spellcheck="false"
+             placeholder="Search by name, phone or email…" oninput="onSearchInput(this.value)"
+             onkeydown="if (event.key === 'Enter') event.preventDefault()"
+             class="w-full pl-10 pr-16 py-2 text-sm bg-gray-50 focus:bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition [&::-webkit-search-cancel-button]:hidden">
+      <span id="searchSpinner" class="hidden absolute right-9 top-1/2 -translate-y-1/2">
+        <span class="block w-3.5 h-3.5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin"></span>
+      </span>
+      <button type="button" id="searchClear" onclick="clearSearch()" title="Clear search"
+              class="{% if not q %}hidden {% endif %}absolute right-2.5 top-1/2 -translate-y-1/2 w-5 h-5 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 cursor-pointer text-xs">✕</button>
+    </div>
+    <div id="resultSummary" class="text-xs text-gray-500 font-medium"></div>
+  </div>
+
+  <div id="membersPanel" class="transition-opacity">
+    {% include "contacts/partials/list_members.html" %}
+  </div>
+</div>
+
+<!-- Selection bar -->
+<div id="memberBarWrap" class="hidden">
+  <div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900 text-white rounded-2xl px-5 py-3 shadow-2xl border border-slate-700 flex items-center gap-4">
+    <span class="text-xs font-medium"><span id="memberSelectedCount" class="font-bold text-brand-400">0</span> selected</span>
+    <div class="h-4 w-px bg-slate-700"></div>
+    <button type="button" onclick="removeSelectedMembers()" class="px-3 py-1.5 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-500 rounded-lg cursor-pointer transition">Remove from list</button>
+    <button type="button" onclick="toggleAllMembers(false)" class="text-xs text-slate-400 hover:text-white cursor-pointer" title="Clear selection">✕</button>
+  </div>
+</div>
+
+<!-- ================= MODAL: RENAME ================= -->
+<div id="renameListModal" class="fixed inset-0 z-50 hidden overflow-y-auto" role="dialog" aria-modal="true">
+  <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs" onclick="closeRenameModal()"></div>
+  <div class="flex min-h-full items-center justify-center p-4">
+    <div class="relative bg-white rounded-2xl max-w-sm w-full p-6 text-left shadow-2xl border border-gray-100 space-y-4">
+      <h3 class="text-base font-bold text-gray-900">Rename list</h3>
+      <form onsubmit="submitRename(event)" class="space-y-4">
+        <input type="text" id="renameInput" value="{{ cl.name }}" maxlength="200" required
+               class="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900">
+        <div class="flex items-center justify-end gap-2">
+          <button type="button" onclick="closeRenameModal()" class="px-3.5 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-xl cursor-pointer">Cancel</button>
+          <button type="submit" class="px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs cursor-pointer">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ================= MODAL: ADD CONTACTS ================= -->
+<div id="addContactsModal" class="fixed inset-0 z-50 hidden overflow-y-auto" role="dialog" aria-modal="true">
+  <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs" onclick="closeAddContactsModal()"></div>
+  <div class="flex min-h-full items-center justify-center p-4">
+    <div class="relative bg-white rounded-2xl max-w-lg w-full p-6 text-left shadow-2xl border border-gray-100 space-y-4">
+      <div class="flex items-start justify-between border-b border-gray-100 pb-3">
+        <div>
+          <h3 class="text-base font-bold text-gray-900">Add contacts to <span class="text-brand-600">"{{ cl.name }}"</span></h3>
+          <p class="text-xs text-gray-500 mt-0.5">Pick existing contacts, or create a new one</p>
+        </div>
+        <button type="button" onclick="closeAddContactsModal()" class="w-7 h-7 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 flex items-center justify-center cursor-pointer">✕</button>
+      </div>
+
+      <div class="flex border-b border-gray-100 text-xs font-semibold gap-4">
+        <button type="button" id="tabExistingBtn" onclick="switchAddTab('existing')" class="pb-2 border-b-2 border-brand-600 text-brand-600 font-bold cursor-pointer">Existing contacts ({{ candidates|length }})</button>
+        <button type="button" id="tabNewBtn" onclick="switchAddTab('new')" class="pb-2 border-b-2 border-transparent text-gray-500 hover:text-gray-800 cursor-pointer">+ New contact</button>
+      </div>
+
+      <div id="addTabExisting" class="space-y-3">
+        <input type="text" oninput="filterCandidates(this.value)" placeholder="Search by name or phone..."
+               class="w-full px-3 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-800">
+        <div class="flex items-center justify-between text-[11px] text-gray-500 px-1">
+          <span id="candidateCount">0 selected</span>
+          <span class="space-x-2">
+            <button type="button" onclick="selectCandidates(true)" class="text-brand-600 hover:underline font-semibold cursor-pointer">Select all shown</button>
+            <span>·</span>
+            <button type="button" onclick="selectCandidates(false)" class="hover:underline cursor-pointer">Clear</button>
+          </span>
+        </div>
+        <div class="max-h-64 overflow-y-auto space-y-1.5 p-1 border border-gray-100 rounded-xl bg-gray-50/50">
+          {% for c in candidates %}
+          <label class="candidate-row flex items-center justify-between p-2 rounded-xl bg-white border border-gray-200 hover:border-brand-300 cursor-pointer text-xs"
+                 data-search="{{ c.first_name|lower }}|{{ c.last_name|lower }}|{{ c.phone }}">
+            <span class="flex items-center gap-2.5 min-w-0">
+              <input type="checkbox" class="candidate-checkbox rounded border-gray-300 text-brand-600 focus:ring-brand-500 cursor-pointer" value="{{ c.id }}" onchange="updateCandidateCount()">
+              <span class="min-w-0">
+                <span class="block font-bold text-gray-900 truncate">{% if c.first_name or c.last_name %}{{ c.first_name }} {{ c.last_name }}{% else %}{{ c.phone }}{% endif %}</span>
+                <span class="block text-[11px] text-gray-400 font-mono">{{ c.phone }}</span>
+              </span>
+            </span>
+            {% if c.sms_status == "opted_in" %}<span class="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-50 text-emerald-700">Opted in</span>
+            {% elif c.sms_status == "opted_out" %}<span class="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-rose-50 text-rose-700">Opted out</span>
+            {% else %}<span class="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-gray-100 text-gray-500">No consent</span>{% endif %}
+          </label>
+          {% empty %}
+          <div class="p-6 text-center text-xs text-gray-400">Everyone in your contacts is already in this list.</div>
+          {% endfor %}
+        </div>
+        <div class="pt-3 border-t border-gray-100 flex items-center justify-end gap-2.5">
+          <button type="button" onclick="closeAddContactsModal()" class="px-3.5 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-xl cursor-pointer">Cancel</button>
+          <button type="button" id="addSelectedBtn" onclick="addSelectedCandidates()" disabled
+                  class="px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 disabled:opacity-50 rounded-xl shadow-xs cursor-pointer">Add selected (0)</button>
+        </div>
+      </div>
+
+      <form id="addTabNew" class="hidden space-y-3" onsubmit="createAndAdd(event)">
+        <div>
+          <label class="block text-xs font-bold text-gray-700 mb-1">Phone number <span class="text-rose-500">*</span></label>
+          <input type="tel" name="new_phone" required placeholder="+1 (555) 000-0000"
+                 class="w-full px-3 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 text-gray-900 font-mono">
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-xs font-bold text-gray-700 mb-1">First name</label>
+            <input type="text" name="new_first_name" class="w-full px-3 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 text-gray-900">
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-gray-700 mb-1">Last name</label>
+            <input type="text" name="new_last_name" class="w-full px-3 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 text-gray-900">
+          </div>
+        </div>
+        <label class="flex items-start gap-2 p-3 bg-brand-50/70 border border-brand-100 rounded-xl text-xs text-brand-900 cursor-pointer font-medium">
+          <input type="checkbox" name="new_sms_status" value="opted_in" class="mt-0.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+          <span>This person has given express consent to receive SMS from us (marks them opted in). Leave unticked if not; campaigns skip people without consent.</span>
+        </label>
+        <div class="pt-3 border-t border-gray-100 flex items-center justify-end gap-2.5">
+          <button type="button" onclick="closeAddContactsModal()" class="px-3.5 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-xl cursor-pointer">Cancel</button>
+          <button type="submit" class="px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs cursor-pointer">Create &amp; add</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<form id="deleteListForm" method="post" action="{% url 'contacts:delete_list' cl.id %}" class="hidden">{% csrf_token %}</form>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  const LIST_ID = {{ cl.id }};
+  const LIST_NAME = "{{ cl.name|escapejs }}";
+
+  function csrf() {
+    const el = document.querySelector('[name=csrfmiddlewaretoken]');
+    return el ? el.value : "";
+  }
+
+  function toast(text, kind) {
+    if (window.showAppToast) window.showAppToast(text, kind || "success");
+  }
+
+  async function post(url, data) {
+    const body = new FormData();
+    Object.entries(data).forEach(([k, v]) => (Array.isArray(v) ? v : [v]).forEach(x => body.append(k, x)));
+    const resp = await fetch(url, { method: "POST", body, headers: { "X-CSRFToken": csrf(), "X-Requested-With": "XMLHttpRequest" } });
+    let json = {};
+    try { json = await resp.json(); } catch (e) {}
+    if (!resp.ok || json.status !== "success") throw new Error(json.message || "Something went wrong.");
+    return json;
+  }
+
+  function reloadWith(message) {
+    toast(message);
+    setTimeout(() => window.location.reload(), 700);
+  }
+
+  // ---------- members: search as you type, filter, paging (no page reload)
+  const view = { q: "{{ q|escapejs }}", status: "{{ status|escapejs }}", page: {{ page_obj.number }}, per_page: {{ per_page }} };
+  const STATUS_LABELS = { "": "", opted_in: "opted in", opted_out: "opted out", unknown: "without consent" };
+  let searchTimer = null;
+  let loadSeq = 0;
+
+  function viewQuery(extra) {
+    const p = new URLSearchParams();
+    if (view.q) p.set("q", view.q);
+    if (view.status) p.set("status", view.status);
+    if (view.page > 1) p.set("page", view.page);
+    if (view.per_page !== 25) p.set("per_page", view.per_page);
+    if (extra) Object.entries(extra).forEach(([k, v]) => p.set(k, v));
+    return p.toString();
+  }
+
+  function renderSummary() {
+    const result = document.getElementById("membersResult");
+    const total = result ? parseInt(result.dataset.total || "0", 10) : 0;
+    const label = STATUS_LABELS[view.status] || "";
+    let text;
+    if (view.q || view.status) {
+      text = `${total} ${total === 1 ? "member" : "members"}${label ? " " + label : ""}${view.q ? ` matching “${view.q}”` : ""}`;
+    } else {
+      text = `${total} ${total === 1 ? "member" : "members"}`;
+    }
+    document.getElementById("resultSummary").innerHTML =
+      text + ((view.q || view.status) ? ' · <button type="button" onclick="clearFilters()" class="text-brand-600 font-semibold hover:underline cursor-pointer">clear</button>' : "");
+  }
+
+  async function loadMembers() {
+    const seq = ++loadSeq;                       // only the newest answer is shown (fast typing)
+    const panel = document.getElementById("membersPanel");
+    document.getElementById("searchSpinner").classList.remove("hidden");
+    panel.classList.add("opacity-60");
+    try {
+      const resp = await fetch(`?${viewQuery({ partial: 1 })}`, { headers: { "X-Requested-With": "XMLHttpRequest" } });
+      const html = await resp.text();
+      if (seq !== loadSeq) return;
+      panel.innerHTML = html;
+      history.replaceState(null, "", `${location.pathname}${viewQuery() ? "?" + viewQuery() : ""}`);
+      renderSummary();
+      updateMemberBar();
+    } catch (e) {
+      if (seq === loadSeq) toast("Couldn't load members. Check your connection.", "error");
+    } finally {
+      if (seq === loadSeq) {
+        document.getElementById("searchSpinner").classList.add("hidden");
+        panel.classList.remove("opacity-60");
+      }
+    }
+  }
+
+  function onSearchInput(value) {
+    document.getElementById("searchClear").classList.toggle("hidden", !value);
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => { view.q = value.trim(); view.page = 1; loadMembers(); }, 250);
+  }
+
+  function clearSearch() {
+    const input = document.getElementById("memberSearch");
+    input.value = "";
+    onSearchInput("");
+    input.focus();
+  }
+
+  function setStatus(status) {
+    view.status = view.status === status ? "" : status;      // clicking the active card again shows everyone
+    view.page = 1;
+    document.querySelectorAll(".status-card").forEach(card => {
+      const on = card.dataset.status === view.status;
+      ["border-brand-500", "bg-brand-50/30", "shadow-sm"].forEach(c => card.classList.toggle(c, on));
+      card.classList.toggle("border-gray-200", !on);
+    });
+    loadMembers();
+  }
+
+  function clearFilters() {
+    document.getElementById("memberSearch").value = "";
+    document.getElementById("searchClear").classList.add("hidden");
+    view.q = "";
+    setStatus("");
+  }
+
+  function goToPage(n) {
+    view.page = n;
+    loadMembers();
+    document.getElementById("membersPanel").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+
+  function setPerPage(n) {
+    view.per_page = parseInt(n, 10) || 25;
+    view.page = 1;
+    loadMembers();
+  }
+
+  document.addEventListener("DOMContentLoaded", renderSummary);
+
+  // ---------- members: remove
+  function selectedMembers() {
+    return Array.from(document.querySelectorAll(".member-checkbox:checked")).map(cb => cb.value);
+  }
+
+  function updateMemberBar() {
+    const ids = selectedMembers();
+    if (!document.getElementById("memberSelectedCount")) return;
+    document.getElementById("memberSelectedCount").textContent = ids.length;
+    document.getElementById("memberBarWrap").classList.toggle("hidden", ids.length === 0);
+    const all = document.querySelectorAll(".member-checkbox");
+    const master = document.getElementById("selectAllMembers");
+    if (master) master.checked = all.length > 0 && ids.length === all.length;
+  }
+
+  function toggleAllMembers(checked) {
+    document.querySelectorAll(".member-checkbox").forEach(cb => { cb.checked = checked; });
+    const master = document.getElementById("selectAllMembers");
+    if (master) master.checked = checked;
+    updateMemberBar();
+  }
+
+  async function removeMembers(ids, label) {
+    const who = ids.length === 1 && label ? `"${label.trim()}"` : `${ids.length} contacts`;
+    const ok = await window.showAppConfirm({
+      title: "Remove from list",
+      message: `Remove ${who} from "${LIST_NAME}"? They stay in your contacts; only their place in this list is removed.`,
+      confirmText: "Remove",
+    });
+    if (!ok) return;
+    try {
+      const r = await post("{% url 'contacts:bulk_action' %}", { action: "remove_from_list", list_id: LIST_ID, contact_ids: ids });
+      reloadWith(r.message);                     // counts at the top change too, so reload the page
+    } catch (e) { toast(e.message, "error"); }
+  }
+
+  function removeSelectedMembers() {
+    const ids = selectedMembers();
+    if (ids.length) removeMembers(ids);
+  }
+
+  // ---------- rename / delete
+  function openRenameModal() {
+    document.getElementById("renameListModal").classList.remove("hidden");
+    const input = document.getElementById("renameInput");
+    input.focus(); input.select();
+  }
+  function closeRenameModal() { document.getElementById("renameListModal").classList.add("hidden"); }
+
+  async function submitRename(e) {
+    e.preventDefault();
+    const name = document.getElementById("renameInput").value.trim();
+    if (!name) return;
+    try {
+      const r = await post("{% url 'contacts:edit_list' cl.id %}", { name });
+      closeRenameModal();
+      reloadWith(`List renamed to "${r.name}".`);
+    } catch (err) { toast(err.message, "error"); }
+  }
+
+  async function confirmDeleteList() {
+    const ok = await window.showAppConfirm({
+      title: "Delete list",
+      message: `Delete the list "${LIST_NAME}"? The contacts in it are NOT deleted; only the list goes.`,
+      confirmText: "Delete list",
+    });
+    if (ok) document.getElementById("deleteListForm").submit();
+  }
+
+  // ---------- add contacts
+  function openAddContactsModal() {
+    document.getElementById("addContactsModal").classList.remove("hidden");
+    switchAddTab("existing");
+  }
+  function closeAddContactsModal() { document.getElementById("addContactsModal").classList.add("hidden"); }
+
+  function switchAddTab(tab) {
+    const existing = tab === "existing";
+    document.getElementById("addTabExisting").classList.toggle("hidden", !existing);
+    document.getElementById("addTabNew").classList.toggle("hidden", existing);
+    const on = "pb-2 border-b-2 border-brand-600 text-brand-600 font-bold cursor-pointer";
+    const off = "pb-2 border-b-2 border-transparent text-gray-500 hover:text-gray-800 cursor-pointer";
+    document.getElementById("tabExistingBtn").className = existing ? on : off;
+    document.getElementById("tabNewBtn").className = existing ? off : on;
+  }
+
+  // Same rule as the members search: a name that starts with what you type, or part of the number
+  function filterCandidates(query) {
+    const term = (query || "").toLowerCase().trim().replace(/\s+/g, " ");
+    const digits = term.replace(/\D/g, "");
+    const numberSearch = digits.length >= 2 && !/[a-z]/.test(term);
+    document.querySelectorAll(".candidate-row").forEach(row => {
+      const [first = "", last = "", phone = ""] = (row.dataset.search || "").split("|");
+      const full = `${first} ${last}`.trim();
+      const hit = !term || first.startsWith(term) || last.startsWith(term) || full.startsWith(term)
+        || (numberSearch && phone.replace(/\D/g, "").includes(digits));
+      row.style.display = hit ? "flex" : "none";
+    });
+  }
+
+  function updateCandidateCount() {
+    const n = document.querySelectorAll(".candidate-checkbox:checked").length;
+    document.getElementById("candidateCount").textContent = `${n} selected`;
+    const btn = document.getElementById("addSelectedBtn");
+    btn.textContent = `Add selected (${n})`;
+    btn.disabled = n === 0;
+  }
+
+  function selectCandidates(on) {
+    document.querySelectorAll(".candidate-row").forEach(row => {
+      if (row.style.display !== "none") row.querySelector(".candidate-checkbox").checked = on;
+    });
+    updateCandidateCount();
+  }
+
+  async function addSelectedCandidates() {
+    const ids = Array.from(document.querySelectorAll(".candidate-checkbox:checked")).map(cb => cb.value);
+    if (!ids.length) return;
+    try {
+      const r = await post("{% url 'contacts:add_contacts_to_list' cl.id %}", { contact_ids: ids });
+      closeAddContactsModal();
+      reloadWith(r.message);
+    } catch (e) { toast(e.message, "error"); }
+  }
+
+  async function createAndAdd(e) {
+    e.preventDefault();
+    const form = e.target;
+    const data = { new_phone: form.new_phone.value, new_first_name: form.new_first_name.value,
+                   new_last_name: form.new_last_name.value };
+    if (form.new_sms_status.checked) data.new_sms_status = "opted_in";
+    try {
+      const r = await post("{% url 'contacts:add_contacts_to_list' cl.id %}", data);
+      closeAddContactsModal();
+      reloadWith(r.message);
+    } catch (err) { toast(err.message, "error"); }
+  }
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { closeAddContactsModal(); closeRenameModal(); }
+  });
+</script>
+{% endblock %}

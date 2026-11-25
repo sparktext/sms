@@ -103,6 +103,7 @@ INSTALLED_APPS = [
     'contacts',
     'compliance',
     'campaigns',
+    'scheduling',
     'core',
     'website',
 

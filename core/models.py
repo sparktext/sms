@@ -1,6 +1,6 @@
 import secrets
 import uuid
-from datetime import timedelta
+from datetime import time, timedelta
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models
@@ -13,6 +13,10 @@ def generate_api_key():
 
 def generate_invite_token():
     return secrets.token_urlsafe(32)
+
+
+def default_call_days():
+    return [0, 1, 2, 3, 4]          # Monday-Friday (Python weekday numbers)
 
 
 class Organization(models.Model):
@@ -32,7 +36,12 @@ class Organization(models.Model):
     name = models.CharField(max_length=200)
     slug = models.SlugField(unique=True)
     timezone = models.CharField(max_length=64, default="America/Los_Angeles")
-    ein = models.CharField(max_length=30, blank=True, default="")
+    # Days the team takes calls (0 = Monday ... 6 = Sunday). Gemma only books calls on these days.
+    call_days = models.JSONField(default=default_call_days, blank=True)
+    # Hours the team calls leads, in the LEAD's local time (kept inside the legal 8 AM-9 PM window)
+    call_start = models.TimeField(default=time(8, 0))
+    call_end = models.TimeField(default=time(21, 0))
+    ein =models.CharField(max_length=30, blank=True, default="")
     registration_status = models.CharField(
         max_length=20,
         choices=RegistrationStatus.choices,
@@ -280,7 +289,8 @@ class UserProfile(models.Model):
     phone = models.CharField(max_length=30, blank=True)
     company = models.CharField(max_length=200, blank=True)
     avatar_url = models.URLField(blank=True)
-    timezone = models.CharField(max_length=64, default='Asia/Kolkata')
+    # Personal time zone for the calendar; blank = follow the workspace time zone (Organization.timezone)
+    timezone = models.CharField(max_length=64, blank=True, default='')
     language = models.CharField(max_length=10, default='en')
     onboarding_completed_at = models.DateTimeField(null=True, blank=True)
 

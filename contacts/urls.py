@@ -23,6 +23,7 @@ urlpatterns = [
     # Contact Lists Management
     path("contacts/lists/", views.lists_index, name="lists"),
     path("contacts/lists/new/", views.create_list, name="create_list"),
+    path("contacts/lists/<int:list_id>/", views.list_detail, name="list_detail"),
     path("contacts/lists/<int:list_id>/edit/", views.edit_list, name="edit_list"),
     path("contacts/lists/<int:list_id>/delete/", views.delete_list, name="delete_list"),
     path("contacts/lists/<int:list_id>/add-contacts/", views.add_contacts_to_list, name="add_contacts_to_list"),

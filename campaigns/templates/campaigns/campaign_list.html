@@ -1,4 +1,5 @@
 {% extends "messaging/base_app.html" %}
+{% load tz %}
 
 {% block title %}Campaigns - SparkText{% endblock %}
 
@@ -177,6 +178,14 @@
                 <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                   <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Completed
                 </span>
+              {% elif c.status == 'sending' and c.list_state == 'waiting' %}
+                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200" title="Outside the hours texts are allowed where the leads are. It sends automatically.">
+                  <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span> Waiting{% if c.list_next %} · {{ c.list_next }}{% endif %}
+                </span>
+              {% elif c.status == 'sending' and c.list_state == 'paused' %}
+                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200" title="The campaign worker isn't running">
+                  <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span> Paused
+                </span>
               {% elif c.status == 'sending' %}
                 <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 animate-pulse">
                   <span class="w-1.5 h-1.5 rounded-full bg-blue-500"></span> Sending...
@@ -215,10 +224,10 @@
             <!-- Timing -->
             <td class="py-3.5 px-4 text-gray-500 text-[11px]">
               {% if c.scheduled_at %}
-                <div>{{ c.scheduled_at|date:"M d, Y" }}</div>
-                <div class="text-gray-400">{{ c.scheduled_at|date:"h:i A" }}</div>
+                <div>{{ c.scheduled_at|timezone:workspace_tz|date:"M d, Y" }}</div>
+                <div class="text-gray-400">{{ c.scheduled_at|timezone:workspace_tz|date:"h:i A" }}</div>
               {% else %}
-                <div>{{ c.created_at|date:"M d, Y" }}</div>
+                <div>{{ c.created_at|timezone:workspace_tz|date:"M d, Y" }}</div>
               {% endif %}
             </td>
 
@@ -236,6 +245,20 @@
                   </svg>
                   <span>Edit</span>
                 </a>
+                {% elif c.can_pause_to_edit %}
+                <form method="post" action="{% url 'campaigns:action' c.id %}" id="pauseEditForm{{ c.id }}" class="inline">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="edit">
+                  <button type="button"
+                          onclick="window.showAppConfirm({ title: 'Edit Campaign', message: 'Nothing has been sent yet. To edit it safely, this campaign will be moved back to draft (sending stops). When you are done, click Save & Launch to send it again.', confirmText: 'Move to draft & edit' }).then(ok => { if (ok) document.getElementById('pauseEditForm{{ c.id }}').submit(); })"
+                          class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-200 transition cursor-pointer"
+                          title="Nothing has been sent yet: edit it (moves it back to draft first)">
+                    <svg class="w-3.5 h-3.5 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                    <span>Edit</span>
+                  </button>
+                </form>
                 {% endif %}
                 <a
                   href="{% url 'campaigns:clone' c.id %}"

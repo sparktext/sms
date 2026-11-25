@@ -1,3 +1,6 @@
+from datetime import time as dt_time
+from zoneinfo import ZoneInfo
+
 from django.contrib import messages
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
@@ -10,6 +13,49 @@ from django.utils import timezone
 from django.views.decorators.http import require_http_methods, require_POST
 
 from .models import Organization, OrganizationInvite, User
+from .timezones import is_valid_timezone, org_timezone, timezone_choices, timezone_label
+
+
+def _call_days(org):
+    from scheduling.calls import call_days
+    return call_days(org)
+
+
+CALL_WINDOW = (dt_time(6, 0), dt_time(23, 0))      # the hours a team can pick (workspace time zone)
+
+
+def _state_choices():
+    from compliance.quiet_hours import us_states
+    return us_states()
+
+
+def _agency_state(org):
+    from compliance.quiet_hours import agency_state
+    return agency_state(org)
+
+
+def _call_hours(org):
+    from scheduling.calls import call_hours
+    return call_hours(org)
+
+
+def _call_time_choices():
+    """Half-hour steps from 6:00 AM to 11:00 PM, as ("HH:MM", "9:30 AM")."""
+    from scheduling.calls import fmt_clock
+    out, minutes = [], 6 * 60
+    while minutes <= 23 * 60:
+        t = dt_time(minutes // 60, minutes % 60)
+        out.append((t.strftime("%H:%M"), fmt_clock(t)))
+        minutes += 30
+    return out
+
+
+def _parse_call_time(value):
+    try:
+        hh, mm = str(value or "").strip().split(":")[:2]
+        return dt_time(int(hh), int(mm))
+    except (ValueError, TypeError):
+        return None
 
 
 def _is_ajax(request) -> bool:
@@ -19,6 +65,11 @@ def _is_ajax(request) -> bool:
     if "application/json" in accept and "text/html" not in accept:
         return True
     return False
+
+
+def _clock_text(dt) -> str:
+    """e.g. "Sat, Nov 21 · 3:42 AM" (formatted here: templates would convert it back to the server's UTC)."""
+    return f"{dt:%a, %b} {dt.day} · {dt.hour % 12 or 12}:{dt:%M %p}"
 
 
 @login_required
@@ -53,13 +104,43 @@ def company_profile(request):
         notification_email = request.POST.get("notification_email", "").strip()
         address_street = request.POST.get("address_street", "").strip()
         address_city = request.POST.get("address_city", "").strip()
-        address_state = request.POST.get("address_state", "").strip()
+        address_state = request.POST.get("address_state", "").strip().upper()
         address_postal_code = request.POST.get("address_postal_code", "").strip()
         address_country = request.POST.get("address_country", "USA").strip()
 
         if not name:
             messages.error(request, "Company name cannot be empty.")
             return redirect("company_profile")
+
+        # The agency's state is required: carriers only let agencies sell in their own state, so leads whose
+        # location is unknown are texted by this state's rules (compliance/quiet_hours.py)
+        from compliance.quiet_hours import us_states
+        if address_state not in dict(us_states()):
+            messages.error(request, "Please choose your agency's state.")
+            return redirect("company_profile")
+
+        # Workspace time zone (the default for everyone's calendar)
+        tz = request.POST.get("timezone")
+        if tz is not None:
+            tz = tz.strip()
+            if not is_valid_timezone(tz):
+                messages.error(request, "Please pick a valid time zone.")
+                return redirect("company_profile")
+            org.timezone = tz
+
+        # Days the team takes calls (Gemma only books calls on these)
+        if request.POST.get("call_days_present"):
+            days = sorted({int(d) for d in request.POST.getlist("call_days") if d.isdigit() and 0 <= int(d) <= 6})
+            if not days:
+                messages.error(request, "Pick at least one day your team takes calls.")
+                return redirect("company_profile")
+            org.call_days = days
+            start, end = _parse_call_time(request.POST.get("call_start")), _parse_call_time(request.POST.get("call_end"))
+            if start and end:
+                if not (CALL_WINDOW[0] <= start < end <= CALL_WINDOW[1]):
+                    messages.error(request, "Team call hours must run from an earlier to a later time.")
+                    return redirect("company_profile")
+                org.call_start, org.call_end = start, end
 
         org.name = name
         org.ein = ein
@@ -76,10 +157,22 @@ def company_profile(request):
         messages.success(request, "Company Profile updated successfully.")
         return redirect("company_profile")
 
+    workspace_tz = org_timezone(org)
     context = {
         "org": org,
         "is_admin": is_admin,
         "current_tab": "profile",
+        "workspace_tz": workspace_tz,
+        "workspace_tz_label": timezone_label(workspace_tz),
+        "workspace_now": _clock_text(timezone.now().astimezone(ZoneInfo(workspace_tz))),
+        "tz_choices": timezone_choices(),
+        "call_day_choices": list(enumerate(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"])),
+        "state_choices": _state_choices(),
+        "agency_state": _agency_state(org),
+        "call_days": sorted(_call_days(org)),
+        "call_time_choices": _call_time_choices(),
+        "call_start": _call_hours(org)[0].strftime("%H:%M"),
+        "call_end": _call_hours(org)[1].strftime("%H:%M"),
     }
     return render(request, "core/company_profile.html", context)
 

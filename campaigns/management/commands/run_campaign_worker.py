@@ -58,6 +58,12 @@ class Command(BaseCommand):
             )
 
             processed_in_pass = 0
+            # "I'm running": lets the campaign page say so when nothing is sending (worker stopped)
+            try:
+                from campaigns.services import record_worker_heartbeat
+                record_worker_heartbeat()
+            except Exception as exc:
+                logger.warning("Campaign worker heartbeat failed: %s", exc)
 
             for camp in due_campaigns:
                 try:

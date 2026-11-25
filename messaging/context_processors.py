@@ -64,8 +64,43 @@ def unread_inbox_count(request):
             "read": is_currently_viewing,
         })
 
+    server_notifs.extend(_recent_call_reminders(request.user))
+
     return {
         "nav_unread_count": total,
         "initial_notifications_json": json.dumps(server_notifs),
     }
+
+
+def _recent_call_reminders(user):
+    """Call reminders that went out recently (e.g. while this person was offline) so the bell still shows them."""
+    try:
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from scheduling.calls import call_notification
+        from scheduling.models import CalendarEvent
+
+        now = timezone.now()
+        since = now - timedelta(hours=12)
+        events = (
+            CalendarEvent.objects.filter(user=user, status=CalendarEvent.Status.SCHEDULED,
+                                         start_at__gte=since, start_at__lte=now + timedelta(hours=2))
+            .filter(Q(reminder_sent_at__gte=since) | Q(start_alert_sent_at__gte=since))
+            .select_related("user", "contact", "organization")
+            .order_by("-start_at")[:10]
+        )
+        items = []
+        for event in events:
+            stage = "now" if event.start_alert_sent_at else "soon"
+            item = call_notification(event, stage, now)
+            sent_at = event.start_alert_sent_at or event.reminder_sent_at
+            item["timestamp"] = int(sent_at.timestamp() * 1000)
+            item["is_assigned_to_me"] = True
+            item["read"] = False
+            items.append(item)
+        return items
+    except Exception:
+        return []
 

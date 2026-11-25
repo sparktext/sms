@@ -1,0 +1,303 @@
+{# "Schedule call" window, available on every app page: window.openScheduleCall({conversationId, contactId}) #}
+<div id="sc-modal" class="fixed inset-0 z-[80] hidden" role="dialog" aria-modal="true" aria-labelledby="sc-title">
+  <div class="absolute inset-0 bg-slate-900/40" data-sc-close></div>
+  <div class="relative mx-auto mt-[7vh] w-[calc(100%-2rem)] max-w-md bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden">
+    <form id="sc-form" novalidate>
+      {% csrf_token %}
+      <div class="px-5 pt-5 pb-3 flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <h3 id="sc-title" class="text-base font-bold text-gray-900">Schedule a call</h3>
+          <p id="sc-lead" class="text-xs text-gray-500 mt-0.5 truncate"></p>
+        </div>
+        <button type="button" data-sc-close aria-label="Close" class="p-1 -m-1 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 cursor-pointer">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <div id="sc-loading" class="px-5 pb-6 text-xs text-gray-400">Loading…</div>
+
+      <div id="sc-body" class="hidden px-5 pb-5 space-y-4 max-h-[70vh] overflow-y-auto">
+        <div id="sc-error" role="alert" class="hidden p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs"></div>
+        <div id="sc-paused" class="hidden p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-[11px]"></div>
+        <div id="sc-existing" class="hidden p-2.5 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-900 text-xs"></div>
+
+        <div>
+          <p class="text-xs font-bold text-gray-700 mb-1.5">Quick pick <span class="font-normal text-gray-400">(lead's time)</span></p>
+          <div id="sc-quick" class="flex flex-wrap gap-1.5"></div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-3">
+          <div class="col-span-2">
+            <label for="sc-start" class="block text-xs font-bold text-gray-700 mb-1">When <span id="sc-your-tz" class="font-normal text-gray-400"></span></label>
+            <input id="sc-start" type="datetime-local" step="300" required
+                   class="w-full px-3 py-2 text-xs border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500">
+          </div>
+          <div>
+            <label for="sc-duration" class="block text-xs font-bold text-gray-700 mb-1">Length</label>
+            <select id="sc-duration" class="w-full px-2 py-2 text-xs border border-gray-200 rounded-xl bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500">
+              <option value="15">15 min</option><option value="30">30 min</option><option value="45">45 min</option><option value="60">1 hour</option>
+            </select>
+          </div>
+        </div>
+        <p id="sc-lead-time" class="-mt-2 text-[11px] text-gray-500"></p>
+        <p id="sc-hours-warning" class="hidden -mt-2 text-[11px] font-medium text-amber-700"></p>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div id="sc-member-wrap">
+            <label for="sc-member" class="block text-xs font-bold text-gray-700 mb-1">Who calls</label>
+            <select id="sc-member" class="w-full px-2 py-2 text-xs border border-gray-200 rounded-xl bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"></select>
+          </div>
+          <div>
+            <label for="sc-reminder" class="block text-xs font-bold text-gray-700 mb-1">Reminder</label>
+            <select id="sc-reminder" class="w-full px-2 py-2 text-xs border border-gray-200 rounded-xl bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"></select>
+          </div>
+        </div>
+
+        <div>
+          <label for="sc-notes" class="block text-xs font-bold text-gray-700 mb-1">Notes</label>
+          <textarea id="sc-notes" rows="2" maxlength="5000" placeholder="e.g. Wants to compare auto quotes, 2 drivers"
+                    class="w-full px-3 py-2 text-xs border border-gray-200 rounded-xl text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 resize-y"></textarea>
+        </div>
+      </div>
+
+      <div class="px-5 py-3.5 bg-gray-50 border-t border-gray-100 flex items-center justify-end gap-2">
+        <a href="{% url 'scheduling:calendar' %}" class="mr-auto text-[11px] font-semibold text-gray-500 hover:text-gray-800">Open calendar ↗</a>
+        <button type="button" data-sc-close class="px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-lg cursor-pointer">Cancel</button>
+        <button type="submit" id="sc-save" disabled class="px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-lg shadow-2xs disabled:opacity-60 cursor-pointer">Book call</button>
+      </div>
+    </form>
+  </div>
+</div>
+<div id="sc-toast" role="status" aria-live="polite" class="fixed bottom-5 left-1/2 -translate-x-1/2 z-[85] hidden px-4 py-2.5 rounded-xl bg-slate-900 text-white text-xs font-medium shadow-lg"></div>
+
+<script>
+(function () {
+  const OPTIONS_URL = "{% url 'scheduling:call_options' %}";
+  const SCHEDULE_URL = "{% url 'scheduling:schedule_call' %}";
+  const $ = (id) => document.getElementById(id);
+  const modal = $("sc-modal");
+  let state = null;   // {target, data}
+
+  // ── time zone math (no libraries): wall-clock "YYYY-MM-DDTHH:MM" in a zone <-> epoch ms ──
+  function parts(epoch, tz) {
+    const out = {};
+    new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "2-digit",
+      day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })
+      .formatToParts(new Date(epoch)).forEach((p) => { out[p.type] = p.value; });
+    return out;
+  }
+  function offset(epoch, tz) {
+    const p = parts(epoch, tz);
+    const whole = epoch - (epoch % 1000);
+    return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute, +p.second) - whole;
+  }
+  function wallToEpoch(wall, tz) {
+    const [d, t] = wall.split("T");
+    const [y, mo, da] = d.split("-").map(Number);
+    const [h, mi] = t.split(":").map(Number);
+    const guess = Date.UTC(y, mo - 1, da, h, mi);
+    const first = offset(guess, tz);
+    let epoch = guess - first;
+    const second = offset(epoch, tz);
+    if (second !== first) epoch = guess - second;
+    return epoch;
+  }
+  function epochToWall(epoch, tz) {
+    const p = parts(epoch, tz);
+    return `${p.year}-${p.month}-${p.day}T${String(+p.hour % 24).padStart(2, "0")}:${p.minute}`;
+  }
+  function fmt(epoch, tz) {
+    return new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "short", month: "short", day: "numeric",
+      hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(epoch));
+  }
+  function zoneDate(epoch, tz) { const p = parts(epoch, tz); return `${p.year}-${p.month}-${p.day}`; }
+
+  // ── UI helpers ──
+  function toast(message) {
+    const el = $("sc-toast");
+    el.textContent = message;
+    el.classList.remove("hidden");
+    clearTimeout(el._t);
+    el._t = setTimeout(() => el.classList.add("hidden"), 3500);
+  }
+  function showError(message) {
+    $("sc-error").textContent = message || "";
+    $("sc-error").classList.toggle("hidden", !message);
+  }
+  function close() { modal.classList.add("hidden"); state = null; }
+  modal.querySelectorAll("[data-sc-close]").forEach((el) => el.addEventListener("click", close));
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !modal.classList.contains("hidden")) close(); });
+
+  function refreshLeadTime() {
+    if (!state) return;
+    const d = state.data, wall = $("sc-start").value;
+    if (!wall) { $("sc-lead-time").textContent = ""; $("sc-hours-warning").classList.add("hidden"); return; }
+    const epoch = wallToEpoch(wall, d.viewer.tz);
+    const first = (d.lead.name || "the lead").split(" ")[0];
+    $("sc-lead-time").textContent = d.lead.tz === d.viewer.tz
+      ? `Same time zone as ${first}${d.lead.state ? " (" + d.lead.state + ")" : ""}.`
+      : `That's ${fmt(epoch, d.lead.tz)} for ${first}${d.lead.state ? " (" + d.lead.state + ")" : ""}.`;
+    // Legal: 8 AM-9 PM where the lead is. Team: the agents' working hours and days, in the workspace zone.
+    const lp = parts(epoch, d.lead.tz);
+    const leadHour = (+lp.hour % 24) + (+lp.minute) / 60;
+    const legal = leadHour >= 8 && leadHour < 21;
+    const ch = d.calling_hours;
+    const tp = parts(epoch, ch.team_tz);
+    const teamHour = (+tp.hour % 24) + (+tp.minute) / 60;
+    const [sh, sm] = ch.start.split(":").map(Number), [eh, em] = ch.end.split(":").map(Number);
+    const weekday = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].indexOf(
+      new Intl.DateTimeFormat("en-US", { timeZone: ch.team_tz, weekday: "short" }).format(new Date(epoch)));
+    const inTeam = teamHour >= sh + sm / 60 && teamHour < eh + em / 60 && (!ch.days || ch.days.includes(weekday));
+    $("sc-hours-warning").textContent = !legal
+      ? `⚠ Before 8 AM or after 9 PM for ${first}: outside the legal calling window.`
+      : `⚠ Outside your team's call hours (${ch.text}).`;
+    $("sc-hours-warning").classList.toggle("hidden", legal && inTeam);
+  }
+
+  function quickPicks(d) {
+    const box = $("sc-quick");
+    box.textContent = "";
+    const now = Date.now();
+    const leadTomorrow = zoneDate(now + 86400000, d.lead.tz);
+    const picks = [
+      ["Next open slot", wallToEpoch(d.suggested_start, d.viewer.tz)],
+      ["In 1 hour", Math.ceil((now + 3600000) / 900000) * 900000],
+      ["Tomorrow 10 AM", wallToEpoch(leadTomorrow + "T10:00", d.lead.tz)],
+      ["Tomorrow 2 PM", wallToEpoch(leadTomorrow + "T14:00", d.lead.tz)],
+    ];
+    picks.forEach(([label, epoch]) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "px-2.5 py-1 text-[11px] font-semibold rounded-full border border-gray-200 text-gray-600 hover:border-brand-300 hover:text-brand-700 hover:bg-brand-50 transition cursor-pointer";
+      b.textContent = label;
+      b.addEventListener("click", () => { $("sc-start").value = epochToWall(epoch, d.viewer.tz); refreshLeadTime(); });
+      box.appendChild(b);
+    });
+  }
+
+  function fill(d) {
+    $("sc-lead").textContent = `with ${d.lead.name}${d.lead.phone && d.lead.phone !== d.lead.name ? " · " + d.lead.phone : ""}`;
+    $("sc-your-tz").textContent = `(your time · ${d.viewer.tz_label.split(" · ").pop()})`;
+    const ex = d.existing;
+    $("sc-paused").classList.toggle("hidden", !!d.reminders_running);
+    $("sc-paused").textContent = d.is_manager
+      ? "⚠️ Call reminders are paused: restart the AI worker (python manage.py run_ai_worker) so they go out."
+      : "⚠️ Call reminders are paused right now. The call is still booked; ask your admin to restart the worker.";
+    $("sc-title").textContent = ex ? "Change the call" : "Schedule a call";
+    $("sc-save").textContent = ex ? "Save changes" : "Book call";
+    $("sc-existing").classList.toggle("hidden", !ex);
+    if (ex) $("sc-existing").textContent = `Already booked ${ex.when_text} with ${ex.member_name}${ex.source === "ai" ? " (booked by Gemma)" : ""}. Changes move this call.`;
+
+    const member = $("sc-member");
+    member.textContent = "";
+    d.members.forEach((m) => {
+      const o = document.createElement("option");
+      o.value = m.key;
+      o.textContent = m.is_me ? "Me" : `${m.name} · ${m.role}`;
+      member.appendChild(o);
+    });
+    member.value = ex ? ex.member : d.default_member;
+    $("sc-member-wrap").classList.toggle("hidden", d.members.length < 2);
+
+    const rem = $("sc-reminder");
+    rem.textContent = "";
+    d.reminder_choices.forEach(([v, label]) => {
+      const o = document.createElement("option");
+      o.value = String(v);
+      o.textContent = label;
+      rem.appendChild(o);
+    });
+    rem.value = ex ? (ex.reminder_minutes === null ? "" : String(ex.reminder_minutes)) : String(d.default_reminder);
+
+    $("sc-start").value = ex ? ex.start : d.suggested_start;
+    $("sc-duration").value = ex ? String(Math.min(60, Math.round(ex.duration / 15) * 15) || 15) : "15";
+    $("sc-notes").value = ex ? ex.notes : "";
+    quickPicks(d);
+    refreshLeadTime();
+  }
+
+  $("sc-start").addEventListener("input", refreshLeadTime);
+
+  window.openScheduleCall = async function (target) {
+    target = target || {};
+    state = null;
+    showError("");
+    $("sc-title").textContent = "Schedule a call";
+    $("sc-lead").textContent = "";
+    $("sc-loading").classList.remove("hidden");
+    $("sc-body").classList.add("hidden");
+    $("sc-save").disabled = true;
+    modal.classList.remove("hidden");
+    const params = new URLSearchParams();
+    if (target.conversationId) params.set("conversation", target.conversationId);
+    if (target.contactId) params.set("contact", target.contactId);
+    try {
+      const res = await fetch(OPTIONS_URL + "?" + params.toString(), { headers: { "X-Requested-With": "XMLHttpRequest" } });
+      const data = await res.json();
+      if (!res.ok || data.status !== "success") throw new Error(data.message || "Couldn't load this lead.");
+      state = { target, data };
+      fill(data);
+      $("sc-loading").classList.add("hidden");
+      $("sc-body").classList.remove("hidden");
+      $("sc-save").disabled = false;
+      setTimeout(() => $("sc-start").focus(), 30);
+    } catch (err) {
+      $("sc-loading").textContent = err.message || "Couldn't load this lead.";
+    }
+  };
+
+  $("sc-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!state) return;
+    const d = state.data;
+    const start = $("sc-start").value;
+    if (!start) return showError("Pick a date and time.");
+    if (wallToEpoch(start, d.viewer.tz) < Date.now() - 60000) return showError("That time has already passed.");
+    const body = {
+      conversation_id: state.target.conversationId || null,
+      contact_id: state.target.contactId || null,
+      start,
+      duration: $("sc-duration").value,
+      member: $("sc-member").value,
+      reminder_minutes: $("sc-reminder").value,
+      notes: $("sc-notes").value.trim(),
+      event_id: d.existing ? d.existing.event_id : null,
+    };
+    const btn = $("sc-save");
+    btn.disabled = true;
+    try {
+      const res = await fetch(SCHEDULE_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest",
+                   "X-CSRFToken": document.querySelector("#sc-form [name=csrfmiddlewaretoken]").value },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok || data.status !== "success") throw new Error(data.message || "Couldn't book the call.");
+      const target = state.target;
+      close();
+      toast(`📅 Call booked: ${data.summary}`);
+      window.dispatchEvent(new CustomEvent("call_scheduled", { detail: Object.assign({ target }, data) }));
+    } catch (err) {
+      showError(err.message);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // Keep any "upcoming call" banner on the page in step
+  window.addEventListener("call_scheduled", (e) => {
+    const detail = e.detail || {};
+    const convId = detail.target && detail.target.conversationId;
+    document.querySelectorAll("[data-upcoming-call]").forEach((el) => {
+      if (convId && el.dataset.upcomingCall && el.dataset.upcomingCall !== String(convId)) return;
+      const text = el.querySelector("[data-upcoming-call-text]");
+      if (text) {
+        text.textContent = `${detail.when_text} (your time) with ${detail.caller_name}`;
+        text.title = detail.lead_time || "";
+      }
+      el.classList.remove("hidden");
+    });
+  });
+})();
+</script>

@@ -170,15 +170,22 @@
           </div>
 
           <div>
-            <label class="block text-xs font-bold text-gray-700 mb-1">State / Province</label>
-            <input
-              type="text"
+            <label for="address-state" class="block text-xs font-bold text-gray-700 mb-1">State <span class="text-rose-500">*</span></label>
+            <select
+              id="address-state"
               name="address_state"
-              value="{{ org.address_state }}"
-              placeholder="e.g. CA"
+              required
               {% if not is_admin %}disabled{% endif %}
-              class="w-full px-3 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900 disabled:bg-gray-50 disabled:text-gray-500"
-            />
+              class="w-full px-3 py-2 text-xs border {% if not agency_state %}border-amber-300 bg-amber-50/40{% else %}border-gray-200 bg-white{% endif %} rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900 disabled:bg-gray-50 disabled:text-gray-500"
+            >
+              <option value="" {% if not agency_state %}selected{% endif %} disabled>Choose your state…</option>
+              {% for code, name in state_choices %}
+              <option value="{{ code }}" {% if code == agency_state %}selected{% endif %}>{{ name }}</option>
+              {% endfor %}
+            </select>
+            <p class="text-[11px] {% if not agency_state %}text-amber-700 font-medium{% else %}text-gray-400{% endif %} mt-1">
+              {% if not agency_state %}Required. {% endif %}Leads whose location is unknown are texted by your state's rules.
+            </p>
           </div>
 
           <div>
@@ -218,6 +225,70 @@
           {% if not is_admin %}disabled{% endif %}
           class="w-full max-w-md px-3 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900 disabled:bg-gray-50 disabled:text-gray-500"
         />
+      </div>
+    </div>
+
+    <!-- Time zone -->
+    <div id="timezone" class="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-2xs scroll-mt-24">
+      <div class="p-5 border-b border-gray-100">
+        <h3 class="text-sm font-bold text-gray-900 flex items-center gap-2">
+          <svg class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="9" stroke-width="2"/>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 7v5l3 2"/>
+          </svg>
+          <span>Time Zone</span>
+        </h3>
+        <p class="text-xs text-gray-500 mt-0.5">Your team's calendars show times in this zone. Anyone can switch to their own zone from the Calendar page.</p>
+      </div>
+
+      <div class="p-5 flex flex-col sm:flex-row sm:items-end gap-3">
+        <div class="w-full max-w-md">
+          <label for="workspace-timezone" class="block text-xs font-bold text-gray-700 mb-1">Workspace time zone</label>
+          <select
+            id="workspace-timezone"
+            name="timezone"
+            {% if not is_admin %}disabled{% endif %}
+            class="w-full px-3 py-2 text-xs border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900 disabled:bg-gray-50 disabled:text-gray-500"
+          >
+            <optgroup label="Common">
+              {% for z, label in tz_choices.common %}<option value="{{ z }}" {% if workspace_tz == z %}selected{% endif %}>{{ label }}</option>{% endfor %}
+            </optgroup>
+            <optgroup label="All time zones">
+              {% for z, label in tz_choices.all %}<option value="{{ z }}" {% if workspace_tz == z %}selected{% endif %}>{{ label }}</option>{% endfor %}
+            </optgroup>
+          </select>
+        </div>
+        <p class="text-[11px] text-gray-500 pb-2">
+          Current time there: <span class="font-semibold text-gray-700">{{ workspace_now }}</span>
+        </p>
+      </div>
+
+      <div class="px-5 pb-5">
+        <input type="hidden" name="call_days_present" value="1">
+        <span class="block text-xs font-bold text-gray-700 mb-1">Team call hours</span>
+        <p class="text-[11px] text-gray-500 mb-2">The days and hours your agents work and take calls, in the workspace time zone above. Gemma only books calls with leads inside these hours, and never before 8 AM or after 9 PM in the lead's own time (the legal calling window). Other times are politely declined and the lead is asked for another time.</p>
+        <div class="flex flex-wrap gap-2">
+          {% for value, label in call_day_choices %}
+            <label class="inline-flex items-center gap-1.5 px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-700 {% if is_admin %}cursor-pointer hover:bg-gray-50{% else %}opacity-70{% endif %}">
+              <input type="checkbox" name="call_days" value="{{ value }}" {% if value in call_days %}checked{% endif %} {% if not is_admin %}disabled{% endif %}
+                     class="rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+              <span>{{ label }}</span>
+            </label>
+          {% endfor %}
+        </div>
+        <div class="flex flex-wrap items-center gap-2 mt-3 text-xs text-gray-700">
+          <label for="call-start" class="font-semibold">From</label>
+          <select id="call-start" name="call_start" {% if not is_admin %}disabled{% endif %}
+                  class="px-3 py-2 text-xs border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900 disabled:bg-gray-50 disabled:text-gray-500">
+            {% for value, label in call_time_choices %}{% if not forloop.last %}<option value="{{ value }}" {% if value == call_start %}selected{% endif %}>{{ label }}</option>{% endif %}{% endfor %}
+          </select>
+          <label for="call-end" class="font-semibold">to</label>
+          <select id="call-end" name="call_end" {% if not is_admin %}disabled{% endif %}
+                  class="px-3 py-2 text-xs border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900 disabled:bg-gray-50 disabled:text-gray-500">
+            {% for value, label in call_time_choices %}{% if not forloop.first %}<option value="{{ value }}" {% if value == call_end %}selected{% endif %}>{{ label }}</option>{% endif %}{% endfor %}
+          </select>
+          <span class="text-[11px] text-gray-500">{{ workspace_tz_label }}</span>
+        </div>
       </div>
     </div>
 

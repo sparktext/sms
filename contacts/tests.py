@@ -1147,10 +1147,11 @@ class ContactsViewAndTemplateTests(TestCase):
         self.assertIn("h-[60px]", html[header_idx:main_idx])
         self.assertIn('id="nav-availability-btn"', html[header_idx:main_idx])
         self.assertNotIn('id="nav-availability-btn"', html[main_idx:])
-        self.assertIn('aria-label="Back to Contacts"', html[main_idx:])
+        self.assertIn('aria-label="Back"', html[main_idx:])
+        self.assertIn('data-back', html[main_idx:])            # goes back to the page you came from
         self.assertNotIn("← Back to Contacts", html)
         self.assertLess(
-            html.index('aria-label="Back to Contacts"', main_idx),
+            html.index('aria-label="Back"', main_idx),
             html.index("Liam", main_idx),
         )
         # Name & metadata row sits below the top back arrow + right-side action toolbar
@@ -1549,3 +1550,234 @@ class ImportColumnSuggestionTests(TestCase):
         self.assertEqual(s["current insurer"]["target"], "current_insurer")
         self.assertEqual((s["Phone"]["type"], s["Phone"]["target"]), ("core", "phone"))
         self.assertEqual(s["notes"]["decision"], "skip")
+
+
+class RemoveFromListTests(TestCase):
+    """Taking people out of a contact list (they stay in Contacts)."""
+
+    def setUp(self):
+        from core.models import User
+        self.org = Organization.objects.create(name="Lists Org", slug="lists-org")
+        self.user = User.objects.create_user(email="owner@lists.test", password="pw-123456789", organization=self.org,
+                                             role=User.Role.OWNER)
+        self.lst = ContactList.objects.create(organization=self.org, name="Pilot")
+        self.other = ContactList.objects.create(organization=self.org, name="Other")
+        self.a = Contact.objects.create(organization=self.org, phone="+14155550401", first_name="Ann")
+        self.b = Contact.objects.create(organization=self.org, phone="+14155550402", first_name="Ben")
+        self.lst.contacts.add(self.a, self.b)
+        self.other.contacts.add(self.a)
+        self.client.force_login(self.user)
+
+    def test_remove_selected_contacts_from_a_list(self):
+        r = self.client.post("/contacts/bulk-action/", {"action": "remove_from_list", "list_id": self.lst.id,
+                                                       "contact_ids": [self.a.id]},
+                             HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+        self.assertEqual(r.json()["status"], "success")
+        self.assertIn("Removed 1 contact(s) from 'Pilot'", r.json()["message"])
+        self.assertEqual(list(self.lst.contacts.all()), [self.b])
+        self.assertTrue(Contact.objects.filter(id=self.a.id).exists())            # still a contact
+        self.assertIn(self.a, self.other.contacts.all())                           # other lists untouched
+
+    def test_only_real_members_are_counted(self):
+        outsider = Contact.objects.create(organization=self.org, phone="+14155550403")
+        r = self.client.post("/contacts/bulk-action/", {"action": "remove_from_list", "list_id": self.lst.id,
+                                                       "contact_ids": [self.a.id, outsider.id]},
+                             HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+        self.assertIn("Removed 1 contact(s)", r.json()["message"])
+
+    def test_list_view_offers_remove_from_this_list(self):
+        page = self.client.get(f"/contacts/?list={self.lst.id}").content.decode()
+        self.assertIn("Remove from “Pilot”", page)
+        self.assertIn("Remove from List", page)
+        self.assertNotIn("Remove from “", self.client.get("/contacts/").content.decode())
+
+    def test_another_workspaces_list_is_off_limits(self):
+        theirs = ContactList.objects.create(organization=Organization.objects.create(name="X", slug="x-lists"), name="T")
+        r = self.client.post("/contacts/bulk-action/", {"action": "remove_from_list", "list_id": theirs.id,
+                                                       "contact_ids": [self.a.id]},
+                             HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+        self.assertEqual(r.status_code, 404)
+
+
+class ListDetailPageTests(TestCase):
+    """One page per contact list: see members, add, remove, rename, delete, send a campaign."""
+
+    def setUp(self):
+        from core.models import User
+        self.org = Organization.objects.create(name="List Page Org", slug="list-page-org")
+        self.user = User.objects.create_user(email="owner@listpage.test", password="pw-123456789", organization=self.org,
+                                             role=User.Role.OWNER)
+        self.lst = ContactList.objects.create(organization=self.org, name="Pilot")
+        self.ann = Contact.objects.create(organization=self.org, phone="+14155550501", first_name="Ann",
+                                          sms_status=Contact.SMSStatus.OPTED_IN)
+        self.bob = Contact.objects.create(organization=self.org, phone="+14155550502", first_name="Bob",
+                                          sms_status=Contact.SMSStatus.OPTED_OUT)
+        self.cat = Contact.objects.create(organization=self.org, phone="+14155550503", first_name="Cat")
+        self.lst.contacts.add(self.ann, self.bob)
+        self.client.force_login(self.user)
+        self.ajax = {"HTTP_X_REQUESTED_WITH": "XMLHttpRequest"}
+
+    def page(self, query=""):
+        r = self.client.get(f"/contacts/lists/{self.lst.id}/{query}")
+        self.assertEqual(r.status_code, 200)
+        return r
+
+    def test_shows_members_counts_and_who_can_be_added(self):
+        r = self.page()
+        self.assertEqual(r.context["counts"], {"total": 2, "opted_in": 1, "opted_out": 1, "no_consent": 0})
+        self.assertEqual([c.first_name for c in r.context["page_obj"]], ["Ann", "Bob"])
+        self.assertEqual([c.first_name for c in r.context["candidates"]], ["Cat"])     # not already in it
+        html = r.content.decode()
+        for text in ("Add Contacts", "Rename", "Delete List", "Send Campaign", "Remove"):
+            self.assertIn(text, html)
+
+    def test_search_and_consent_filters(self):
+        self.assertEqual([c.first_name for c in self.page("?q=ann").context["page_obj"]], ["Ann"])
+        self.assertEqual([c.first_name for c in self.page("?status=opted_out").context["page_obj"]], ["Bob"])
+
+    def test_lists_page_opens_it(self):
+        html = self.client.get("/contacts/lists/").content.decode()
+        self.assertIn(f'href="/contacts/lists/{self.lst.id}/"', html)
+
+    def test_add_existing_and_remove(self):
+        r = self.client.post(f"/contacts/lists/{self.lst.id}/add-contacts/", {"contact_ids": [self.cat.id]}, **self.ajax)
+        self.assertEqual(r.json()["status"], "success")
+        self.assertIn(self.cat, self.lst.contacts.all())
+        r = self.client.post("/contacts/bulk-action/", {"action": "remove_from_list", "list_id": self.lst.id,
+                                                       "contact_ids": [self.ann.id, self.cat.id]}, **self.ajax)
+        self.assertIn("Removed 2 contact(s)", r.json()["message"])
+        self.assertEqual(list(self.lst.contacts.all()), [self.bob])
+        self.assertEqual(Contact.objects.filter(organization=self.org).count(), 3)     # nobody deleted
+
+    def test_new_contact_consent_tick_box_is_respected(self):
+        from compliance.models import ConsentEvent
+        url = f"/contacts/lists/{self.lst.id}/add-contacts/"
+        self.client.post(url, {"new_phone": "+14155550504", "new_first_name": "Dee", "new_sms_status": "opted_in"}, **self.ajax)
+        dee = Contact.objects.get(phone="+14155550504")
+        self.assertEqual(dee.sms_status, Contact.SMSStatus.OPTED_IN)
+        self.assertTrue(ConsentEvent.objects.filter(contact=dee, event_type=ConsentEvent.EventType.OPT_IN).exists())
+        self.client.post(url, {"new_phone": "+14155550505", "new_first_name": "Eve"}, **self.ajax)
+        self.assertEqual(Contact.objects.get(phone="+14155550505").sms_status, Contact.SMSStatus.UNKNOWN)
+        # someone who opted out is never opted back in by this form
+        r = self.client.post(url, {"new_phone": self.bob.phone, "new_sms_status": "opted_in"}, **self.ajax)
+        self.bob.refresh_from_db()
+        self.assertEqual(self.bob.sms_status, Contact.SMSStatus.OPTED_OUT)
+        self.assertIn("stays opted out", r.json()["message"])
+
+    def test_rename_and_delete(self):
+        r = self.client.post(f"/contacts/lists/{self.lst.id}/edit/", {"name": "Pilot 2"}, **self.ajax)
+        self.assertEqual(r.json()["name"], "Pilot 2")
+        r = self.client.post(f"/contacts/lists/{self.lst.id}/delete/")
+        self.assertRedirects(r, "/contacts/lists/", fetch_redirect_response=False)
+        self.assertFalse(ContactList.objects.filter(id=self.lst.id).exists())
+        self.assertEqual(Contact.objects.filter(organization=self.org).count(), 3)
+
+    def test_send_campaign_starts_with_the_list_ticked(self):
+        from messaging.models import PhoneNumber
+        PhoneNumber.objects.create(organization=self.org, e164="+14155550599", is_active=True)
+        html = self.client.get(f"/campaigns/new/?list={self.lst.id}").content.decode()
+        self.assertRegex(html, rf'value="{self.lst.id}"\s+checked')
+
+    def test_another_workspaces_list_is_off_limits(self):
+        theirs = ContactList.objects.create(organization=Organization.objects.create(name="Y", slug="y-lp"), name="T")
+        self.assertEqual(self.client.get(f"/contacts/lists/{theirs.id}/").status_code, 404)
+
+
+class ListDetailLiveSearchTests(TestCase):
+    """The list page's search-as-you-type and paginator (only the members table is reloaded)."""
+
+    def setUp(self):
+        from core.models import User
+        self.org = Organization.objects.create(name="Live Org", slug="live-org")
+        self.user = User.objects.create_user(email="owner@live.test", password="pw-123456789", organization=self.org,
+                                             role=User.Role.OWNER)
+        self.lst = ContactList.objects.create(organization=self.org, name="Big")
+        people = [Contact(organization=self.org, phone=f"+1415556{n:04d}", first_name=f"Person{n:03d}",
+                          sms_status=Contact.SMSStatus.OPTED_IN if n % 2 else Contact.SMSStatus.UNKNOWN)
+                  for n in range(130)]
+        Contact.objects.bulk_create(people)
+        self.lst.contacts.add(*Contact.objects.filter(organization=self.org))
+        self.client.force_login(self.user)
+        self.url = f"/contacts/lists/{self.lst.id}/"
+
+    def test_typing_returns_just_the_table(self):
+        r = self.client.get(self.url, {"q": "Person012", "partial": "1"})
+        html = r.content.decode()
+        self.assertNotIn("<html", html)                                  # only the members piece
+        self.assertIn('id="membersResult" data-total="1"', html)
+        self.assertIn("Person012", html)
+        self.assertNotIn("Person013", html)
+
+    def test_paginator_pages_and_per_page(self):
+        r = self.client.get(self.url, {"partial": "1"})
+        html = r.content.decode()
+        self.assertEqual(len(r.context["page_obj"].object_list), 25)
+        self.assertIn("1–25", html)
+        self.assertIn("goToPage(2)", html)
+        self.assertIn("…", html)                                        # 6 pages: 1 2 … 6
+        r = self.client.get(self.url, {"partial": "1", "page": "6"})
+        self.assertIn("126–130", r.content.decode())
+        r = self.client.get(self.url, {"partial": "1", "per_page": "100"})
+        self.assertEqual(len(r.context["page_obj"].object_list), 100)
+        r = self.client.get(self.url, {"partial": "1", "per_page": "9999"})   # only 25/50/100 allowed
+        self.assertEqual(len(r.context["page_obj"].object_list), 25)
+
+    def test_search_and_consent_filter_together(self):
+        r = self.client.get(self.url, {"partial": "1", "q": "Person00", "status": "opted_in"})
+        names = [c.first_name for c in r.context["page_obj"]]
+        self.assertEqual(names, ["Person001", "Person003", "Person005", "Person007", "Person009"])
+
+    def test_no_match_message(self):
+        html = self.client.get(self.url, {"partial": "1", "q": "zzz"}).content.decode()
+        self.assertIn("No members match", html)
+        self.assertIn("zzz", html)
+
+    def test_search_box_has_no_browser_autofill(self):
+        html = self.client.get(self.url).content.decode()
+        self.assertIn('id="memberSearch"', html)
+        self.assertIn('autocomplete="off"', html)
+
+
+    def test_short_list_has_no_paginator(self):
+        self.lst.contacts.set(Contact.objects.filter(organization=self.org)[:3])
+        html = self.client.get(self.url, {"partial": "1"}).content.decode()
+        self.assertNotIn("Per page", html)
+        self.assertNotIn("goToPage(", html)
+
+    def test_stylesheet_link_changes_when_the_css_changes(self):
+        html = self.client.get(self.url).content.decode()
+        self.assertRegex(html, r'/static/css/app\.css\?v=\d+')
+
+
+class ListMemberSearchRuleTests(TestCase):
+    """Names match from the start ("ar" is not "spark"); phone numbers match any digits."""
+
+    def setUp(self):
+        from core.models import User
+        self.org = Organization.objects.create(name="Search Org", slug="search-org")
+        user = User.objects.create_user(email="o@search.test", password="pw-123456789", organization=self.org,
+                                        role=User.Role.OWNER)
+        self.lst = ContactList.objects.create(organization=self.org, name="L")
+        self.lst.contacts.add(
+            Contact.objects.create(organization=self.org, phone="+15306841631", first_name="spark"),
+            Contact.objects.create(organization=self.org, phone="+14155550111", first_name="Arjun", last_name="Mehta",
+                                   email="arjun@example.com"),
+            Contact.objects.create(organization=self.org, phone="+14155550112", first_name="Maria", last_name="Arce"),
+        )
+        self.client.force_login(user)
+
+    def names(self, q):
+        r = self.client.get(f"/contacts/lists/{self.lst.id}/", {"q": q, "partial": "1"})
+        return sorted(c.first_name for c in r.context["page_obj"])
+
+    def test_names_match_from_the_start(self):
+        self.assertEqual(self.names("ar"), ["Arjun", "Maria"])      # Arjun, and Maria Arce; not "spark"
+        self.assertEqual(self.names("sp"), ["spark"])
+        self.assertEqual(self.names("arjun me"), ["Arjun"])         # full name
+        self.assertEqual(self.names("rju"), [])
+
+    def test_phone_digits_and_email(self):
+        self.assertEqual(self.names("530 684"), ["spark"])
+        self.assertEqual(self.names("+1 (530) 684-1631"), ["spark"])
+        self.assertEqual(self.names("555011"), ["Arjun", "Maria"])
+        self.assertEqual(self.names("arjun@"), ["Arjun"])

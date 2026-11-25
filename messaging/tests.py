@@ -124,6 +124,22 @@ class MessagingTests(TestCase):
 
         self.assertEqual(Message.objects.filter(provider_message_sid="SM_dup_123").count(), 1)
 
+    def test_opt_out_in_their_own_words_opts_out_and_confirms_once(self):
+        contact = Contact.objects.create(organization=self.org_a, phone="+16502534444",
+                                         sms_status=Contact.SMSStatus.OPTED_IN)
+        self.client.post("/webhooks/twilio/sms/",
+                         {"From": "+16502534444", "To": "+12137997090", "Body": "please stop texting me",
+                          "MessageSid": "SM_stop_phrase_1"},
+                         HTTP_X_TWILIO_SIGNATURE="valid_test_signature")
+        contact.refresh_from_db()
+        self.assertEqual(contact.sms_status, Contact.SMSStatus.OPTED_OUT)
+        self.assertTrue(ConsentEvent.objects.filter(contact=contact, event_type=ConsentEvent.EventType.OPT_OUT).exists())
+        [confirmation] = Message.objects.filter(conversation__contact=contact, direction=Message.Direction.OUTBOUND)
+        self.assertIn("unsubscribed", confirmation.body)
+        self.assertIn("START", confirmation.body)
+        from messaging.models import AIJob
+        self.assertFalse(AIJob.objects.filter(conversation__contact=contact).exists())   # no AI reply after it
+
     def test_compliance_keywords(self):
         """STOP -> opted_out + ConsentEvent; START -> opted_in + ConsentEvent; 'yes' and HELP change nothing."""
         # Setup existing contact

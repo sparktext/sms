@@ -1,3 +1,4 @@
+import re
 import string
 
 from django.core.exceptions import ValidationError
@@ -12,6 +13,33 @@ STOP_KEYWORDS = frozenset(["STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "Q
 START_KEYWORDS = frozenset(["START", "UNSTOP"])
 HELP_KEYWORDS = frozenset(["HELP"])
 
+# Opt-outs in the lead's own words. Consent can be revoked "by any reasonable means" (FCC), so these count
+# as STOP too. Each needs a texting-related object, so "cancel the call" or "stop by the office" don't.
+_STOP_PHRASE_RE = re.compile(
+    r"\b(stop|quit|cease)\s+(all\s+)?(the\s+)?(texting|texts?|messaging|messages?|sending|contacting|"
+    r"text(ing)?\s+me|messag(e|ing)\s+me|contact(ing)?\s+me|bugging\s+me|spamming)\b"
+    r"|\b(don'?t|dont|do\s+not|never)\s+(ever\s+)?(text|message|sms|contact|call\s+or\s+text)\s+me\b"
+    r"|\b(remove|take|delete)\s+(me|my\s+(number|info))\s+(off|from)\b"
+    r"|\b(remove|delete)\s+my\s+number\b"
+    r"|\bunsubscribe\b|\bopt\s*(me\s+)?out\b|\bno\s+more\s+(texts|messages)\b|\blose\s+my\s+number\b"
+    r"|\bleave\s+me\s+alone\b|\bnot\s+interested[,.!\s]+stop\b",
+    re.I,
+)
+_NOT_STOP_RE = re.compile(r"\b(don'?t|do\s+not|never)\s+stop\b", re.I)
+_POLITE_STOP_WORDS = {"PLEASE", "PLS", "PLZ", "NOW", "THANKS", "THANK", "YOU", "OK", "OKAY", "JUST", "STOP", "STOPALL"}
+
+
+def is_stop_phrase(text: str | None) -> bool:
+    """An opt-out in the lead's own words ("please stop texting me", "remove me from your list"),
+    as opposed to the bare STOP keyword that carriers answer automatically."""
+    if not text or _NOT_STOP_RE.search(text):
+        return False
+    if _STOP_PHRASE_RE.search(text):
+        return True
+    # "stop please", "please stop!", "STOP NOW"
+    words = re.findall(r"[A-Za-z]+", text.upper())
+    return "STOP" in words and len(words) > 1 and set(words) <= _POLITE_STOP_WORDS
+
 
 def classify_keyword(text: str | None) -> str | None:
     """
@@ -22,6 +50,7 @@ def classify_keyword(text: str | None) -> str | None:
     - Recognizes START synonyms: START, UNSTOP.
     - HELP is recognized as HELP.
     - 'yes' must NOT be treated as START, on purpose, because the AI may ask yes/no questions.
+    - Opt-outs in plain words ("please stop texting me", "remove me from your list") are STOP too.
     """
     if not text:
         return None
@@ -47,6 +76,9 @@ def classify_keyword(text: str | None) -> str | None:
 
     if cleaned in HELP_KEYWORDS:
         return "HELP"
+
+    if is_stop_phrase(text):
+        return "STOP"
 
     return None
 

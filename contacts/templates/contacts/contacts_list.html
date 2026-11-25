@@ -191,7 +191,7 @@
   <div class="h-4 w-px bg-slate-700"></div>
   <div class="flex items-center gap-2">
     <select id="bulkListSelect" class="bg-slate-800 text-white text-xs px-2.5 py-1.5 rounded-lg border border-slate-600 focus:outline-none">
-      <option value="">— Add to List —</option>
+      <option value="">— Choose a list —</option>
       {% for cl in contact_lists %}
       <option value="{{ cl.id }}">{{ cl.name }}</option>
       {% endfor %}
@@ -199,7 +199,16 @@
     <button type="button" onclick="executeBulkAction('add_to_list')" class="px-3 py-1.5 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-500 rounded-lg cursor-pointer transition">
       Assign List
     </button>
+    <button type="button" onclick="executeBulkAction('remove_from_list')" class="px-3 py-1.5 text-xs font-semibold text-slate-200 bg-slate-700 hover:bg-slate-600 rounded-lg cursor-pointer transition">
+      Remove from List
+    </button>
   </div>
+  {% if selected_list %}
+  <div class="h-4 w-px bg-slate-700"></div>
+  <button type="button" onclick="executeBulkAction('remove_from_list', '{{ selected_list.id }}', '{{ selected_list.name|escapejs }}')" class="px-3 py-1.5 text-xs font-semibold text-amber-300 hover:text-amber-200 hover:bg-amber-950/40 rounded-lg cursor-pointer transition" title="Take the selected contacts out of this list (they stay in your contacts)">
+    Remove from “{{ selected_list.name }}”
+  </button>
+  {% endif %}
   <div class="h-4 w-px bg-slate-700"></div>
   <button type="button" onclick="executeBulkAction('delete')" class="px-3 py-1.5 text-xs font-semibold text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 rounded-lg cursor-pointer transition">
     Delete Selected
@@ -878,16 +887,26 @@
     }
   }
 
-  async function executeBulkAction(action) {
+  async function executeBulkAction(action, forcedListId, forcedListName) {
     const selected = getSelectedContactIds();
     if (selected.length === 0) return;
 
     const listSelect = document.getElementById('bulkListSelect');
-    const listId = listSelect ? listSelect.value : '';
+    const listId = forcedListId || (listSelect ? listSelect.value : '');
 
-    if (action === 'add_to_list' && !listId) {
-      window.showAppToast("Please select a target list from the dropdown.", "warning");
+    if ((action === 'add_to_list' || action === 'remove_from_list') && !listId) {
+      window.showAppToast("Please choose a list from the dropdown.", "warning");
       return;
+    }
+
+    if (action === 'remove_from_list') {
+      const listName = forcedListName || (listSelect ? listSelect.options[listSelect.selectedIndex].text : "the list");
+      const ok = await window.showAppConfirm({
+        title: "Remove from List",
+        message: `Remove ${selected.length} contact(s) from "${listName}"? They stay in your contacts; only their place in this list is removed.`,
+        confirmText: "Remove",
+      });
+      if (!ok) return;
     }
 
     if (action === 'delete') {

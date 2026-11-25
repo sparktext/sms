@@ -11,6 +11,7 @@
 {% block header_back %}
 <a
   href="{% if is_edit %}{% url 'campaigns:detail' campaign.id %}{% else %}{% url 'campaigns:list' %}{% endif %}"
+  data-back
   title="Back"
   aria-label="Back"
   class="inline-flex items-center justify-center w-9 h-9 rounded-xl border border-gray-200 bg-white text-gray-500 hover:text-gray-900 hover:bg-gray-50 hover:border-gray-300 transition shadow-2xs shrink-0"
@@ -121,7 +122,7 @@
             type="checkbox"
             name="lists"
             value="{{ lst.id }}"
-            {% if campaign and lst.id in campaign_list_ids %}checked{% endif %}
+            {% if lst.id in campaign_list_ids %}checked{% endif %}
             onchange="recalculateAudience()"
             class="rounded border-gray-300 text-brand-600 focus:ring-brand-500 cursor-pointer"
           />
@@ -260,8 +261,16 @@
 
       <div class="flex items-center justify-between text-[11px] text-gray-400 font-mono mt-1 px-1">
         <div id="char-counter">0 / 160 characters · 1 segment</div>
-        <div class="text-[10px] text-gray-400 font-sans italic">
-          Standard disclaimer ("Reply STOP to opt out") is auto-appended if omitted.
+        <div class="flex items-center gap-3">
+          <span class="text-[10px] text-gray-400 font-sans italic">
+            Standard disclaimer ("Reply STOP to opt out") is auto-appended if omitted.
+          </span>
+          <button type="button" onclick="openTestSend()"
+                  class="font-sans inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-lg cursor-pointer transition"
+                  title="Text this message to your own phone right now">
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+            Send test
+          </button>
         </div>
       </div>
     </div>
@@ -443,8 +452,8 @@
           type="datetime-local"
           id="scheduled-at"
           name="scheduled_at"
-          min="{{ now_iso }}"
-          value="{% if is_edit and campaign.scheduled_at %}{{ campaign_scheduled_iso }}{% endif %}"
+          data-utc="{% if is_edit %}{{ campaign_scheduled_iso }}{% endif %}"
+          {% if not is_edit or campaign.status != 'scheduled' %}disabled{% endif %}
           oninput="updateScheduledIso()"
           class="px-3.5 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900 bg-white"
         />
@@ -487,7 +496,88 @@
 
 </form>
 
+<!-- ================= MODAL: SEND TEST ================= -->
+<div id="testSendModal" class="fixed inset-0 z-50 hidden overflow-y-auto" role="dialog" aria-modal="true">
+  <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs" onclick="closeTestSend()"></div>
+  <div class="flex min-h-full items-center justify-center p-4">
+    <div class="relative bg-white rounded-2xl max-w-md w-full p-6 text-left shadow-2xl border border-gray-100 space-y-4">
+      <div>
+        <h3 class="text-base font-bold text-gray-900">Send a test text</h3>
+        <p class="text-xs text-gray-500 mt-1 leading-relaxed">Texts this message to <strong>one phone</strong> right now, at any hour, so you can see it and reply to test Gemma. It isn't part of the campaign.</p>
+      </div>
+      <form onsubmit="sendTest(event)" class="space-y-3">
+        <div>
+          <label for="testPhone" class="block text-xs font-bold text-gray-700 mb-1">Phone number</label>
+          <input id="testPhone" type="tel" required placeholder="+1 (530) 684-1631" autocomplete="off"
+                 class="w-full px-3 py-2 text-sm font-mono border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900">
+          <p class="text-[11px] text-gray-400 mt-1">Must be one of your contacts with SMS consent (opted in).</p>
+        </div>
+        <label class="flex items-start gap-2 text-xs text-gray-700 cursor-pointer">
+          <input id="testConfirm" type="checkbox" class="mt-0.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+          <span>This is <strong>my own phone</strong>, or a teammate's who agreed to get test texts. (Tests skip the texting-hours wait, so never use a lead's number.)</span>
+        </label>
+        <div id="testResult" class="hidden text-xs rounded-xl p-3"></div>
+        <div class="flex items-center justify-end gap-2 pt-1">
+          <button type="button" onclick="closeTestSend()" class="px-3.5 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-xl cursor-pointer">Close</button>
+          <button type="submit" id="testSendBtn" class="px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 disabled:opacity-60 rounded-xl shadow-xs cursor-pointer">Send test now</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 <script>
+  // ---------- Send test (one text to your own phone, right now)
+  function openTestSend() {
+    const msg = (document.getElementById("message-template")?.value || "").trim();
+    if (!msg) {
+      if (window.showAppToast) window.showAppToast("Write the message first.", "warning");
+      return;
+    }
+    try { document.getElementById("testPhone").value = localStorage.getItem("sparktext:testPhone") || ""; } catch (e) {}
+    document.getElementById("testResult").classList.add("hidden");
+    document.getElementById("testSendModal").classList.remove("hidden");
+    document.getElementById("testPhone").focus();
+  }
+  function closeTestSend() { document.getElementById("testSendModal").classList.add("hidden"); }
+
+  async function sendTest(e) {
+    e.preventDefault();
+    const phone = document.getElementById("testPhone").value.trim();
+    const result = document.getElementById("testResult");
+    const show = (ok, html) => {
+      result.className = "text-xs rounded-xl p-3 " + (ok ? "bg-emerald-50 text-emerald-800 border border-emerald-200" : "bg-rose-50 text-rose-800 border border-rose-200");
+      result.innerHTML = html;
+    };
+    if (!document.getElementById("testConfirm").checked) {
+      show(false, "Please confirm this is your own phone (or a teammate's who agreed).");
+      return;
+    }
+    const btn = document.getElementById("testSendBtn");
+    btn.disabled = true; btn.textContent = "Sending…";
+    const body = new FormData();
+    body.append("message_template", document.getElementById("message-template").value);
+    body.append("phone_number_id", document.getElementById("phone-number-id")?.value || "");
+    body.append("to_phone", phone);
+    body.append("confirm_own", "1");
+    try {
+      const csrf = document.querySelector("[name=csrfmiddlewaretoken]")?.value || "";
+      const resp = await fetch("{% url 'campaigns:test_send' %}", { method: "POST", body, headers: { "X-CSRFToken": csrf, "X-Requested-With": "XMLHttpRequest" } });
+      const data = await resp.json();
+      const esc = (t) => { const d = document.createElement("div"); d.innerText = t || ""; return d.innerHTML; };
+      if (resp.ok && data.status === "success") {
+        try { localStorage.setItem("sparktext:testPhone", phone); } catch (err) {}
+        show(true, `✅ ${esc(data.message)} <a href="${data.chat_url}" target="_blank" class="underline font-semibold">Open the chat</a>`);
+      } else {
+        show(false, esc(data.message || "Couldn't send the test."));
+      }
+    } catch (err) {
+      show(false, "Network error. Please try again.");
+    } finally {
+      btn.disabled = false; btn.textContent = "Send test now";
+    }
+  }
+
   function applyTemplatePreset(selectEl) {
     if (!selectEl) return;
     const selectedOption = selectEl.options[selectEl.selectedIndex];
@@ -562,6 +652,9 @@
     }
   }
 
+  const IS_EDIT = {{ is_edit|yesno:"true,false" }};
+  let lastAudience = null;          // latest audience count, for the "send to N people?" check
+
   function toggleScheduleInput() {
     const isScheduled = document.getElementById("radio-scheduled")?.checked;
     const box = document.getElementById("schedule-picker-box");
@@ -571,12 +664,13 @@
     if (box) {
       if (isScheduled) {
         box.classList.remove("hidden");
-        if (input) input.required = true;
-        if (btn) btn.innerHTML = "<span>Schedule Campaign</span><span>🗓️</span>";
+        if (input) { input.disabled = false; input.required = true; }
+        if (btn) btn.innerHTML = IS_EDIT ? "<span>Save & Schedule</span><span>🗓️</span>" : "<span>Schedule Campaign</span><span>🗓️</span>";
       } else {
         box.classList.add("hidden");
-        if (input) input.required = false;
-        if (btn) btn.innerHTML = "<span>Launch Campaign</span><span>→</span>";
+        // A hidden picker must not block "Launch": disabled fields skip the browser's checks
+        if (input) { input.required = false; input.disabled = true; }
+        if (btn) btn.innerHTML = IS_EDIT ? "<span>Save & Launch</span><span>→</span>" : "<span>Launch Campaign</span><span>→</span>";
       }
     }
   }
@@ -591,18 +685,27 @@
     fetch("{% url 'campaigns:audience_preview' %}?" + params.toString())
       .then(res => res.json())
       .then(data => {
-        if (data.status === "success") {
-          document.getElementById("val-total").textContent = data.total;
-          document.getElementById("val-eligible").textContent = data.eligible ?? data.will_send;
-          document.getElementById("val-skipped").textContent = data.skipped ?? data.will_skip;
-
-          const pill = document.getElementById("counter-summary");
-          if (pill) {
-            pill.textContent = `${data.will_send} eligible recipient${data.will_send === 1 ? '' : 's'}`;
-          }
+        const pill = document.getElementById("counter-summary");
+        lastAudience = data.status === "success" ? data : null;
+        if (data.status !== "success") {
+          if (pill) pill.textContent = "Audience unavailable";
+          return;
         }
+        if (pill) {
+          pill.textContent = `${data.will_send} eligible recipient${data.will_send === 1 ? '' : 's'}` +
+            (data.will_skip ? ` · ${data.will_skip} skipped (no opt-in)` : "");
+        }
+        // Optional detail boxes (not on every page): fill them only if they exist
+        const setText = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+        setText("val-total", data.total);
+        setText("val-eligible", data.eligible ?? data.will_send);
+        setText("val-skipped", data.skipped ?? data.will_skip);
       })
-      .catch(err => console.debug("Audience calc error:", err));
+      .catch(err => {
+        console.debug("Audience calc error:", err);
+        const pill = document.getElementById("counter-summary");
+        if (pill) pill.textContent = "Audience unavailable";
+      });
   }
 
   // AI Playbook State & Handlers
@@ -762,7 +865,7 @@
     updateMessageMetrics();
     {% endif %}
 
-    {% if is_edit %}
+    {% if is_edit or campaign %}
     renderCampaignQuestions();
     {% if campaign.ai_mode == 'custom' %}
     toggleAiPlaybookMode('custom');
@@ -773,8 +876,49 @@
 
     recalculateAudience();
 
-    document.getElementById("campaign-form")?.addEventListener("submit", function() {
+    // Date picker in the viewer's own time: "not before now" and a scheduled campaign's saved time (stored as UTC)
+    const datePicker = document.getElementById("scheduled-at");
+    if (datePicker) {
+      const local = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+      datePicker.min = local(new Date());
+      if (datePicker.dataset.utc) {
+        const saved = new Date(datePicker.dataset.utc);
+        if (!isNaN(saved.getTime())) datePicker.value = local(saved);
+      }
       updateScheduledIso();
+    }
+
+    const form = document.getElementById("campaign-form");
+    let launchConfirmed = false;
+    form?.addEventListener("submit", function(e) {
+      updateScheduledIso();
+      const isDraft = e.submitter && e.submitter.name === "save_draft";
+      if (!isDraft && !launchConfirmed) {
+        // Sending texts real people: say how many, and warn when no list means ALL contacts
+        e.preventDefault();
+        const scheduled = document.getElementById("radio-scheduled")?.checked;
+        const count = lastAudience ? lastAudience.will_send : null;
+        const noLists = !document.querySelector("input[name='lists']:checked");
+        let message = (count === null ? "Send this campaign" : `Send this campaign to ${count} recipient${count === 1 ? "" : "s"}`)
+          + (scheduled ? " at the scheduled time?" : " now?");
+        if (noLists) message += " No list is selected, so it goes to ALL your eligible contacts.";
+        const ask = window.showAppConfirm
+          ? window.showAppConfirm({ title: scheduled ? "Schedule campaign" : "Send campaign", message,
+                                    confirmText: scheduled ? "Schedule" : "Send now" })
+          : Promise.resolve(window.confirm(message));
+        const submitter = e.submitter;
+        ask.then(ok => {
+          if (!ok) return;
+          launchConfirmed = true;
+          if (submitter && form.requestSubmit) form.requestSubmit(submitter); else form.submit();
+        });
+        return;
+      }
+      // One click only: lock the buttons once the form is on its way (after the browser has read the clicked one)
+      setTimeout(() => {
+        document.querySelectorAll('button[type="submit"][form="campaign-form"], #campaign-form button[type="submit"]')
+          .forEach(b => { b.disabled = true; b.classList.add("opacity-60", "cursor-wait"); });
+      }, 0);
     });
 
     try {

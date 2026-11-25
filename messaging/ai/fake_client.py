@@ -63,6 +63,14 @@ class FakeAIClient(BaseAIClient):
                 and "verdicts" in self.canned_responses[0]):
             return AIResponse(text=json.dumps({"verdicts": {}}), input_tokens=50, output_tokens=10, latency_ms=20)
 
+        # The "when does the lead want the call?" read likewise only uses a response queued for it
+        if schema and "wants_call" in (schema.get("properties") or {}) and not (
+                self.canned_responses and isinstance(self.canned_responses[0], dict)
+                and "wants_call" in self.canned_responses[0]):
+            return AIResponse(text=json.dumps({"wants_call": False, "date": "", "time": "", "part_of_day": "",
+                                               "asap": False, "their_words": ""}),
+                              input_tokens=50, output_tokens=10, latency_ms=20)
+
         if self.canned_responses:
             next_resp = self.canned_responses.pop(0)
             if isinstance(next_resp, Exception):

@@ -171,6 +171,8 @@ def follow_up_active(q: dict[str, Any], answers: dict[str, Any], by_key: dict[st
     if timed is not None:                     # date arithmetic done in code
         return timed if op == COND_IS else not timed
     code_match = answer_matches(answer, values)
+    if is_name_list(values):                  # "is State Farm": code decides, no model judgement
+        return code_match if op == COND_IS else not code_match
     verdict = _verdict(checks, f"cond:{q['key']}", answer)
     if op == COND_IS:
         return True if code_match else bool(verdict.get("met"))
@@ -297,11 +299,34 @@ def answer_matches(answer: Any, values: list[str]) -> bool:
     if not a:
         return False
     padded = f" {a} "
+    words = a.split()
     for v in values or []:
         nv = _norm(v)
         if nv and (a == nv or f" {nv} " in padded):
             return True
+        # Same words, spaces differing: "statefarm" = "State Farm" (still whole words: not "Allstateish")
+        nv_squashed = nv.replace(" ", "")
+        if " " in nv or len(nv.split()) == 1:
+            for i in range(len(words)):
+                for j in range(i + 1, min(len(words), i + 4) + 1):
+                    if "".join(words[i:j]) == nv_squashed:
+                        return True
     return False
+
+
+# Rule values written in plain language ("less than 6 months", "any other company") need Gemma's judgement.
+# A plain list of names ("State Farm, Allstate") is decided by code alone: a model verdict once said
+# "met: true" with the reason "GEICO, not State Farm".
+_PLAIN_RULE_RE = re.compile(
+    r"\d|\b(less|more|than|over|under|within|ago|before|after|between|least|most|older|newer|younger|above|below|"
+    r"months?|years?|weeks?|days?|recent(ly)?|other|any|except|not|without|like|similar|type|kind)\b",
+    re.I,
+)
+
+
+def is_name_list(values: list[str]) -> bool:
+    """True when every value is a plain name/option, so an exact match in code fully decides the rule."""
+    return bool(values) and not any(_PLAIN_RULE_RE.search(str(v)) for v in values)
 
 
 # ---------------------------------------------------------------------------
@@ -437,7 +462,7 @@ def evaluate_fit(
         if rule not in RULES or not values or _norm(answer) in _NON_ANSWERS:
             continue
         matched = answer_matches(answer, values)
-        verdict = _verdict(checks, f"rule:{q['key']}", answer)
+        verdict = {} if is_name_list(values) else _verdict(checks, f"rule:{q['key']}", answer)
         why = f' ({verdict["reason"]})' if verdict.get("reason") else ""
         timed = time_rule_match(answer, values)
         if timed is not None:                 # date arithmetic done in code, not by the model
@@ -575,5 +600,7 @@ def checks_needing_judgement(conversation: Conversation, config: AIAssistantConf
             values = parse_rule_values((c["q"].get("condition") or {}).get("values"))
             if answer_matches(c["answer"], values):
                 continue
+        if is_name_list(values):
+            continue                          # a list of names: code decides, nothing for Gemma to judge
         out.append(c)
     return out

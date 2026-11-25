@@ -1,6 +1,7 @@
 import importlib
 import logging
 import signal
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
@@ -17,6 +18,8 @@ logger = logging.getLogger(__name__)
 
 # A RUNNING job older than this no longer blocks its conversation (its worker probably crashed)
 STALE_RUNNING_MINUTES = 10
+# How often call reminders are checked
+REMINDER_EVERY_SECONDS = 10
 
 
 class Command(BaseCommand):
@@ -35,6 +38,11 @@ class Command(BaseCommand):
             help="Polling interval in seconds (default: 1.0).",
         )
         parser.add_argument(
+            "--no-reminders",
+            action="store_true",
+            help="Don't send calendar call reminders from this worker (e.g. when send_call_reminders runs separately).",
+        )
+        parser.add_argument(
             "--concurrency",
             type=int,
             default=int(getattr(settings, "AI_WORKER_CONCURRENCY", 1) or 1),
@@ -47,6 +55,8 @@ class Command(BaseCommand):
     def _reload_pipeline(self):
         """Pick up code edits without restarting (only called while no reply is in progress)."""
         import messaging.ai.pipeline
+        import scheduling.calls
+        importlib.reload(scheduling.calls)            # call booking rules the pipeline uses
         import messaging.ai.prompt
         import messaging.ai.validator
         importlib.reload(messaging.ai.validator)
@@ -100,6 +110,26 @@ class Command(BaseCommand):
             if in_thread:
                 connections.close_all()   # each worker thread has its own DB connection
 
+    def _send_reminders(self):
+        from scheduling.reminders import send_due_reminders
+        try:
+            count = send_due_reminders()
+            if count:
+                self.stdout.write(f"Sent {count} call reminder(s).")
+        except Exception as exc:
+            logger.exception("Call reminder check failed: %s", exc)
+
+    def _reminder_loop(self):
+        """Calendar call reminders, checked every few seconds alongside the AI replies (own thread, so a
+        long Gemma reply never delays a reminder)."""
+        while self.running:
+            self._send_reminders()
+            connections.close_all()          # this thread's own DB connection
+            for _ in range(int(REMINDER_EVERY_SECONDS * 2)):
+                if not self.running:
+                    break
+                time.sleep(0.5)
+
     # ------------------------------------------------------------------ main loop
 
     def handle(self, *args, **options):
@@ -119,9 +149,16 @@ class Command(BaseCommand):
         except Exception:
             pass  # On Windows, some signals might differ
 
+        reminders = not options.get("no_reminders")
         self.stdout.write(self.style.SUCCESS(
-            f"AI Assistant worker started. Polling every {interval}s (once={once}, concurrency={concurrency})."
+            f"AI Assistant worker started. Polling every {interval}s (once={once}, concurrency={concurrency}, "
+            f"call reminders={'on' if reminders else 'off'})."
         ))
+        if reminders:
+            if once:
+                self._send_reminders()
+            else:
+                threading.Thread(target=self._reminder_loop, name="call-reminders", daemon=True).start()
 
         jobs_processed = 0
         pool = ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix="ai-job") if concurrency > 1 else None

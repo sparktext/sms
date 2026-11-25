@@ -138,6 +138,41 @@ def build_lead_context(contact) -> str:
     return body
 
 
+def _call_hours_line(conversation) -> str:
+    """When our agents can call THIS lead, in the lead's own time, from Settings > Team call hours. It is the only
+    source for call times: the knowledge base's office hours can differ, and code never books outside these."""
+    try:
+        from scheduling import calls
+        org = conversation.organization
+        lead_tz = calls.lead_timezone(conversation.contact, org)
+        return (f"our agents can call this customer {calls.lead_hours_text(org, lead_tz)} (the customer's own time). "
+                "Only ever offer or agree to call times inside these hours, even if the business knowledge lists "
+                "different office hours.")
+    except Exception:
+        return ""
+
+
+def _booked_call_line(conversation) -> str:
+    """The next call booked with this customer, in THEIR time, so Gemma can talk about it correctly."""
+    if not getattr(conversation, "pk", None):
+        return ""
+    try:
+        from zoneinfo import ZoneInfo
+
+        from scheduling.calls import fmt_day, fmt_time, fmt_zone_abbr, lead_timezone, upcoming_call
+        event = upcoming_call(conversation=conversation)
+        if not event:
+            return ""
+        local = event.start_at.astimezone(ZoneInfo(lead_timezone(conversation.contact, conversation.organization)))
+        abbr = fmt_zone_abbr(local)
+        agent = event.user.first_name or "our agent"
+        return (f"a phone call with {agent} is booked for {fmt_day(local)} at {fmt_time(local)}"
+                f"{(' ' + abbr) if abbr else ''} (the customer's own time). If they ask about it, tell them. If they "
+                "want a different time, confirm the new time in one short sentence: the booking updates automatically.")
+    except Exception:
+        return ""
+
+
 def build_system_prompt(config: AIAssistantConfig, conversation: Conversation) -> str:
     """
     Constructs a cache-friendly prompt:
@@ -377,6 +412,12 @@ CUSTOMER CONTEXT:
 - Today's date: {today}
 - Conversation: {state_line}
 """
+    hours = _call_hours_line(conversation)
+    if hours:
+        customer_section += f"- Call hours: {hours}\n"
+    booked = _booked_call_line(conversation)
+    if booked:
+        customer_section += f"- Booked call: {booked}\n"
     lead_context = build_lead_context(contact)
     if lead_context:
         customer_section += f"""
@@ -458,7 +499,9 @@ LEAD DETAILS (everything we already know about this customer from their lead for
 
     qualification_section = "\nQUALIFICATION & LEAD DATA COLLECTION:\n"
     if answered_summary:
-        qualification_section += "Already collected from customer:\n" + "\n".join(answered_summary) + "\n"
+        qualification_section += ("Already collected from customer:\n" + "\n".join(answered_summary) + "\n"
+                                  "If the customer corrects or changes one of these (e.g. \"sorry, it was August "
+                                  "2025\"), put the new answer in \"collected\" under the same key.\n")
     if unanswered:
         # Show only the NEXT question so a small model can't skip ahead (follow-ups must come
         # right after their parent). Later keys are listed only so volunteered answers get recorded.

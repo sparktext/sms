@@ -1,5 +1,6 @@
 import logging
 import re
+from datetime import timedelta
 from typing import Any
 
 from django.db import transaction
@@ -161,6 +162,119 @@ def build_campaign_recipients(campaign: Campaign) -> tuple[int, int]:
     return total, eligible_count
 
 
+# A batch's claim on recipients that never got sent (a crashed run) is released after this long
+QUEUED_CLAIM_TIMEOUT = timedelta(minutes=10)
+
+
+def can_text_now(contact, organization, now=None) -> bool:
+    """Quiet hours: may a campaign text go to this contact right now? Federal TCPA (8 AM-9 PM their time) plus the
+    stricter rules of their state, wherever they are (lead details, else phone area code, else "safe everywhere").
+    The same fixed rules for every SparkText customer: see compliance/quiet_hours.py."""
+    from compliance.quiet_hours import can_text_at
+    try:
+        return can_text_at(contact, now or timezone.now(), org=organization)
+    except Exception:
+        logger.exception("Quiet-hours check failed for contact %s; holding the text", getattr(contact, "id", None))
+        return False
+
+
+CAMPAIGN_WORKER_HEARTBEAT = "campaign_worker"
+CAMPAIGN_WORKER_STALE = timedelta(minutes=2)
+
+
+def record_worker_heartbeat() -> None:
+    from scheduling.models import WorkerHeartbeat
+    WorkerHeartbeat.objects.update_or_create(name=CAMPAIGN_WORKER_HEARTBEAT, defaults={"last_seen": timezone.now()})
+
+
+def campaign_worker_running() -> bool:
+    """Has the campaign worker checked in recently? (It sends everything after the first batch, scheduled
+    campaigns, and texts that waited for allowed hours.)"""
+    from scheduling.models import WorkerHeartbeat
+    beat = WorkerHeartbeat.objects.filter(name=CAMPAIGN_WORKER_HEARTBEAT).values_list("last_seen", flat=True).first()
+    return bool(beat and timezone.now() - beat < CAMPAIGN_WORKER_STALE)
+
+
+def _in_about(delta) -> str:
+    minutes = max(1, round(delta.total_seconds() / 60))
+    if minutes < 60:
+        return f"in {minutes} minute{'s' if minutes != 1 else ''}"
+    hours = round(minutes / 60)
+    return f"in about {hours} hour{'s' if hours != 1 else ''}"
+
+
+def _day_word(moment_local, now_local) -> str:
+    if moment_local.date() == now_local.date():
+        return "today"
+    if moment_local.date() == now_local.date() + timedelta(days=1):
+        return "tomorrow"
+    return moment_local.strftime("%a, %b ") + str(moment_local.day)
+
+
+def _clock_text(dt) -> str:
+    return dt.strftime("%I:%M %p").lstrip("0") + (f" {dt.strftime('%Z')}" if dt.strftime("%Z") else "")
+
+
+def waiting_summary(campaign, now=None):
+    """Why a campaign's texts aren't going out yet, in plain words: who is waiting for allowed texting hours (by
+    place: their time now, the hours the law allows there, when it sends), and whether the worker is running."""
+    from zoneinfo import ZoneInfo
+
+    from compliance.quiet_hours import allowed_for, lead_location, next_allowed_at, plain_hours, state_name
+    now = now or timezone.now()
+    org = campaign.organization
+    groups = {}
+    pending = (CampaignRecipient.objects.filter(campaign=campaign, status=CampaignRecipient.Status.PENDING)
+               .select_related("contact")[:5000])
+    total = 0
+    for r in pending:
+        total += 1
+        where = lead_location(r.contact, org)
+        groups.setdefault(where, {"where": where, "count": 0})["count"] += 1
+    sendable, held, earliest = 0, [], None
+    for where, g in groups.items():
+        if allowed_for(where, now):
+            sendable += g["count"]
+            continue
+        zone = ZoneInfo(where.zones[0])
+        local_now = now.astimezone(zone)
+        nxt = next_allowed_at(where, now)
+        hours, law = plain_hours(where)
+        place = state_name(where.state) if where.state else "an unknown location"
+        note = {"agency state": "we used your agency's state, since their location isn't known",
+                "phone area code": "based on their phone number"}.get(where.source, "")
+        item = {
+            "count": g["count"],
+            "place": place,
+            "place_note": note,
+            "law": law,
+            "hours": hours,
+            "local_now": _clock_text(local_now).rsplit(" ", 1)[0] if local_now.strftime("%Z") else _clock_text(local_now),
+            "unknown": where.source == "unknown",
+            "next_at": None, "next_time": "", "next_day": "", "wait": "",
+        }
+        if nxt:
+            nxt_local = nxt.astimezone(zone)
+            item.update(next_at=nxt, next_time=_clock_text(nxt_local), next_day=_day_word(nxt_local, local_now),
+                        wait=_in_about(nxt - now))
+            if earliest is None or nxt < earliest["next_at"]:
+                earliest = item
+        held.append(item)
+    held.sort(key=lambda h: -h["count"])
+    next_label = ""
+    if earliest:
+        next_label = earliest["next_time"] + ("" if earliest["next_day"] == "today" else f" {earliest['next_day']}")
+    return {"pending": total, "sendable_now": sendable, "held": held, "next_label": next_label,
+            "worker_running": campaign_worker_running()}
+
+
+def quiet_hours_count(campaign) -> int:
+    """How many of the campaign's pending recipients are in quiet hours right now (they get it later)."""
+    now = timezone.now()
+    pending = CampaignRecipient.objects.filter(campaign=campaign, status=CampaignRecipient.Status.PENDING).select_related("contact")
+    return sum(1 for r in pending if not can_text_now(r.contact, campaign.organization, now))
+
+
 def process_campaign_batch(campaign: Campaign, limit: int = 50) -> int:
     """
     Dispatches a batch of pending recipients for a campaign.
@@ -175,19 +289,36 @@ def process_campaign_batch(campaign: Campaign, limit: int = 50) -> int:
         campaign.started_at = timezone.now()
         campaign.save(update_fields=["status", "started_at"])
 
+    now = timezone.now()
+    # A claim that never sent (the run crashed after claiming) is released so the campaign can finish. Only
+    # rows with a claim time: old stuck rows from before this existed are left for a person to decide.
+    CampaignRecipient.objects.filter(
+        campaign=campaign, status=CampaignRecipient.Status.QUEUED, message__isnull=True,
+        queued_at__lt=now - QUEUED_CLAIM_TIMEOUT,
+    ).update(status=CampaignRecipient.Status.PENDING, queued_at=None)
+
     # Atomically claim pending recipients for this batch using select_for_update
     # and mark them as QUEUED so concurrent workers or requests never process the same recipients.
+    # Quiet hours: nobody is texted before 8 AM or after 9 PM in their own time; they stay pending until then.
     with transaction.atomic():
-        pending_ids = list(
-            CampaignRecipient.objects.select_for_update(skip_locked=True)
+        # Locked re-check: if someone paused it for editing (back to draft) a moment ago, send nothing
+        current = (Campaign.objects.select_for_update().filter(id=campaign.id)
+                   .values_list("status", flat=True).first())
+        if current not in (Campaign.Status.SCHEDULED, Campaign.Status.SENDING):
+            return 0
+        candidates = list(
+            CampaignRecipient.objects.select_for_update(skip_locked=True, of=("self",))
             .filter(
                 campaign=campaign,
                 status=CampaignRecipient.Status.PENDING,
             )
-            .order_by("id")
-            .values_list("id", flat=True)[:limit]
+            .select_related("contact")
+            .order_by("id")[:limit * 20]
         )
+        pending_ids = [r.id for r in candidates if can_text_now(r.contact, campaign.organization, now)][:limit]
         if not pending_ids:
+            if candidates:
+                return 0              # everyone left is in quiet hours: the worker sends once it's morning there
             # Check if all recipients have finished
             remaining = CampaignRecipient.objects.filter(
                 campaign=campaign,
@@ -205,7 +336,7 @@ def process_campaign_batch(campaign: Campaign, limit: int = 50) -> int:
             return 0
 
         CampaignRecipient.objects.filter(id__in=pending_ids).update(
-            status=CampaignRecipient.Status.QUEUED
+            status=CampaignRecipient.Status.QUEUED, queued_at=now,
         )
 
     # Fetch only the claimed QUEUED recipients

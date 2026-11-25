@@ -5,7 +5,7 @@
 DJANGO_SETTINGS_MODULE = "sparktext.settings"
 # Match this project's naming: tests.py, test_*.py and tests_*.py (e.g. messaging/tests_ai.py)
 python_files = ["tests.py", "test_*.py", "tests_*.py"]
-testpaths = ["accounts", "campaigns", "compliance", "contacts", "core", "messaging", "website"]
+testpaths = ["accounts", "campaigns", "compliance", "contacts", "core", "messaging", "scheduling", "website"]
 addopts = [
     "-ra",               # summary of every non-passing test at the end
     "--strict-markers",  # a typo'd @pytest.mark.xyz is an error, not silently ignored
@@ -68,7 +68,7 @@ ignore = [
 #   "BLE" (blind `except Exception`)                    - 94 findings
 
 [tool.ruff.lint.isort]
-known-first-party = ["accounts", "campaigns", "compliance", "contacts", "core", "messaging", "sparktext", "website"]
+known-first-party = ["accounts", "campaigns", "compliance", "contacts", "core", "messaging", "scheduling", "sparktext", "website"]
 
 [tool.ruff.format]
 quote-style = "double"
