@@ -1,4 +1,5 @@
 {% extends "messaging/base_app.html" %}
+{% load tz %}
 
 {% block title %}{{ campaign.name }} - Campaign Details{% endblock %}
 {% block global_breadcrumb %}
@@ -10,8 +11,9 @@
 {% block header_back %}
 <a
   href="{% url 'campaigns:list' %}"
-  title="Back to Campaigns"
-  aria-label="Back to Campaigns"
+  data-back
+  title="Back"
+  aria-label="Back"
   class="inline-flex items-center justify-center w-9 h-9 rounded-xl border border-gray-200 bg-white text-gray-500 hover:text-gray-900 hover:bg-gray-50 hover:border-gray-300 transition shadow-2xs shrink-0"
 >
   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -51,17 +53,37 @@
     <span>Edit Campaign</span>
   </a>
 
-  <form method="post" action="{% url 'campaigns:action' campaign.id %}">
+  <form method="post" action="{% url 'campaigns:action' campaign.id %}" id="sendNowCampaignForm">
     {% csrf_token %}
     <input type="hidden" name="action" value="send_now">
     <button
-      type="submit"
+      type="button"
+      onclick="window.showAppConfirm({ title: 'Send Campaign Now', message: '{% if not campaign.message_template %}This campaign has no message text yet. Open Edit Campaign to add it first.{% else %}Send \'{{ campaign.name|escapejs }}\' now to {{ eligible_count }} recipient{{ eligible_count|pluralize }}{% if not campaign.lists.all %} (no list selected: ALL eligible contacts){% endif %}? Anyone outside the allowed texting hours where they are gets it as soon as texting is allowed there.{% endif %}', confirmText: 'Send now' }).then(ok => { if (ok) { this.disabled = true; document.getElementById('sendNowCampaignForm').submit(); } })"
       class="px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs cursor-pointer flex items-center gap-1.5"
     >
       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
       </svg>
       <span>Send Now</span>
+    </button>
+  </form>
+  {% endif %}
+
+  {% if can_pause_to_edit %}
+  <!-- Launched but nothing sent yet (e.g. waiting for texting hours): editing pauses it back to draft first -->
+  <form method="post" action="{% url 'campaigns:action' campaign.id %}" id="pauseEditCampaignForm">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="edit">
+    <button
+      type="button"
+      onclick="window.showAppConfirm({ title: 'Edit Campaign', message: 'Nothing has been sent yet. To edit it safely, this campaign will be moved back to draft (sending stops). When you are done, click Save & Launch to send it again.', confirmText: 'Move to draft & edit' }).then(ok => { if (ok) document.getElementById('pauseEditCampaignForm').submit(); })"
+      class="px-3.5 py-2 text-xs font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-xl transition shadow-2xs cursor-pointer flex items-center gap-1.5"
+      title="Nothing has been sent yet: edit the message, audience or timing"
+    >
+      <svg class="w-3.5 h-3.5 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+      </svg>
+      <span>Edit Campaign</span>
     </button>
   </form>
   {% endif %}
@@ -112,6 +134,14 @@
             <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
               <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Completed
             </span>
+          {% elif campaign.status == 'sending' and waiting_all %}
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200" title="It's outside the hours texts are allowed where the leads are: see below">
+              <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span> Waiting{% if waiting.next_label %} · sends {{ waiting.next_label }}{% endif %}
+            </span>
+          {% elif campaign.status == 'sending' and sending_paused %}
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200" title="The campaign worker isn't running: see below">
+              <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span> Paused
+            </span>
           {% elif campaign.status == 'sending' %}
             <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 animate-pulse">
               <span class="w-1.5 h-1.5 rounded-full bg-blue-500"></span> Sending...
@@ -131,13 +161,16 @@
           {% endif %}
           </div>
 
-          <!-- Live Channel indicator -->
+          <!-- Live updates indicator: only while the campaign is sending (next to "Draft" it read as "this is live").
+               Hidden through a plain wrapper: "hidden" on the badge itself loses to its "inline-flex". -->
+          <span id="campaign-live-wrap" class="{% if campaign.status != 'sending' or waiting_all or sending_paused %}hidden{% endif %}">
           <span
             id="campaign-live-indicator"
             class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-gray-100 text-gray-600 border border-gray-200 transition"
             title="Connecting to real-time campaign broadcast channel..."
           >
             <span class="w-2 h-2 rounded-full bg-gray-400"></span> Connecting...
+          </span>
           </span>
         </div>
 
@@ -146,10 +179,10 @@
           <span>·</span>
           <span>Created by: <strong class="text-gray-700">{% if campaign.created_by %}{{ campaign.created_by.first_name|default:campaign.created_by.email }}{% else %}User{% endif %}</strong></span>
           <span>·</span>
-          <span>Created: {{ campaign.created_at|date:"M d, Y h:i A" }}</span>
+          <span>Created: {{ campaign.created_at|timezone:workspace_tz|date:"M d, Y h:i A" }}</span>
           {% if campaign.scheduled_at %}
             <span>·</span>
-            <span>Scheduled for: <strong class="text-brand-700">{{ campaign.scheduled_at|date:"M d, Y h:i A" }}</strong></span>
+            <span>Scheduled for: <strong class="text-brand-700">{{ campaign.scheduled_at|timezone:workspace_tz|date:"M d, Y h:i A" }}</strong></span>
           {% endif %}
         </div>
       </div>
@@ -160,6 +193,53 @@
         <div class="text-[11px] text-gray-400">Carrier Confirmation Rate</div>
       </div>
     </div>
+
+    {% if sending_paused %}
+    <!-- Why nothing is sending: the worker is stopped -->
+    <div class="flex items-start gap-3 p-4 rounded-xl bg-rose-50 border border-rose-200 text-sm text-rose-900">
+      <span class="text-lg leading-none">⏸</span>
+      <div>
+        <p class="font-bold">Sending has stopped</p>
+        <p class="mt-1 text-xs text-rose-800 leading-relaxed">The background program that sends campaign texts (<code class="font-mono">run_campaign_worker</code>) isn't running. Start it again and sending picks up where it left off. Nothing is lost.</p>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if waiting and waiting.held %}
+    <!-- Why texts are on hold: allowed texting hours where the leads are -->
+    <div class="flex items-start gap-3 p-4 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-900">
+      <span class="text-lg leading-none">⏰</span>
+      <div class="space-y-1.5">
+        {% if waiting.held|length == 1 %}
+          {% with h=waiting.held.0 %}
+          <p class="font-bold">
+            {% if waiting_all %}On hold until {{ h.next_time }} {{ h.next_day }}{% else %}{{ h.count }} text{{ h.count|pluralize }} on hold until {{ h.next_time }} {{ h.next_day }}{% endif %}
+            {% if h.wait %}<span class="font-medium text-amber-700">({{ h.wait }})</span>{% endif %}
+          </p>
+          <p class="text-xs text-amber-800 leading-relaxed">
+            It's <strong>{{ h.local_now }}</strong> in <strong>{{ h.place }}</strong> right now{% if h.place_note %} ({{ h.place_note }}){% endif %}.
+            Under {{ h.law }}, marketing texts can only be sent <strong>{{ h.hours }}</strong>, in the lead's own time.
+            {% if waiting_all %}This campaign sends automatically then.{% else %}{{ h.count }} lead{{ h.count|pluralize }} there get{{ h.count|pluralize:"s," }} it then; everyone else is being texted now.{% endif %}
+            You don't need to do anything.
+          </p>
+          {% if h.unknown %}<p class="text-xs"><a href="{% url 'company_profile' %}" class="underline font-semibold">Add your agency's state</a> so leads with an unknown location use your state's hours.</p>{% endif %}
+          {% endwith %}
+        {% else %}
+          <p class="font-bold">{% if waiting_all %}On hold: it's outside texting hours for everyone left{% else %}Some texts are on hold until texting is allowed where those leads are{% endif %}</p>
+          <ul class="space-y-1 text-xs text-amber-800 leading-relaxed">
+            {% for h in waiting.held %}
+            <li>
+              <strong>{{ h.count }}</strong> in <strong>{{ h.place }}</strong>: it's {{ h.local_now }} there; texts are allowed {{ h.hours }} ({{ h.law }}).
+              {% if h.next_time %}Sends at <strong>{{ h.next_time }} {{ h.next_day }}</strong> ({{ h.wait }}).{% endif %}
+              {% if h.unknown %}<a href="{% url 'company_profile' %}" class="underline font-semibold">Add your agency's state</a> so these use your state's hours.{% endif %}
+            </li>
+            {% endfor %}
+          </ul>
+          <p class="text-xs text-amber-700">Each lead gets it automatically as soon as it's allowed where they are. You don't need to do anything.</p>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
 
     <!-- Progress Bar -->
     <div>
@@ -196,7 +276,7 @@
       </a>
       <a href="?status=skipped{% if q %}&q={{ q }}{% endif %}" class="bg-gray-50 hover:bg-amber-50/70 rounded-xl p-3 border border-gray-100 hover:border-amber-200 text-center transition block" title="Filter skipped recipients">
         <div id="metric-skipped-count" class="text-lg font-bold text-amber-700">{{ campaign.skipped_count }}</div>
-        <div class="text-[11px] text-gray-500 font-medium">Skipped (Opt-Out/Consent)</div>
+        <div class="text-[11px] text-gray-500 font-medium">Skipped (not opted in)</div>
       </a>
     </div>
   </div>
@@ -445,7 +525,7 @@
             </td>
 
             <td id="recip-sent-at-{{ r.id }}" class="py-3 px-4 text-gray-400 font-mono text-[11px]">
-              {% if r.sent_at %}{{ r.sent_at|date:"M d, h:i A" }}{% else %}—{% endif %}
+              {% if r.sent_at %}{{ r.sent_at|timezone:workspace_tz|date:"M d, h:i A" }}{% else %}—{% endif %}
             </td>
 
             <td id="recip-chat-{{ r.id }}" class="py-3 px-4 text-right">
@@ -527,15 +607,20 @@
   const headerActions = document.getElementById("campaign-header-actions");
 
   let socket = null;
+  let currentStatus = "{{ campaign.status }}";
+  // Waiting for texting hours / worker stopped: "Live updates" only shows while texts are really going out
+  let notSendingNow = {{ waiting_all|yesno:"true,false" }} || {{ sending_paused|yesno:"true,false" }};
+  let badgeState = "connecting";
   let heartbeatTimer = null;
   let reconnectTimer = null;
   let reconnectAttempts = 0;
 
   function setLiveBadge(state) {
+    badgeState = state;
     if (!liveIndicator) return;
     if (state === "live") {
       liveIndicator.className = "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 transition";
-      liveIndicator.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Live';
+      liveIndicator.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Live updates';
       liveIndicator.title = "WebSocket connected — broadcasting progress live";
     } else if (state === "connecting") {
       liveIndicator.className = "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 transition";
@@ -546,6 +631,9 @@
       liveIndicator.innerHTML = '<span class="w-2 h-2 rounded-full bg-gray-400"></span> Offline';
       liveIndicator.title = "Live connection offline";
     }
+    // The page stays connected (a draft or scheduled campaign can start sending at any moment), but the badge
+    // only shows while it is actually sending
+    document.getElementById("campaign-live-wrap")?.classList.toggle("hidden", currentStatus !== "sending" || notSendingNow);
   }
 
   function updateStatusPill(status, statusDisplay) {
@@ -614,9 +702,16 @@
     if (metricTotal && data.total_recipients) metricTotal.textContent = data.total_recipients;
     if (deliveryRate) deliveryRate.textContent = data.delivery_rate + "%";
 
+    // Texts are going out again: back to "Sending..." with live updates
+    if (Array.isArray(data.recipients) && data.recipients.some(r => r.status === "sent" || r.status === "delivered")) {
+      notSendingNow = false;
+    }
+
     // Status pill
     if (data.status) {
       updateStatusPill(data.status, data.status_display);
+      currentStatus = data.status;
+      setLiveBadge(badgeState);           // show the live badge when sending starts, hide it when it ends
     }
 
     // Hide Send Now action button once started or completed

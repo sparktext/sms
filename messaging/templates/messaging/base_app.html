@@ -1,4 +1,4 @@
-{% load static %}<!doctype html>
+{% load static asset_tags %}<!doctype html>
 <html lang="en" class="h-full bg-gray-50">
   <head>
     <meta charset="UTF-8" />
@@ -11,7 +11,7 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="{% static 'css/app.css' %}" />
+    <link rel="stylesheet" href="{% static_v 'css/app.css' %}" />
 
     <script>
       if (localStorage.getItem("sparktext_sidebar_collapsed") === "true") {
@@ -170,6 +170,28 @@
             <span id="sidebar-unread-badge" class="{% if not nav_unread_count or nav_unread_count <= 0 %}hidden{% endif %} px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500 text-white shadow-xs transition-all duration-300">
               {{ nav_unread_count|default:0 }}
             </span>
+          </a>
+
+          <a
+            href="{% url 'scheduling:calendar' %}"
+            title="Calendar"
+            {% if current == "scheduling:calendar" %} aria-current="page" {% endif %}
+            class="sidebar-nav-link relative flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition {% if current == 'scheduling:calendar' %} {{ active }} {% else %} {{ idle }} {% endif %}"
+          >
+            <svg
+              class="w-5 h-5 opacity-70 shrink-0"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+              />
+            </svg>
+            <span class="sidebar-label truncate">Calendar</span>
           </a>
 
           <a
@@ -957,6 +979,7 @@
       // ─────────────────────────────────────────────────────────────
       const QUICK_JUMP_NAV = [
         { title: "Inbox", subtitle: "Two-way SMS conversations", url: "{% url 'messaging:inbox' %}", badge: "Page" },
+        { title: "Calendar", subtitle: "Calls, follow-ups & meetings for you and your team", url: "{% url 'scheduling:calendar' %}", badge: "Page" },
         { title: "Contacts", subtitle: "All subscribers & consent status", url: "{% url 'contacts:list' %}", badge: "Page" },
         { title: "Contact Lists", subtitle: "Segmented audience lists", url: "{% url 'contacts:lists' %}", badge: "Page" },
         { title: "Campaigns", subtitle: "Broadcast SMS & templates", url: "{% url 'campaigns:list' %}", badge: "Page" },
@@ -1186,6 +1209,10 @@
     ></div>
 
     {% if request.user.is_authenticated and request.user.organization %}
+    {% include "scheduling/partials/schedule_call.html" %}
+    {% endif %}
+
+    {% if request.user.is_authenticated and request.user.organization %}
     <script id="initial-notifications-data" type="application/json">{{ initial_notifications_json|default:'[]'|safe }}</script>
     <script>
       (function() {
@@ -1265,7 +1292,7 @@
           let list = getStoredNotifications();
           // Filter out any non-needs_human notifications AND any notifications assigned to another agent
           list = list.filter(x => {
-            const isTypeOk = x.type === "needs_human" || x.type === "lead_assigned" || x.status === "needs_human";
+            const isTypeOk = x.type === "needs_human" || x.type === "lead_assigned" || x.type === "call_reminder" || x.status === "needs_human";
             if (!isTypeOk) return false;
             if (x.assigned_to_id && parseInt(x.assigned_to_id, 10) !== currentUserId) return false;
             return true;
@@ -1282,7 +1309,9 @@
 
           // Merge server notifications not already in local storage
           srvList.forEach(srvItem => {
-            const exists = list.some(x => x.conversation_id === srvItem.conversation_id && x.type === srvItem.type);
+            const exists = srvItem.type === "call_reminder"
+              ? list.some(x => x.id === srvItem.id)
+              : list.some(x => x.conversation_id === srvItem.conversation_id && x.type === srvItem.type);
             if (!exists) {
               if (activeId && srvItem.conversation_id && parseInt(srvItem.conversation_id, 10) === activeId) {
                 srvItem.read = true;
@@ -1309,8 +1338,8 @@
 
         window.addNotification = function(notif) {
           if (!notif) return;
-          // STRICT RULE 1: Only leads marked as needs_human (or lead_assigned) can be added to the notification center
-          if (notif.type !== "needs_human" && notif.type !== "lead_assigned" && notif.status !== "needs_human") {
+          // STRICT RULE 1: Only leads marked as needs_human (or lead_assigned), and call reminders, go in the notification center
+          if (notif.type !== "needs_human" && notif.type !== "lead_assigned" && notif.type !== "call_reminder" && notif.status !== "needs_human") {
             return;
           }
           // STRICT RULE 2: Targeted routing: If assigned to another agent, reject
@@ -1321,8 +1350,12 @@
           if (activeId && notif.conversation_id && parseInt(notif.conversation_id, 10) === activeId && !document.hidden && document.hasFocus()) {
             notif.read = true;
           }
-          // De-duplicate recently added notifications for the same conversation
-          currentNotifications = currentNotifications.filter(x => !(x.conversation_id === notif.conversation_id && Math.abs(x.timestamp - notif.timestamp) < 4000));
+          // De-duplicate: call reminders by their id, everything else by recent same-conversation entries
+          if (notif.type === "call_reminder") {
+            if (currentNotifications.some(x => x.id === notif.id)) return;
+          } else {
+            currentNotifications = currentNotifications.filter(x => !(x.type !== "call_reminder" && x.conversation_id === notif.conversation_id && Math.abs(x.timestamp - notif.timestamp) < 4000));
+          }
           currentNotifications.unshift(notif);
           currentNotifications = currentNotifications.slice(0, 30);
           saveStoredNotifications(currentNotifications);
@@ -1471,14 +1504,17 @@
 
           listContainer.innerHTML = currentNotifications.map(item => {
             const isLead = item.type === "lead_assigned";
-            const iconBg = isLead
-              ? "bg-emerald-100 text-emerald-800 border-emerald-200"
-              : "bg-amber-100 text-amber-700 border-amber-200";
-            const icon = isLead ? "🎯" : "⚠️";
+            const isCall = item.type === "call_reminder";
+            const iconBg = isCall
+              ? "bg-indigo-100 text-indigo-700 border-indigo-200"
+              : (isLead ? "bg-emerald-100 text-emerald-800 border-emerald-200" : "bg-amber-100 text-amber-700 border-amber-200");
+            const icon = isCall ? (["booked", "moved", "cancelled"].includes(item.stage) ? "📅" : "📞") : (isLead ? "🎯" : "⚠️");
             const unreadDot = !item.read ? '<span class="w-2 h-2 rounded-full bg-amber-500 shrink-0"></span>' : '';
             const bgClass = !item.read ? 'bg-amber-50/40 hover:bg-amber-50/70' : 'bg-white hover:bg-gray-50';
             const timeAgo = formatNotifTimeAgo(item.timestamp);
-            const assignBadge = item.is_assigned_to_me
+            const assignBadge = isCall
+              ? `<span class="inline-flex items-center text-[10px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.2 rounded">📞 ${esc(item.when_text || "Call")}</span>`
+              : item.is_assigned_to_me
               ? '<span class="inline-flex items-center text-[10px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded">Assigned to you</span>'
               : (item.assigned_to_name
                 ? `<span class="inline-flex items-center text-[10px] font-semibold text-slate-600 bg-slate-100 border border-slate-200 px-1.5 py-0.2 rounded">Assigned: ${esc(item.assigned_to_name)}</span>`
@@ -1840,8 +1876,8 @@
           if (Notification.permission !== "granted") return;
           if (!toastData) return;
 
-          // STRICT FILTER 1: ONLY needs_human or lead_assigned trigger desktop notifications
-          const isAllowedType = toastData.type === "needs_human" || toastData.type === "lead_assigned" || toastData.status === "needs_human";
+          // STRICT FILTER 1: ONLY needs_human, lead_assigned and call reminders trigger desktop notifications
+          const isAllowedType = toastData.type === "needs_human" || toastData.type === "lead_assigned" || toastData.type === "call_reminder" || toastData.status === "needs_human";
           if (!isAllowedType) {
             return;
           }
@@ -1863,12 +1899,13 @@
             const notif = new Notification(title, {
               body: body,
               icon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230f766e' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 19 9.5 9.5 13 14 20 5'/%3E%3C/svg%3E",
-              tag: "sparktext-" + (toastData.conversation_id || Date.now()),
+              tag: toastData.type === "call_reminder" ? "sparktext-" + toastData.id : "sparktext-" + (toastData.conversation_id || Date.now()),
               renotify: true,
+              requireInteraction: toastData.type === "call_reminder" && toastData.stage === "now",
             });
             notif.onclick = function() {
               window.focus();
-              const chatUrl = toastData.direct_url || (toastData.conversation_id ? `/inbox/${toastData.conversation_id}/` : "/inbox/");
+              const chatUrl = toastData.direct_url || toastData.url || (toastData.conversation_id ? `/inbox/${toastData.conversation_id}/` : "/inbox/");
               window.location.href = chatUrl;
               notif.close();
             };
@@ -1902,6 +1939,7 @@
           const toastId = "toast-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
           const isHandoff = toastData.type === "needs_human";
           const isLeadAssigned = toastData.type === "lead_assigned";
+          const isCall = toastData.type === "call_reminder";
           const toast = document.createElement("div");
           toast.id = toastId;
 
@@ -1920,10 +1958,21 @@
             actionBtnClass = "px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] shadow-2xs";
             title = toastData.title || "🎯 New Qualified Lead Assigned";
           }
+          if (isCall) {
+            const callNow = toastData.stage === "now";
+            cardStyle = callNow
+              ? "bg-gradient-to-r from-indigo-50/98 to-violet-50/98 border-indigo-300 text-indigo-950 ring-2 ring-indigo-400/40"
+              : "bg-white/98 border-indigo-200 text-indigo-950";
+            icon = ["booked", "moved", "cancelled"].includes(toastData.stage) ? "📅" : "📞";
+            badgeClass = "bg-indigo-100 text-indigo-700 border-indigo-200";
+            actionText = toastData.conversation_id ? "Open chat →" : "Open →";
+            actionBtnClass = "px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] shadow-2xs";
+            title = toastData.title || "📞 Call reminder";
+          }
 
           toast.className = `pointer-events-auto flex items-start gap-3 p-3.5 rounded-2xl shadow-xl border transition-all duration-300 transform translate-y-3 opacity-0 ${cardStyle}`;
           const body = toastData.body || "";
-          const chatUrl = toastData.direct_url || (toastData.conversation_id ? `/inbox/${toastData.conversation_id}/` : "/campaigns/");
+          const chatUrl = toastData.direct_url || toastData.url || (toastData.conversation_id ? `/inbox/${toastData.conversation_id}/` : "/campaigns/");
 
           function esc(str) {
             const d = document.createElement("div");
@@ -1937,15 +1986,20 @@
             </div>
             <div class="flex-1 min-w-0 pr-1">
               <div class="flex items-center justify-between gap-1">
-                <h4 class="text-xs font-bold truncate ${isLeadAssigned ? 'text-emerald-950' : 'text-amber-950'}">${esc(title)}</h4>
+                <h4 class="text-xs font-bold truncate ${isCall ? 'text-indigo-950' : (isLeadAssigned ? 'text-emerald-950' : 'text-amber-950')}">${esc(title)}</h4>
                 <span class="text-[10px] text-gray-400 font-medium shrink-0">just now</span>
               </div>
-              <p class="text-[11px] ${isLeadAssigned ? 'text-emerald-900/90 font-semibold' : 'text-amber-900/90'} line-clamp-2 mt-0.5 leading-snug">${esc(body)}</p>
+              <p class="text-[11px] ${isCall ? 'text-indigo-900/90 font-semibold' : (isLeadAssigned ? 'text-emerald-900/90 font-semibold' : 'text-amber-900/90')} line-clamp-2 mt-0.5 leading-snug">${esc(body)}</p>
               <div class="mt-2.5 flex items-center justify-between gap-2">
                 <a href="${chatUrl}" onclick="if (typeof window.markConversationNotificationsRead === 'function') window.markConversationNotificationsRead('${toastData.conversation_id || ''}');" class="inline-flex items-center gap-1 text-[11px] ${actionBtnClass}">
                   <span>${actionText}</span>
                 </a>
                 ${(function() {
+                  if (isCall) {
+                    return toastData.contact_phone
+                      ? `<a href="tel:${esc(toastData.contact_phone)}" class="inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded shrink-0 hover:bg-indigo-100">📞 ${esc(toastData.contact_phone)}</a>`
+                      : "";
+                  }
                   const toastAssignedToId = toastData.assigned_to_id;
                   const isAssignedToMe = toastAssignedToId && parseInt(toastAssignedToId, 10) === currentUserId;
                   if (isAssignedToMe) {
@@ -1984,16 +2038,19 @@
 
           // If user is on another tab or window is not focused, trigger title flashing & desktop notification
           if (document.hidden || !document.hasFocus()) {
-            const alertTitle = isLeadAssigned ? "🎯 (1) New Lead Assigned! — SparkText" : "🔔 (1) Needs Human Attention! — SparkText";
+            const alertTitle = isCall
+              ? (toastData.stage === "now" ? "📞 Time to call! — SparkText" : "📞 Call reminder — SparkText")
+              : (isLeadAssigned ? "🎯 (1) New Lead Assigned! — SparkText" : "🔔 (1) Needs Human Attention! — SparkText");
             window.startTitleFlashing(alertTitle);
             window.showDesktopNotification(toastData);
           }
 
-          // Auto-dismiss after 6.5s
-          let timer = setTimeout(() => dismissToast(toastId), 6500);
+          // Auto-dismiss (a "time to call" alert stays up for a minute so it isn't missed)
+          const stayMs = isCall ? (toastData.stage === "now" ? 60000 : 15000) : 6500;
+          let timer = setTimeout(() => dismissToast(toastId), stayMs);
           toast.addEventListener("mouseenter", () => clearTimeout(timer));
           toast.addEventListener("mouseleave", () => {
-            timer = setTimeout(() => dismissToast(toastId), 4000);
+            timer = setTimeout(() => dismissToast(toastId), isCall ? 8000 : 4000);
           });
         };
 
@@ -2021,6 +2078,31 @@
                   if (activeLabel && data.notification_sound_display) {
                     activeLabel.textContent = data.notification_sound_display;
                   }
+                  return;
+                }
+
+                // Calendar call reminders / bookings for this person
+                if (data.event === "call_reminder") {
+                  const rem = data.reminder || {};
+                  if (rem.assigned_to_id && parseInt(rem.assigned_to_id, 10) !== currentUserId) return;
+                  if (typeof window.addNotification === "function") {
+                    window.addNotification({
+                      id: rem.id || ("call-" + Date.now()),
+                      type: "call_reminder",
+                      stage: rem.stage,
+                      title: rem.title || "📞 Call reminder",
+                      body: rem.body || "",
+                      when_text: rem.when_text || "",
+                      conversation_id: rem.conversation_id,
+                      url: rem.url || "/calendar/",
+                      assigned_to_id: rem.assigned_to_id,
+                      is_assigned_to_me: true,
+                      timestamp: rem.timestamp || Date.now(),
+                      read: false,
+                    });
+                  }
+                  window.showGlobalToast(Object.assign({}, rem, { type: "call_reminder", direct_url: rem.url }));
+                  window.dispatchEvent(new CustomEvent("call_reminder", { detail: rem }));
                   return;
                 }
 
@@ -2174,5 +2256,24 @@
     </script>
     {% endif %}
     {% block extra_js %}{% endblock %}
+    <script>
+      // Back arrows (<a data-back href="fallback">): go back to the page you came from inside SparkText, like the
+      // browser's Back. The link's own address is used when there's nowhere sensible to go back to: you opened
+      // the page directly or from another site, you came from the same page, or you just submitted a form
+      // (going "back" would reopen the form you saved).
+      document.addEventListener("click", function (e) {
+        const link = e.target.closest && e.target.closest("a[data-back]");
+        if (!link || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        try {
+          if (!document.referrer || history.length < 2) return;
+          const from = new URL(document.referrer);
+          const isForm = /\/(new|edit|delete)\/?$/.test(from.pathname);
+          if (from.origin === location.origin && from.pathname !== location.pathname && !isForm) {
+            e.preventDefault();
+            history.back();
+          }
+        } catch (err) { /* use the link */ }
+      });
+    </script>
   </body>
 </html>

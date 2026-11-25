@@ -351,7 +351,7 @@ class SettingsAndTeamTests(TestCase):
 
         detail_html = self.client.get(f"/campaigns/{campaign.id}/").content.decode("utf-8")
         detail_main = detail_html.index("<main")
-        self.assertIn('aria-label="Back to Campaigns"', detail_html[detail_main:])
+        self.assertIn('aria-label="Back"', detail_html[detail_main:])
         self.assertLess(
             detail_html.index("Spring Promo", detail_main),
             detail_html.index("Duplicate", detail_main),

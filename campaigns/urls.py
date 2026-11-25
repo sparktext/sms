@@ -12,6 +12,7 @@ urlpatterns = [
     path("campaigns/<int:campaign_id>/clone/", views.campaign_clone, name="clone"),
     path("campaigns/<int:campaign_id>/action/", views.campaign_action, name="action"),
     path("campaigns/api/audience-preview/", views.audience_preview_ajax, name="audience_preview"),
+    path("campaigns/test-send/", views.campaign_test_send, name="test_send"),
 
     # Templates (inside Campaigns)
     path("campaigns/templates/", views.templates_index, name="templates"),

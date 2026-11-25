@@ -30,7 +30,7 @@ class MultiNumberRoutingTests(TestCase):
             role=User.Role.AGENT,
             terms_accepted_at=timezone.now(),
         )
-        self.client.login(email="admin@acmemulti.com", password="securepassword123")
+        self.client.force_login(self.user)
 
         # Two phone numbers for Acme
         self.num_main = PhoneNumber.objects.create(

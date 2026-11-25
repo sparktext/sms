@@ -21,7 +21,10 @@ class InactivityLogoutMiddleware:
     logged out and redirected to the login page with reason=inactivity.
     """
 
-    TIMEOUT: int = getattr(settings, "INACTIVITY_TIMEOUT", 1800)
+    @property
+    def TIMEOUT(self) -> int:
+        # Read on every request (it used to be read once at startup, so a changed setting was ignored)
+        return int(getattr(settings, "INACTIVITY_TIMEOUT", 1800))
 
     def __init__(self, get_response) -> None:
         self.get_response = get_response

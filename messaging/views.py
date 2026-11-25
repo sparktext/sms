@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import timedelta
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
@@ -18,6 +19,8 @@ from campaigns.services import ensure_default_campaign_templates
 from .models import PhoneNumber, Conversation, Message
 from .services import can_send_manual, send_message
 from .utils import format_chat_timestamp, get_org_status_counts
+
+logger = logging.getLogger(__name__)
 
 INITIAL_CHAT_LIMIT = 35
 
@@ -632,8 +635,14 @@ def conversation_detail(request, conversation_id):
     message_list, has_older_messages, oldest_msg_id = get_recent_thread_slice(conversation)
     can_send, block_reason = can_send_manual(conversation.contact, conversation)
     org_members = list(User.objects.filter(organization=org).order_by("first_name", "email"))
+    try:
+        from scheduling.calls import upcoming_call_banner
+        upcoming_call = upcoming_call_banner(conversation, request.user)
+    except Exception:
+        upcoming_call = None
 
     context = {
+        "upcoming_call": upcoming_call,
         "conversation": conversation,
         "chat_messages": message_list,
         "has_older_messages": has_older_messages,

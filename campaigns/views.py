@@ -10,6 +10,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
 from django.utils import timezone
 from django.contrib import messages
+from django.db import transaction
 from django.db.models import Count, Q, Sum
 
 from core.models import Organization
@@ -73,6 +74,16 @@ def campaign_list(request):
     paginator = Paginator(campaigns_qs, 15)
     page_number = request.GET.get("page", 1)
     page_obj = paginator.get_page(page_number)
+    # A "sending" campaign that can't send right now says why: waiting for texting hours, or paused (worker off)
+    for c in page_obj:
+        c.list_state, c.list_next = "", ""
+        c.can_pause_to_edit = _can_pause_to_edit(c)
+        if c.status == Campaign.Status.SENDING:
+            ctx = _waiting_context(c)
+            if ctx["waiting_all"]:
+                c.list_state, c.list_next = "waiting", ctx["waiting"]["next_label"]
+            elif ctx["sending_paused"]:
+                c.list_state = "paused"
 
     ensure_default_campaign_templates(org)
     templates_count = CampaignTemplate.objects.filter(organization=org).count()
@@ -87,6 +98,7 @@ def campaign_list(request):
         "overall_delivery_rate": overall_delivery_rate,
         "templates_count": templates_count,
         "statuses": Campaign.Status.choices,
+        "workspace_tz": str(_workspace_zone(org)),
     }
     return render(request, "campaigns/campaign_list.html", context)
 
@@ -123,6 +135,66 @@ def _lead_merge_tags(org, sample_size=400):
             samples.setdefault(key, text)
     return [{"key": k, "label": labels.get(k) or label_for(k), "count": n, "sample": samples.get(k, "")}
             for k, n in counts.most_common()]
+
+
+def _workspace_zone(org):
+    from zoneinfo import ZoneInfo
+    from core.timezones import org_timezone
+    return ZoneInfo(org_timezone(org))
+
+
+def _when_text(org, moment) -> str:
+    """A campaign time in the workspace time zone (the server runs in UTC): "Nov 26, 2026 at 09:00 AM PST"."""
+    local = timezone.localtime(moment, _workspace_zone(org))
+    return local.strftime("%b %d, %Y at %I:%M %p %Z").strip()
+
+
+def _quiet_note(campaign) -> str:
+    """ " 12 recipients are outside texting hours..." when some must wait (federal + state rules, their own time)."""
+    from .services import quiet_hours_count
+    waiting = quiet_hours_count(campaign)
+    if not waiting:
+        return ""
+    return (f" {waiting} recipient{'s are' if waiting != 1 else ' is'} outside the allowed texting hours where they "
+            "are (federal and state rules, in their own time) and will get it as soon as texting is allowed there.")
+
+
+def _recipients(n) -> str:
+    return f"{n} eligible recipient{'' if n == 1 else 's'}"
+
+
+def _render_campaign_form(request, org, *, campaign=None, is_edit=False, list_ids=None, questions=None,
+                          selected_template=None):
+    """The campaign composer (create & edit). After a failed save it shows what the user typed, unsaved."""
+    ensure_default_templates(org)
+    ai_config = getattr(org, "ai_config", None)
+    default_questions = (ai_config.qualification_questions
+                         if ai_config and isinstance(ai_config.qualification_questions, list) else [])
+    if questions is None:
+        questions = (campaign.ai_qualification_questions
+                     if campaign is not None and campaign.ai_qualification_questions else default_questions)
+    if list_ids is None:
+        list_ids = list(campaign.lists.values_list("id", flat=True)) if campaign is not None and campaign.pk else []
+    # Only a scheduled campaign pre-fills the date picker, as UTC: the page turns it into the viewer's local time
+    scheduled_iso = (campaign.scheduled_at.isoformat()
+                     if campaign is not None and campaign.status == Campaign.Status.SCHEDULED and campaign.scheduled_at
+                     else "")
+    context = {
+        "is_edit": is_edit,
+        "campaign": campaign,
+        "campaign_list_ids": list_ids,
+        "phone_numbers": PhoneNumber.objects.filter(organization=org, is_active=True),
+        "contact_lists": ContactList.objects.filter(organization=org).annotate(total_contacts=Count("contacts")),
+        "custom_fields": ContactField.objects.filter(organization=org),
+        "lead_merge_tags": _lead_merge_tags(org),
+        "saved_templates": MessageTemplate.objects.filter(organization=org),
+        "selected_template": selected_template,
+        "campaign_scheduled_iso": scheduled_iso,
+        "ai_config": ai_config,
+        "campaign_questions_json": json.dumps(questions),
+        "default_questions_json": json.dumps(default_questions),
+    }
+    return render(request, "campaigns/campaign_create.html", context)
 
 
 @login_required
@@ -189,16 +261,25 @@ def campaign_create(request):
 
         save_draft_only = request.POST.get("save_draft") == "1"
 
-        # Validation
+        def fail(text):
+            # Show the form again with everything they typed (a redirect used to wipe it)
+            messages.error(request, text)
+            typed = Campaign(organization=org, name=name, message_template=message_template, ai_mode=ai_mode,
+                             ai_campaign_goal=ai_campaign_goal, ai_special_instructions=ai_special_instructions,
+                             phone_number_id=int(phone_number_id) if str(phone_number_id).isdigit() else None)
+            return _render_campaign_form(request, org, campaign=typed, list_ids=selected_list_ids,
+                                         questions=ai_qualification_questions)
+
+        # Validation (a draft only needs a name)
         if not name:
-            messages.error(request, "Please enter a campaign name.")
-            return redirect("campaigns:create")
+            return fail("Please enter a campaign name.")
 
         if not save_draft_only and not message_template:
-            messages.error(request, "Please enter message text for the campaign.")
-            return redirect("campaigns:create")
+            return fail("Please enter message text for the campaign.")
 
-        phone_num = get_object_or_404(phone_numbers, id=phone_number_id)
+        phone_num = phone_numbers.filter(id=phone_number_id).first() if str(phone_number_id).isdigit() else None
+        if not phone_num:
+            return fail("Please choose the phone number to send from.")
 
         scheduled_at = None
         scheduled_at_iso = request.POST.get("scheduled_at_iso", "").strip()
@@ -215,10 +296,11 @@ def campaign_create(request):
                     # Fallback HTML5 datetime-local format: YYYY-MM-DDTHH:MM
                     scheduled_at = timezone.make_aware(datetime.strptime(scheduled_at_str, "%Y-%m-%dT%H:%M"))
                 except ValueError:
-                    messages.error(request, "Invalid scheduled date/time format.")
-                    return redirect("campaigns:create")
+                    return fail("Invalid scheduled date/time format.")
+            if not save_draft_only and (not scheduled_at or scheduled_at <= timezone.now()):
+                return fail("Please pick a future date and time to schedule the campaign.")
         else:
-            scheduled_at = timezone.now()
+            scheduled_at = None if save_draft_only else timezone.now()
 
         # Determine status
         if save_draft_only:
@@ -258,47 +340,58 @@ def campaign_create(request):
         if save_draft_only:
             messages.success(
                 request,
-                f"Campaign draft '{campaign.name}' saved successfully ({eligible} eligible recipients)."
+                f"Campaign draft '{campaign.name}' saved successfully ({_recipients(eligible)})."
             )
         elif timing == "immediate":
             # Kick off first batch right away (thread-safe, atomically claims pending recipients)
             process_campaign_batch(campaign, limit=50)
             messages.success(
                 request,
-                f"Campaign '{campaign.name}' launched! Dispatched initial batch of {eligible} eligible recipients."
+                f"Campaign '{campaign.name}' launched to {_recipients(eligible)}.{_quiet_note(campaign)}"
             )
         else:
             messages.success(
                 request,
-                f"Campaign '{campaign.name}' scheduled for {scheduled_at.strftime('%b %d, %Y at %I:%M %p')}. "
-                f"({eligible} eligible recipients queued)."
+                f"Campaign '{campaign.name}' scheduled for {_when_text(org, scheduled_at)}. "
+                f"({_recipients(eligible)} queued)."
             )
 
         return redirect("campaigns:detail", campaign_id=campaign.id)
 
-    ensure_default_templates(org)
-    saved_templates = MessageTemplate.objects.filter(organization=org)
     selected_template = None
     tmpl_id = request.GET.get("template_id")
     if tmpl_id and tmpl_id.isdigit():
-        selected_template = saved_templates.filter(id=int(tmpl_id)).first()
+        ensure_default_templates(org)
+        selected_template = MessageTemplate.objects.filter(organization=org, id=int(tmpl_id)).first()
+    # "Send Campaign" from a contact list opens the composer with that list already ticked
+    preselected = [int(x) for x in request.GET.getlist("list") if x.isdigit()]
+    preselected = list(ContactList.objects.filter(organization=org, id__in=preselected).values_list("id", flat=True))
+    return _render_campaign_form(request, org, selected_template=selected_template, list_ids=preselected)
 
-    ai_config = getattr(org, "ai_config", None)
-    default_questions = (ai_config.qualification_questions if ai_config and isinstance(ai_config.qualification_questions, list) else [])
-    default_questions_json = json.dumps(default_questions)
 
-    context = {
-        "phone_numbers": phone_numbers,
-        "contact_lists": contact_lists,
-        "custom_fields": custom_fields,
-        "lead_merge_tags": _lead_merge_tags(org),
-        "saved_templates": saved_templates,
-        "selected_template": selected_template,
-        "now_iso": timezone.now().strftime("%Y-%m-%dT%H:%M"),
-        "ai_config": ai_config,
-        "default_questions_json": default_questions_json,
-    }
-    return render(request, "campaigns/campaign_create.html", context)
+def nothing_sent(campaign) -> bool:
+    """True when not a single text of this campaign has gone out or is being sent right now."""
+    if campaign.sent_count or campaign.failed_count:
+        return False
+    return not campaign.recipients.exclude(
+        status__in=[CampaignRecipient.Status.PENDING, CampaignRecipient.Status.SKIPPED]).exists()
+
+
+def _can_pause_to_edit(campaign) -> bool:
+    """A launched campaign that's still waiting (e.g. for texting hours) with nothing sent can be edited."""
+    return campaign.status == Campaign.Status.SENDING and nothing_sent(campaign)
+
+
+def _waiting_context(campaign) -> dict:
+    """For a sending campaign: why texts aren't going out right now (allowed hours, or the worker is stopped)."""
+    if campaign.status != Campaign.Status.SENDING:
+        return {"waiting": None, "waiting_all": False, "sending_paused": False}
+    from .services import waiting_summary
+    w = waiting_summary(campaign)
+    waiting_all = bool(w["held"]) and not w["sendable_now"]
+    paused = bool(w["pending"]) and not w["worker_running"]
+    return {"waiting": w, "waiting_all": waiting_all, "sending_paused": paused,
+            "held_total": sum(h["count"] for h in w["held"])}
 
 
 def _get_filtered_campaign_recipients(campaign, status_filter="", q=""):
@@ -341,6 +434,10 @@ def campaign_detail(request, campaign_id):
 
     context = {
         "campaign": campaign,
+        "workspace_tz": str(_workspace_zone(org)),
+        "eligible_count": campaign.recipients.filter(status=CampaignRecipient.Status.PENDING).count(),
+        "can_pause_to_edit": _can_pause_to_edit(campaign),
+        **_waiting_context(campaign),
         "recipients_page": recipients_page,
         "status_filter": status_filter,
         "q": q,
@@ -424,13 +521,42 @@ def campaign_action(request, campaign_id):
 
     elif action == "send_now":
         if campaign.status in [Campaign.Status.SCHEDULED, Campaign.Status.DRAFT]:
+            if not (campaign.message_template or "").strip():
+                # A draft saved without text would otherwise text everyone just "Reply STOP to opt out"
+                messages.error(request, "This campaign has no message text yet. Open Edit Campaign to add it first.")
+                return redirect("campaigns:detail", campaign_id=campaign.id)
+            if campaign.sent_count == 0:
+                build_campaign_recipients(campaign)      # today's list members and consent, not the draft's
             campaign.status = Campaign.Status.SENDING
             campaign.scheduled_at = timezone.now()
             campaign.started_at = timezone.now()
             campaign.save(update_fields=["status", "scheduled_at", "started_at"])
             process_campaign_batch(campaign, limit=50)
             broadcast_campaign_list_update(campaign, action="updated")
-            messages.success(request, f"Campaign '{campaign.name}' started sending.")
+            messages.success(request, f"Campaign '{campaign.name}' started sending.{_quiet_note(campaign)}")
+
+    elif action == "edit":
+        # Editing a launched campaign that hasn't sent anything: move it back to draft first, so the worker can't
+        # start sending (e.g. at 9 AM) while the form is open. Once something went out it can't be edited.
+        with transaction.atomic():
+            locked = Campaign.objects.select_for_update().get(id=campaign.id)
+            if locked.status in (Campaign.Status.DRAFT, Campaign.Status.SCHEDULED):
+                return redirect("campaigns:edit", campaign_id=campaign.id)
+            if locked.status == Campaign.Status.SENDING and nothing_sent(locked):
+                locked.status = Campaign.Status.DRAFT
+                locked.started_at = None
+                locked.scheduled_at = None
+                locked.save(update_fields=["status", "started_at", "scheduled_at"])
+                paused = True
+            else:
+                paused = False
+        if paused:
+            broadcast_campaign_list_update(locked, action="updated")
+            messages.info(request, "This campaign was moved back to draft so you can edit it safely. Nothing has been "
+                                   "sent. Click Save & Launch when you're done.")
+            return redirect("campaigns:edit", campaign_id=campaign.id)
+        messages.error(request, "Some texts have already gone out, so this campaign can't be edited. Cancel it to "
+                                "stop the rest, or Duplicate it to send a new version.")
 
     elif action == "delete":
         can_delete = (
@@ -501,8 +627,10 @@ def campaign_edit(request, campaign_id):
         organization=org,
     )
 
-    if campaign.status in [Campaign.Status.SENDING, Campaign.Status.COMPLETED]:
-        messages.error(request, "Campaigns that are currently sending or completed cannot be edited.")
+    if campaign.status not in [Campaign.Status.DRAFT, Campaign.Status.SCHEDULED]:
+        # Re-launching a sent / cancelled / failed campaign rebuilt every recipient as "pending" and texted people
+        # who already got it. Duplicate it instead.
+        messages.error(request, "Only draft or scheduled campaigns can be edited. Use Duplicate to reuse this one.")
         return redirect("campaigns:detail", campaign_id=campaign.id)
 
     phone_numbers = PhoneNumber.objects.filter(organization=org, is_active=True)
@@ -551,16 +679,26 @@ def campaign_edit(request, campaign_id):
             except Exception:
                 pass
 
-        # Validation
+        def fail(text):
+            # Show the form again with everything they typed (unsaved); a redirect used to wipe their changes
+            messages.error(request, text)
+            campaign.name, campaign.message_template, campaign.ai_mode = name, message_template, ai_mode
+            campaign.ai_campaign_goal, campaign.ai_special_instructions = ai_campaign_goal, ai_special_instructions
+            if str(phone_number_id).isdigit():
+                campaign.phone_number_id = int(phone_number_id)
+            return _render_campaign_form(request, org, campaign=campaign, is_edit=True, list_ids=selected_list_ids,
+                                         questions=ai_qualification_questions)
+
+        # Validation (a draft only needs a name, like on the create page)
         if not name:
-            messages.error(request, "Please enter a campaign name.")
-            return redirect("campaigns:edit", campaign_id=campaign.id)
+            return fail("Please enter a campaign name.")
 
-        if not message_template:
-            messages.error(request, "Please enter message text for the campaign.")
-            return redirect("campaigns:edit", campaign_id=campaign.id)
+        if not save_draft_only and not message_template:
+            return fail("Please enter message text for the campaign.")
 
-        phone_num = get_object_or_404(phone_numbers, id=phone_number_id)
+        phone_num = phone_numbers.filter(id=phone_number_id).first() if str(phone_number_id).isdigit() else None
+        if not phone_num:
+            return fail("Please choose the phone number to send from.")
 
         scheduled_at = None
         scheduled_at_iso = request.POST.get("scheduled_at_iso", "").strip()
@@ -575,10 +713,11 @@ def campaign_edit(request, campaign_id):
                 try:
                     scheduled_at = timezone.make_aware(datetime.strptime(scheduled_at_str, "%Y-%m-%dT%H:%M"))
                 except ValueError:
-                    messages.error(request, "Invalid scheduled date/time format.")
-                    return redirect("campaigns:edit", campaign_id=campaign.id)
+                    return fail("Invalid scheduled date/time format.")
+            if not save_draft_only and (not scheduled_at or scheduled_at <= timezone.now()):
+                return fail("Please pick a future date and time to schedule the campaign.")
         else:
-            scheduled_at = timezone.now()
+            scheduled_at = None if save_draft_only else timezone.now()
 
         # Update Campaign fields
         campaign.name = name
@@ -616,49 +755,94 @@ def campaign_edit(request, campaign_id):
         broadcast_campaign_list_update(campaign, action="updated")
 
         if save_draft_only:
-            messages.success(request, f"Campaign draft '{campaign.name}' saved successfully ({eligible} eligible recipients).")
+            messages.success(request, f"Campaign draft '{campaign.name}' saved successfully ({_recipients(eligible)}).")
         elif timing == "immediate":
             process_campaign_batch(campaign, limit=50)
-            messages.success(request, f"Campaign '{campaign.name}' updated and launched! Dispatched initial batch of {eligible} recipients.")
+            messages.success(request, f"Campaign '{campaign.name}' updated and launched to "
+                                      f"{_recipients(eligible)}.{_quiet_note(campaign)}")
         else:
             messages.success(
                 request,
-                f"Campaign '{campaign.name}' updated and scheduled for {scheduled_at.strftime('%b %d, %Y at %I:%M %p')}. "
-                f"({eligible} eligible recipients queued)."
+                f"Campaign '{campaign.name}' updated and scheduled for {_when_text(org, scheduled_at)}. "
+                f"({_recipients(eligible)} queued)."
             )
 
         return redirect("campaigns:detail", campaign_id=campaign.id)
 
     # GET request
-    ensure_default_templates(org)
-    saved_templates = MessageTemplate.objects.filter(organization=org)
-    ai_config = getattr(org, "ai_config", None)
-    default_questions = (ai_config.qualification_questions if ai_config and isinstance(ai_config.qualification_questions, list) else [])
+    return _render_campaign_form(request, org, campaign=campaign, is_edit=True)
 
-    campaign_questions = campaign.ai_qualification_questions if campaign.ai_qualification_questions else default_questions
-    campaign_questions_json = json.dumps(campaign_questions)
-    default_questions_json = json.dumps(default_questions)
 
-    campaign_list_ids = list(campaign.lists.values_list("id", flat=True))
-    scheduled_iso = campaign.scheduled_at.strftime("%Y-%m-%dT%H:%M") if campaign.scheduled_at else timezone.now().strftime("%Y-%m-%dT%H:%M")
+TEST_SENDS_PER_HOUR = 10
 
-    context = {
-        "is_edit": True,
-        "campaign": campaign,
-        "campaign_list_ids": campaign_list_ids,
-        "phone_numbers": phone_numbers,
-        "contact_lists": contact_lists,
-        "custom_fields": custom_fields,
-        "lead_merge_tags": _lead_merge_tags(org),
-        "saved_templates": saved_templates,
-        "selected_template": None,
-        "now_iso": timezone.now().strftime("%Y-%m-%dT%H:%M"),
-        "campaign_scheduled_iso": scheduled_iso,
-        "ai_config": ai_config,
-        "campaign_questions_json": campaign_questions_json,
-        "default_questions_json": default_questions_json,
-    }
-    return render(request, "campaigns/campaign_create.html", context)
+
+@login_required
+@require_POST
+def campaign_test_send(request):
+    """
+    "Send test": text the message being written to ONE phone the user confirms is their own (or a teammate's who
+    agreed), right now. It skips only the texting-hours wait; the number must be an opted-in contact (a test never
+    goes to someone who said STOP), and the text shows in the Inbox like a campaign text, so replies can be tested.
+    """
+    from datetime import timedelta
+    from contacts.utils import normalize_phone
+    from messaging.models import Conversation, Message
+    from messaging.services import send_message
+    from scheduling.calls import post_chat_note
+
+    org = request.user.organization
+    if not org:
+        return JsonResponse({"status": "error", "message": "No organization."}, status=400)
+
+    body = request.POST.get("message_template", "").strip()
+    raw_phone = request.POST.get("to_phone", "").strip()
+    if not body:
+        return JsonResponse({"status": "error", "message": "Write the message first."}, status=400)
+    if request.POST.get("confirm_own") != "1":
+        return JsonResponse({"status": "error", "message": "Please confirm this is your own phone (or a teammate's "
+                                                           "who agreed to get tests)."}, status=400)
+    try:
+        to_phone = normalize_phone(raw_phone)
+    except Exception:
+        to_phone = ""
+    if not to_phone:
+        return JsonResponse({"status": "error", "message": "That phone number doesn't look right."}, status=400)
+
+    sender = PhoneNumber.objects.filter(organization=org, is_active=True, id=request.POST.get("phone_number_id") or 0).first() \
+        or PhoneNumber.objects.filter(organization=org, is_active=True).first()
+    if not sender:
+        return JsonResponse({"status": "error", "message": "You need an active phone number to send from."}, status=400)
+
+    contact = Contact.objects.filter(organization=org, phone=to_phone).first()
+    if not contact:
+        return JsonResponse({"status": "error", "message": f"{to_phone} isn't in your contacts yet. Add it under "
+                             "Contacts (tick the SMS consent box), then send the test again."}, status=400)
+    if contact.sms_status == Contact.SMSStatus.OPTED_OUT:
+        return JsonResponse({"status": "error", "message": f"{to_phone} has opted out (replied STOP), so we can't "
+                             "text it, not even a test. Text START from that phone to opt back in."}, status=400)
+    if contact.sms_status != Contact.SMSStatus.OPTED_IN:
+        return JsonResponse({"status": "error", "message": f"{to_phone} doesn't have SMS consent yet. Open the contact "
+                             "and use Update Consent, then send the test again."}, status=400)
+
+    since = timezone.now() - timedelta(hours=1)
+    recent = Message.objects.filter(organization=org, sender_type=Message.SenderType.SYSTEM,
+                                    body__startswith="🧪 Test text sent by", created_at__gte=since,
+                                    body__contains=request.user.email).count()
+    if recent >= TEST_SENDS_PER_HOUR:
+        return JsonResponse({"status": "error", "message": f"That's {TEST_SENDS_PER_HOUR} tests this hour. Please try "
+                             "again a bit later."}, status=429)
+
+    text = render_campaign_message(template=body, contact=contact, organization=org)
+    conversation, _ = Conversation.objects.get_or_create(organization=org, contact=contact, phone_number=sender,
+                                                         defaults={"status": Conversation.Status.OPEN})
+    try:
+        send_message(conversation=conversation, body=text, user=request.user, sender_type=Message.SenderType.CAMPAIGN)
+    except Exception as exc:
+        return JsonResponse({"status": "error", "message": f"Couldn't send: {exc}"}, status=400)
+    post_chat_note(conversation, f"🧪 Test text sent by {request.user.email} from the campaign composer "
+                                 "(not part of a campaign).")
+    return JsonResponse({"status": "success", "message": f"Test sent to {to_phone}. Check that phone, and reply to "
+                         "it to test Gemma's answers.", "chat_url": f"/inbox/{conversation.id}/"})
 
 
 @login_required

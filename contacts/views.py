@@ -1002,8 +1002,10 @@ def contacts_bulk_action(request):
         if not list_id:
             return JsonResponse({"status": "error", "message": "Please choose a target list."}, status=400)
         target_list = get_object_or_404(ContactList, id=list_id, organization=org)
-        target_list.contacts.remove(*contacts_qs)
-        msg = f"Removed {count} contact(s) from '{target_list.name}'."
+        members = list(target_list.contacts.filter(id__in=contacts_qs.values("id")))   # only those really in it
+        target_list.contacts.remove(*members)
+        count = len(members)
+        msg = f"Removed {count} contact(s) from '{target_list.name}'. They're still in your contacts."
 
     elif action == "delete":
         try:
@@ -1076,6 +1078,72 @@ def lists_index(request):
     return render(request, "contacts/lists_index.html", context)
 
 
+def _member_search(qs, q: str):
+    """Search the way people expect: a name or email that STARTS with what they typed ("ar" finds Arjun, not
+    Spark), or any part of the phone number, digits only ("530 684" finds +15306841631)."""
+    from django.db.models import Value
+    from django.db.models.functions import Concat
+    import re as _re
+    q = " ".join(q.split())
+    match = (Q(first_name__istartswith=q) | Q(last_name__istartswith=q) | Q(email__istartswith=q)
+             | Q(full_name__istartswith=q))
+    digits = _re.sub(r"\D", "", q)
+    if len(digits) >= 2 and not _re.search(r"[A-Za-z]", q):
+        match |= Q(phone__contains=digits)
+    return qs.annotate(full_name=Concat("first_name", Value(" "), "last_name")).filter(match)
+
+
+@login_required
+def list_detail(request, list_id):
+    """
+    One contact list on its own page: who is in it, and everything you can do with it (add people, remove people,
+    rename, delete, send a campaign to it).
+    """
+    org = request.user.organization
+    if not org:
+        return render(request, "contacts/no_organization.html")
+    cl = get_object_or_404(ContactList, id=list_id, organization=org)
+
+    members = cl.contacts.all()
+    counts = members.aggregate(
+        total=Count("id"),
+        opted_in=Count("id", filter=Q(sms_status=Contact.SMSStatus.OPTED_IN)),
+        opted_out=Count("id", filter=Q(sms_status=Contact.SMSStatus.OPTED_OUT)),
+    )
+    counts["no_consent"] = counts["total"] - counts["opted_in"] - counts["opted_out"]
+
+    q = request.GET.get("q", "").strip()
+    status = request.GET.get("status", "").strip()
+    shown = members
+    if q:
+        shown = _member_search(shown, q)
+    if status in Contact.SMSStatus.values:
+        shown = shown.filter(sms_status=status)
+    per_page = int(request.GET.get("per_page")) if request.GET.get("per_page") in ("25", "50", "100") else 25
+    paginator = Paginator(shown.order_by("first_name", "last_name", "phone"), per_page)
+    page = paginator.get_page(request.GET.get("page", 1))
+    members_ctx = {
+        "cl": cl, "page_obj": page, "q": q, "status": status, "per_page": per_page,
+        "page_range": list(paginator.get_elided_page_range(page.number, on_each_side=1, on_ends=1)),
+        "ellipsis": Paginator.ELLIPSIS,
+    }
+    if request.GET.get("partial") == "1":
+        # Search-as-you-type / paging: just the members table, swapped into the page without a reload
+        return render(request, "contacts/partials/list_members.html", members_ctx)
+
+    # People who could be added (not in the list yet), for the "Add contacts" window
+    candidates = (Contact.objects.filter(organization=org).exclude(lists=cl)
+                  .order_by("first_name", "last_name", "phone")[:2000])
+
+    return render(request, "contacts/list_detail.html", {
+        **members_ctx,
+        "org": org,
+        "counts": counts,
+        "statuses": Contact.SMSStatus.choices,
+        "candidates": candidates,
+    })
+
+
 @login_required
 @require_POST
 def add_contacts_to_list(request, list_id):
@@ -1096,6 +1164,7 @@ def add_contacts_to_list(request, list_id):
 
     # Option A: Quick-add a new contact
     new_phone = request.POST.get("new_phone", "").strip()
+    consent_note = ""
     if new_phone:
         first_name = request.POST.get("new_first_name", "").strip()
         last_name = request.POST.get("new_last_name", "").strip()
@@ -1106,9 +1175,18 @@ def add_contacts_to_list(request, list_id):
                     "phone": new_phone,
                     "first_name": first_name,
                     "last_name": last_name,
-                    "sms_status": Contact.SMSStatus.OPTED_IN,
                 },
             )
+            # The "has provided express opt-in consent" tick-box was ignored (everyone stayed "no consent", so
+            # campaigns skipped them). It now records the opt-in, but never overrides someone who opted out.
+            if request.POST.get("new_sms_status") == "opted_in":
+                if contact.sms_status == Contact.SMSStatus.OPTED_OUT:
+                    consent_note = " This number opted out earlier, so it stays opted out."
+                elif contact.sms_status != Contact.SMSStatus.OPTED_IN:
+                    from compliance.models import ConsentEvent
+                    from compliance.services import record_consent
+                    record_consent(contact, ConsentEvent.EventType.OPT_IN, ConsentEvent.Source.MANUAL,
+                                   f"Opt-in consent confirmed by {request.user.email} when adding to list '{cl.name}'.")
             cl.contacts.add(contact)
             added_count += 1
         except ValidationError as ve:
@@ -1133,7 +1211,7 @@ def add_contacts_to_list(request, list_id):
         cl.contacts.add(*valid_contacts)
         added_count += valid_contacts.count()
 
-    msg = f"Added {added_count} contact(s) to '{cl.name}'."
+    msg = f"Added {added_count} contact(s) to '{cl.name}'.{consent_note}"
     if is_json:
         return JsonResponse({"status": "success", "message": msg, "count": added_count})
 

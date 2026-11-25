@@ -55,6 +55,22 @@ class KeywordClassificationTests(TestCase):
         for word in yes_inputs:
             self.assertIsNone(classify_keyword(word), f"'yes' variant '{word}' should return None")
 
+    def test_opt_outs_in_their_own_words_are_stop(self):
+        from compliance.services import is_stop_phrase
+        for text in ("please stop texting me", "Stop messaging me!", "don't text me anymore", "do not contact me",
+                     "remove me from your list", "take me off your list please", "unsubscribe me",
+                     "opt me out", "no more texts", "lose my number", "leave me alone", "stop please",
+                     "Please STOP", "STOP NOW", "not interested, stop"):
+            self.assertEqual(classify_keyword(text), "STOP", text)
+            self.assertTrue(is_stop_phrase(text), text)
+        self.assertFalse(is_stop_phrase("STOP"))            # the bare keyword: the carrier confirms it
+
+    def test_everyday_sentences_with_stop_words_are_not_opt_outs(self):
+        for text in ("actually please cancel the call", "can I stop by the office tomorrow?",
+                     "don't stop, I want the quote", "can you text me the details?", "when does my policy end?",
+                     "I want to quit my current insurer", "call me after work"):
+            self.assertIsNone(classify_keyword(text), text)
+
     def test_arbitrary_sentences_return_none(self):
         """Conversational sentences return None."""
         other_inputs = [
@@ -245,3 +261,77 @@ class ComplianceViewsTests(TestCase):
         self.assertIn("+16502535555", content)
         self.assertIn("Legal checkout proof", content)
 
+
+
+class QuietHoursTests(TestCase):
+    """Fixed texting hours for every SparkText customer: federal TCPA + stricter state rules, in the lead's time."""
+
+    def setUp(self):
+        self.org = Organization.objects.create(name="QH", slug="qh", timezone="America/Los_Angeles")
+        self.n = 0
+
+    def lead(self, state=None, phone=None):
+        self.n += 1
+        return Contact.objects.create(organization=self.org, phone=phone or f"+1404555{self.n:04d}",
+                                      custom_fields={"state": state} if state else {})
+
+    def at(self, zone, y, m, d, hh, mm=0):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        return datetime(y, m, d, hh, mm, tzinfo=ZoneInfo(zone))
+
+    def ok(self, contact, moment):
+        from compliance.quiet_hours import can_text_at
+        return can_text_at(contact, moment)
+
+    def test_federal_window_in_a_state_without_its_own_rule(self):
+        ga = self.lead("GA")                                    # Wed Nov 25, 2026
+        self.assertFalse(self.ok(ga, self.at("America/New_York", 2026, 11, 25, 7, 59)))
+        self.assertTrue(self.ok(ga, self.at("America/New_York", 2026, 11, 25, 8, 0)))
+        self.assertTrue(self.ok(ga, self.at("America/New_York", 2026, 11, 25, 20, 59)))
+        self.assertFalse(self.ok(ga, self.at("America/New_York", 2026, 11, 25, 21, 0)))
+
+    def test_stricter_states(self):
+        fl, tx, ri = self.lead("FL"), self.lead("TX"), self.lead("RI")
+        self.assertFalse(self.ok(fl, self.at("America/New_York", 2026, 11, 25, 20, 30)))      # FL ends at 8 PM
+        self.assertFalse(self.ok(tx, self.at("America/Chicago", 2026, 11, 29, 11, 0)))       # TX Sunday from noon
+        self.assertTrue(self.ok(tx, self.at("America/Chicago", 2026, 11, 29, 12, 0)))
+        self.assertFalse(self.ok(ri, self.at("America/New_York", 2026, 11, 28, 9, 30)))      # RI Saturday 10-5
+        self.assertTrue(self.ok(ri, self.at("America/New_York", 2026, 11, 28, 10, 30)))
+        self.assertFalse(self.ok(ri, self.at("America/New_York", 2026, 11, 25, 18, 30)))     # RI weekdays end at 6
+
+    def test_pennsylvania_rule_starts_oct_18_2026(self):
+        pa = self.lead("PA")
+        self.assertTrue(self.ok(pa, self.at("America/New_York", 2026, 10, 11, 10, 0)))       # a Sunday, before
+        self.assertFalse(self.ok(pa, self.at("America/New_York", 2026, 11, 29, 10, 0)))      # a Sunday, after
+        self.assertFalse(self.ok(pa, self.at("America/New_York", 2026, 11, 25, 19, 30)))     # after 7 PM
+        self.assertTrue(self.ok(pa, self.at("America/New_York", 2026, 11, 25, 9, 0)))
+
+    def test_holidays(self):
+        from compliance.quiet_hours import federal_holidays
+        from datetime import date
+        days = federal_holidays(2026)
+        self.assertIn(date(2026, 11, 26), days)                 # Thanksgiving
+        self.assertIn(date(2026, 7, 3), days)                   # July 4 is a Saturday: observed Friday
+        ut, ga = self.lead("UT"), self.lead("GA")
+        self.assertFalse(self.ok(ut, self.at("America/Denver", 2026, 11, 26, 12, 0)))        # UT: no holidays
+        self.assertTrue(self.ok(ga, self.at("America/New_York", 2026, 11, 26, 12, 0)))
+
+    def test_area_code_when_the_lead_has_no_state(self):
+        from compliance.quiet_hours import lead_location
+        from scheduling.calls import lead_timezone
+        philly = self.lead(phone="+12155550123")
+        self.assertEqual(lead_location(philly).state, "PA")
+        self.assertEqual(lead_location(philly).source, "phone area code")
+        self.assertFalse(self.ok(philly, self.at("America/New_York", 2026, 11, 29, 12, 0)))  # PA: no Sundays
+        ny = self.lead(phone="+12125550123")
+        self.assertEqual(lead_timezone(ny, self.org), "America/New_York")     # not the agency's Pacific time
+
+    def test_unknown_location_uses_the_safe_window(self):
+        from compliance.quiet_hours import lead_location
+        tollfree = self.lead(phone="+18885550123")
+        self.assertEqual(lead_location(tollfree).source, "unknown")
+        self.assertFalse(self.ok(tollfree, self.at("America/New_York", 2026, 11, 25, 11, 0)))  # 8 AM Pacific
+        self.assertTrue(self.ok(tollfree, self.at("America/New_York", 2026, 11, 25, 13, 0)))   # 10 AM Pacific
+        self.assertFalse(self.ok(tollfree, self.at("America/New_York", 2026, 11, 25, 20, 30)))
+        self.assertFalse(self.ok(tollfree, self.at("America/New_York", 2026, 11, 29, 14, 0)))  # Sunday

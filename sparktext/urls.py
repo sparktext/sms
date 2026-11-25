@@ -36,6 +36,7 @@ urlpatterns = [
     path("", include("contacts.urls", namespace="contacts")),
     path("", include("compliance.urls", namespace="compliance")),
     path("", include("campaigns.urls", namespace="campaigns")),
+    path("", include("scheduling.urls", namespace="scheduling")),
     path("", include("website.urls", namespace="website")),
     path("", include("core.urls")),
     re_path(r'^media/(?P<path>.*)$', serve, {'document_root': settings.MEDIA_ROOT}),

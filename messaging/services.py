@@ -53,6 +53,7 @@ def send_message(
     user=None,
     sender_type: str = Message.SenderType.HUMAN,
     is_ai_assisted: bool = False,
+    opt_out_confirmation: bool = False,
 ) -> Message:
     """
     Sends an outbound SMS message:
@@ -79,7 +80,9 @@ def send_message(
     if len(cleaned_body) > 1600:
         raise ValidationError({"body": _("Message exceeds maximum length of 1,600 characters.")})
 
-    if sender_type == Message.SenderType.CAMPAIGN:
+    if opt_out_confirmation:
+        pass    # the one "you're unsubscribed" notice, sent right after they opted out in their own words
+    elif sender_type == Message.SenderType.CAMPAIGN:
         from compliance.services import can_send_marketing
         if not can_send_marketing(conversation.contact):
             raise ValidationError({"non_field_errors": _("Marketing campaigns require active opt-in consent.")})

@@ -378,6 +378,594 @@ def _customer_asked(trigger_message, intent=None) -> bool:
     return "?" in text or bool(_QUESTION_START_RE.match(text))
 
 
+# ---------------------------------------------------------------------------
+# Booking a call on the assigned agent's calendar when the lead says when
+# ---------------------------------------------------------------------------
+# Code decides, in two steps. PLAN (before our reply goes out): book it, or, when the time isn't clear
+# ("11", "at 3pm", "tomorrow"), first check it with the lead ("Just to confirm, is 11 AM tomorrow (Sat, Nov 21)
+# good for you?") without handing off yet. APPLY (after the handoff has assigned an agent): book / move it.
+
+CALL_TIME_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "wants_call": {"type": "boolean"},
+        "date": {"type": "string"},
+        "time": {"type": "string"},
+        "am_pm_said": {"type": "boolean"},
+        "day_said": {"type": "boolean"},
+        "part_of_day": {"type": "string"},
+        "asap": {"type": "boolean"},
+        "their_words": {"type": "string"},
+    },
+    "required": ["wants_call", "date", "time", "am_pm_said", "day_said", "part_of_day", "asap", "their_words"],
+    "additionalProperties": False,
+}
+
+# Cheap check before asking Gemma: does the message mention a time at all? (a bare "11" counts)
+_TIME_CUE_RE = re.compile(
+    r"\b(\d{1,2}(:\d{2})?\s*(am|pm|a\.m\.?|p\.m\.?)|\d{1,2}:\d{2}|\d{1,2}\s*(o'?clock|ish)|at\s+\d{1,2}|noon|midday|"
+    r"morning|afternoon|evening|tonight|today|tomorrow|tmrw|tmr|monday|tuesday|wednesday|thursday|friday|saturday|"
+    r"sunday|mon|tues?|wed|thur?s?|fri|weekend|next week|asap|right now|anytime|any time|later|after|before|around|"
+    r"\d{1,2})\b",
+    re.I,
+)
+
+
+# What the lead actually said (code judges this from their words; the model's own guesses aren't reliable)
+_DAY_CUE_RE = re.compile(
+    r"\b(today|tonight|yesterday|tomorrow|tomorow|tommorow|tmrw|tmr|monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
+    r"mon|tues?|wed|thur?s?|fri|sat|sun|jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|june?|july?|aug(ust)?|"
+    r"sept?(ember)?|oct(ober)?|nov(ember)?|dec(ember)?|\d{1,2}/\d{1,2}|\d{1,2}(st|nd|rd|th))\b",
+    re.I,
+)
+_AFFIRM_RE = re.compile(
+    r"^\W*(yes|yea|yeah|yep|yup|ya|sure|ok|okay|k|kk|sounds good|sounds great|perfect|great|good|works|that works|"
+    r"works for me|fine|that's fine|thats fine|correct|right|absolutely|definitely|please do|do it|confirmed)\b",
+    re.I)
+_AM_PM_CUE_RE = re.compile(
+    r"(\b\d{1,2}(:\d{2})?\s*(a\.?m\.?|p\.?m\.?)(?![a-z])|\b(morning|afternoon|evening|tonight|night|noon|midday|"
+    r"midnight)\b|\b(1[3-9]|2[0-3]):[0-5]\d\b)",
+    re.I,
+)
+
+
+def _last_outbound_text(conversation, before_message) -> str:
+    qs = Message.objects.filter(conversation=conversation, direction=Message.Direction.OUTBOUND).exclude(
+        sender_type=Message.SenderType.SYSTEM)
+    if before_message is not None and getattr(before_message, "created_at", None):
+        qs = qs.filter(created_at__lte=before_message.created_at)
+    return qs.order_by("-created_at").values_list("body", flat=True).first() or ""
+
+
+# Our text offered an agent's help: "Can an agent call for 5 min…?", "Want an agent to check yours?",
+# "An agent can check which discounts…" (not "Are you working with an agent?")
+_AGENT_OFFER_RE = re.compile(
+    r"\b(want|like|can|could|shall|should|let)\s+(me\s+have\s+)?(a|an|one of our|our)\s+((licensed|local|insurance)\s+)*"
+    r"agents?\b|\b(a|an|our)\s+((licensed|local|insurance)\s+)*agents?\s+(can|could|will|would)\b",
+    re.I,
+)
+# A reply that asks when to call
+_ASKS_CALL_TIME_RE = re.compile(
+    r"\b(what time|which time|when|time works|good time|best time|today or tomorrow|morning or afternoon)\b", re.I)
+
+
+# "please cancel the call", "call it off", "don't call me", "no longer need the call"
+_CANCEL_CALL_RE = re.compile(
+    r"\b(cancel+(ed|ing)?|call\s+(it|that|the\s+call)\s+off|scrap|scratch)\b"
+    r"|\b(don'?t|dont|do\s+not|no\s+need\s+to|please\s+don'?t)\s+(call|phone|ring)\b"
+    r"|\bno\s+longer\s+(need|want)\s+(the|a|that)\s+call\b|\bdon'?t\s+(need|want)\s+(the|a|that)\s+call\b",
+    re.I,
+)
+
+
+def _asks_call_time(text: str) -> bool:
+    return "?" in (text or "") and bool(_ASKS_CALL_TIME_RE.search(text or ""))
+
+
+def _accepted_call_offer(conversation, trigger_message) -> bool:
+    """They said yes to our offer of a call / an agent's help (a campaign text or one of our replies), e.g.
+    "Can an agent call for 5 min…? Reply YES" -> "YES". Not a yes to a statement ("our agent will reach out")."""
+    text = ((trigger_message.body if trigger_message else "") or "").strip()
+    if not _AFFIRM_RE.search(text) or _pending_call_proposal(conversation):
+        return False
+    last = _last_outbound_text(conversation, trigger_message)
+    return "?" in last and (_is_call_offer(last) or bool(_AGENT_OFFER_RE.search(last)))
+
+
+# A "call me" with no time is booked straight away only when an agent can call this soon; later than that
+# (night, weekend, after hours), Gemma suggests the earliest time and lets the lead pick
+ASAP_BOOK_WITHIN = timedelta(minutes=45)
+
+
+def _asap_action(moment) -> str:
+    return "book" if moment <= timezone.now() + ASAP_BOOK_WITHIN else "confirm"
+
+
+def _next_slot_plan(conversation):
+    """A plain YES to our call offer: the next open slot. Booked if an agent can call within ~45 minutes;
+    otherwise suggested ("Would 9 AM today work, or is there a better time?") so the lead chooses."""
+    from scheduling import calls
+    if calls.upcoming_call(conversation=conversation):
+        return None
+    lead_tz = calls.lead_timezone(conversation.contact, conversation.organization)
+    moment = calls.next_call_slot(timezone.now(), lead_tz, conversation.organization)
+    return {"action": _asap_action(moment), "moment": moment, "how": "asap",
+            "lead_tz": lead_tz, "words": "", "existing": None}
+
+
+def _call_time_question(client, config, conversation, chat_messages) -> str:
+    """They said yes to a call: Gemma thanks them and asks when (the time they give is then booked)."""
+    instruction = ("They just said yes to a quick call from a licensed agent. Thank them briefly and ask what time "
+                   "works best for the call, in one short friendly sentence. Don't ask any other question and don't "
+                   "say it's booked yet.")
+    accept = lambda t: _asks_call_time(t) and not _CLAIMS_BOOKING_RE.search(t)          # noqa: E731
+    return (_gemma_rewrite(client, config, conversation, chat_messages, instruction, accept)
+            or "Great! What time works best for a quick call?")
+
+
+def _pending_call_proposal(conversation):
+    """The call time we last asked the lead to confirm (saved with our previous reply), if it's still ahead."""
+    from datetime import datetime
+    for output in (AIReply.objects.filter(conversation=conversation).order_by("-created_at")
+                   .values_list("parsed_output", flat=True)[:3]):
+        if not isinstance(output, dict) or not output:
+            continue                                   # skipped jobs leave no output
+        iso = output.get("call_proposal")
+        if not iso:
+            return None
+        try:
+            moment = datetime.fromisoformat(iso)
+        except (TypeError, ValueError):
+            return None
+        return moment if moment > timezone.now() else None
+    return None
+
+
+# A reply about a suggested call time that isn't a plain yes/time/day: "no", "not then", "busy", "better"...
+_ANSWERS_PROPOSAL_RE = re.compile(
+    r"\b(no|nope|nah|not|can'?t|cannot|busy|later|earlier|instead|another|different|better|works?|fine|perfect|"
+    r"sounds|good|great|sure|ok|okay)\b", re.I)
+
+_MONTHS = {"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6, "jul": 7, "aug": 8, "sep": 9, "oct": 10,
+           "nov": 11, "dec": 12}
+_MONTH_RE = r"(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|" \
+            r"oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
+_DATE_MONTH_DAY_RE = re.compile(_MONTH_RE + r"\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b(?:,?\s+(\d{4}))?", re.I)
+_DATE_DAY_MONTH_RE = re.compile(r"\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?" + _MONTH_RE + r"\b(?:,?\s+(\d{4}))?", re.I)
+_DATE_NUMERIC_RE = re.compile(r"\b(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?\b")
+
+
+def _explicit_date(text: str, today):
+    """A calendar date the lead wrote out ("march 15", "19 nov", "3/15", "the 15th of March"), or None.
+    No year given: this year, unless that's more than 60 days ago, then next year ("nov 19" said on Nov 25 is
+    a date that already passed; "march 15" said in November means next March)."""
+    from datetime import date as date_cls
+    text = text or ""
+    found = None
+    m = _DATE_MONTH_DAY_RE.search(text)
+    if m:
+        found = (_MONTHS[m.group(1)[:3].lower()], int(m.group(2)), m.group(3))
+    else:
+        m = _DATE_DAY_MONTH_RE.search(text)
+        if m:
+            found = (_MONTHS[m.group(2)[:3].lower()], int(m.group(1)), m.group(3))
+        else:
+            m = _DATE_NUMERIC_RE.search(text)
+            if m:
+                found = (int(m.group(1)), int(m.group(2)), m.group(3))
+    if not found:
+        return None
+    month, day, year = found
+    try:
+        if year:
+            y = int(year)
+            return date_cls(y + 2000 if y < 100 else y, month, day)
+        candidate = date_cls(today.year, month, day)
+    except ValueError:
+        return None
+    if candidate < today and (today - candidate).days > 60:
+        try:
+            candidate = date_cls(today.year + 1, month, day)
+        except ValueError:
+            return None
+    return candidate
+
+
+def _call_time_wanted(conversation, trigger_message, parsed_data, pending=None) -> bool:
+    """Is this message about when to call? (Only then is Gemma asked to read a call time.)"""
+    from scheduling.calls import upcoming_call
+    text = ((trigger_message.body if trigger_message else "") or "").strip()
+    if pending:
+        # We suggested a time ("Would 9 AM work?"): only a reply about it counts (yes/no, a time or a day). An
+        # unrelated answer ("auto", "94030") once booked the suggested 9 AM.
+        return bool(text and (_AFFIRM_RE.search(text) or _TIME_CUE_RE.search(text) or _DAY_CUE_RE.search(text)
+                              or _ANSWERS_PROPOSAL_RE.search(text)))
+    mentions_time = bool(text and _TIME_CUE_RE.search(text))
+    booked = upcoming_call(conversation=conversation)
+    reason = str(parsed_data.get("handoff_reason") or "").lower()
+    if parsed_data.get("needs_human") and "call" in reason:
+        # Gemma: "Wants a call - best time: ...". Once a call is booked, only a message naming a time can move it
+        # (Gemma often repeats that reason on later messages like "thanks!").
+        return mentions_time or not booked
+    if not mentions_time:
+        return False
+    if booked:
+        return True                                   # a booked call may be moving
+    last = _last_outbound_text(conversation, trigger_message).lower()
+    return _is_call_offer(last) or "what time" in last or ("call" in last and "?" in last)
+
+
+def _read_call_time(client, conversation, trigger_message, lead_tz: str, now) -> Dict[str, Any]:
+    """Gemma reads when the lead wants the call, as dates/times in the lead's own time zone."""
+    from zoneinfo import ZoneInfo
+    from scheduling.calls import fmt_time
+    local_now = now.astimezone(ZoneInfo(lead_tz))
+    days = []
+    for i in range(8):
+        d = local_now.date() + timedelta(days=i)
+        label = "Today" if i == 0 else ("Tomorrow" if i == 1 else d.strftime("%A"))
+        days.append(f"{label} ({d:%a %b} {d.day}) = {d.isoformat()}")
+    recent = list(
+        Message.objects.filter(conversation=conversation).exclude(sender_type=Message.SenderType.SYSTEM)
+        .filter(created_at__lte=trigger_message.created_at if trigger_message else now)
+        .order_by("-created_at")[:6]
+    )[::-1]
+    chat = "\n".join(
+        f"{'Customer' if m.direction == Message.Direction.INBOUND else 'Us'}: {' '.join((m.body or '').split())[:300]}"
+        for m in recent
+    )
+    latest = " ".join(((trigger_message.body if trigger_message else "") or "").split())[:400]
+    task = (
+        f"It is {local_now:%A, %B} {local_now.day}, {local_now.year}, {fmt_time(local_now)} where the customer is.\n"
+        "Dates:\n" + "\n".join(days) + "\n\n"
+        f"Recent SMS messages:\n{chat}\n\nCustomer's latest message: \"{latest}\"\n\n"
+        "Does the customer want a phone call from our agent, and when? Fill in:\n"
+        "- wants_call: true if they agreed to a call, asked to be called, or said when to call. false otherwise "
+        "(including 'no thanks' or 'don't call').\n"
+        "- date: the day they want, as YYYY-MM-DD from the list above; \"\" if they didn't name a day.\n"
+        "- day_said: true only if they said (or clearly meant) which day: today, tonight, tomorrow, a weekday or a date.\n"
+        "- time: the time they said, as HH:MM; \"\" if they gave no time. If they didn't say am or pm, write the hour "
+        "just as they said it (\"11\" = 11:00, \"3\" = 03:00).\n"
+        "- am_pm_said: true only if it's clear whether they mean AM or PM: they said am/pm, morning, afternoon, "
+        "evening, tonight, noon, or a 24-hour time like 15:00.\n"
+        "- part_of_day: \"morning\", \"afternoon\" or \"evening\" if they said that instead of an exact time, else \"\".\n"
+        "- asap: true if they want it now, asap, anytime or whenever.\n"
+        "- their_words: copy the words where they say when (\"\" if they didn't).\n"
+        "If they're agreeing to a day and time WE suggested in our last message (\"yes\", \"sounds good\", "
+        "\"perfect\"), use that day and time and set day_said and am_pm_said to true.\n"
+        'Return ONLY JSON: {"wants_call": ..., "date": "...", "day_said": ..., "time": "...", "am_pm_said": ..., '
+        '"part_of_day": "...", "asap": ..., "their_words": "..."}'
+    )
+    try:
+        resp = client.generate(system_prompt="You read call times from SMS chats for a sales team.",
+                               messages=[{"role": "user", "content": task}], schema=CALL_TIME_SCHEMA)
+        raw = resp.text or ""
+        start, end = raw.find("{"), raw.rfind("}")
+        data = json.loads(raw[start:end + 1]) if start != -1 and end > start else {}
+        return data if isinstance(data, dict) else {}
+    except Exception as exc:
+        logger.warning("Call time read failed for conversation %s: %s", conversation.id, exc)
+        return {}
+
+
+def _settle_what_they_said(when: Dict[str, Any], said: str, pending, lead_tz: str) -> None:
+    """
+    Decide from the lead's own words whether they named the day and made AM/PM clear, and clean up the model's
+    reading to match: a bare "11" that the model turned into 23:00 goes back to 11 (code picks AM or PM), and after
+    we suggested a time ("3 PM today?"), "no, tomorrow" keeps our 3 PM and only changes the day.
+    """
+    day_said = bool(_DAY_CUE_RE.search(said))
+    am_pm_said = bool(_AM_PM_CUE_RE.search(said))
+    raw_time = str(when.get("time") or "").strip()
+    hour = minute = None
+    try:
+        hh, mm = raw_time.split(":")[:2]
+        hour, minute = int(hh), int(mm)
+    except (ValueError, AttributeError):
+        hour = None
+    if pending is not None:
+        # They're answering a time we suggested: whatever they don't change stays as we suggested it
+        from zoneinfo import ZoneInfo
+        suggested = pending.astimezone(ZoneInfo(lead_tz))
+        part = str(when.get("part_of_day") or "").strip()
+        if not day_said and (hour is not None or part):
+            when["date"], day_said = suggested.date().isoformat(), True                # "8pm please": same day
+        if hour is None and day_said and when.get("date") and not part:
+            hour, minute, am_pm_said = suggested.hour, suggested.minute, True         # "no, tomorrow": same time
+        elif hour is not None and not am_pm_said and hour % 12 == suggested.hour % 12:
+            hour, am_pm_said = suggested.hour, True                                    # same hour as we suggested
+    if hour is not None:
+        written = re.search(rf"\b0?{hour % 12 or 12}(:\d{{2}})?\s*([ap])\.?\s*m\b", said, re.I)
+        if written:
+            # The lead wrote "4pm" / "9 a.m.": that decides it, whatever the model read ("4pm" -> 04:00 seen live)
+            hour, am_pm_said = hour % 12 + (12 if written.group(2).lower() == "p" else 0), True
+    if hour is not None and not am_pm_said and hour >= 13:
+        hour -= 12                                                                     # the model guessed PM
+    if hour is not None:
+        when["time"] = f"{hour:02d}:{minute or 0:02d}"
+    if not day_said and pending is None:
+        when["date"] = ""                              # they didn't name a day: code picks it, not the model's guess
+    when["day_said"], when["am_pm_said"] = day_said, am_pm_said
+
+
+def _plan_call(client, conversation, trigger_message, parsed_data):
+    """
+    What to do about a call from this message, or None for nothing:
+      {"action": "book", "moment", "how", ...}     the time is clear (or they said yes to our suggestion)
+      {"action": "confirm", "moment", ...}         check an unclear time with the lead before booking it
+      {"action": "note", "note"}                   can't be pinned down: leave it to the agent
+    """
+    from zoneinfo import ZoneInfo
+    from scheduling import calls
+    if not trigger_message:
+        return None
+    org = conversation.organization
+    lead_tz = calls.lead_timezone(conversation.contact, org)
+    booked = calls.upcoming_call(conversation=conversation)
+    text = (trigger_message.body or "").strip()
+    if booked and _CANCEL_CALL_RE.search(text) and not (re.search(r"\d", text) or _DAY_CUE_RE.search(text)
+                                                        or re.search(r"\b(instead|reschedule|move|change)\b", text, re.I)):
+        # "please cancel the call" (a new time instead would be a move, handled below)
+        return {"action": "cancel", "existing": booked, "lead_tz": lead_tz, "words": text[:200]}
+    pending = _pending_call_proposal(conversation)
+    if not _call_time_wanted(conversation, trigger_message, parsed_data, pending):
+        return None
+    if pending is not None and _AFFIRM_RE.match(text) and not (
+            re.search(r"\d", text) or _DAY_CUE_RE.search(text) or _AM_PM_CUE_RE.search(text)):
+        # A plain "yes" to the time we suggested: book exactly that (no need for the model to read anything)
+        existing_now = calls.upcoming_call(conversation=conversation)
+        if existing_now and abs((existing_now.start_at - pending).total_seconds()) < 60:
+            return None
+        return {"lead_tz": lead_tz, "words": "", "existing": existing_now, "action": "book", "moment": pending,
+                "how": "exact"}
+    now = timezone.now()
+    when = _read_call_time(client, conversation, trigger_message, lead_tz, now)
+    if not when.get("wants_call"):
+        return None
+
+    existing = calls.upcoming_call(conversation=conversation)
+    words = " ".join(str(when.get("their_words") or "").split())[:200]
+    plan = {"lead_tz": lead_tz, "words": words, "existing": existing}
+    if pending is not None and _AFFIRM_RE.match(text) and not (
+            re.search(r"\d", text) or _DAY_CUE_RE.search(text) or _AM_PM_CUE_RE.search(text)):
+        # A plain "yes" to the time we suggested: book exactly that
+        if existing and abs((existing.start_at - pending).total_seconds()) < 60:
+            return None
+        return {**plan, "action": "book", "moment": pending, "how": "exact"}
+    _settle_what_they_said(when, f"{words} {text}", pending, lead_tz)
+    # A date they wrote out is read by code too: the model once dropped "march 15" and the call landed on today
+    written = _explicit_date(text, now.astimezone(ZoneInfo(lead_tz)).date())
+    if written:
+        when["date"], when["day_said"] = written.isoformat(), True
+    pinned = any(str(when.get(k) or "").strip() for k in ("date", "time", "part_of_day")) or when.get("asap")
+    if words and _AFFIRM_RE.match(words) and not (_TIME_CUE_RE.search(words) or _DAY_CUE_RE.search(words)):
+        words = ""            # the model quoted their "YES" as the time: a plain yes names no time (next open slot)
+        plan["words"] = ""
+    if words and not pinned:
+        # They said when ("next week", "after my trip") but it can't be pinned to a day: let the agent agree it
+        return {**plan, "action": "note", "kind": "vague",
+                "note": f"📅 The lead wants a call “{words}”, which couldn't be pinned to a day and time. "
+                        "Please agree a time with them."}
+    if not pinned and pending:
+        return None                                    # e.g. "no": nothing to book; the conversation carries on
+    elif not pinned and existing:
+        return None                                    # no new time named: the booking stays as it is
+    else:
+        moment, how = calls.resolve_call_time(when, lead_tz, now, org=org)
+    day_said = bool(when.get("day_said"))
+    if existing and not day_said and not pending and str(when.get("time") or "").strip():
+        # "can we do 4pm instead?" = the same day as the booked call, if that time is still ahead and callable
+        same_day = dict(when, date=existing.start_at.astimezone(ZoneInfo(lead_tz)).date().isoformat())
+        alt, alt_how = calls.resolve_call_time(same_day, lead_tz, now, org=org)
+        if alt is not None and calls.can_call_at(alt, lead_tz, org):
+            moment, how, day_said = alt, alt_how, True
+    if moment is None:
+        return {**plan, "action": "note", "kind": "past" if "passed" in how else "far", "why": how,
+                "note": f"📅 Couldn't book the call automatically ({how}{f': “{words}”' if words else ''}). "
+                        "Please agree a time with the lead."}
+    if not calls.can_call_at(moment, lead_tz, org):
+        # 11 PM, or a Saturday when the team doesn't work: don't book it, ask for a time we can call
+        window = calls.lead_hours_text(org, lead_tz, moment.astimezone(ZoneInfo(lead_tz)).date())
+        legal = calls.legal_for_lead(moment, lead_tz)
+        why = (f"outside your team's call hours ({calls.team_hours_text(org)})" if legal
+               else "outside the legal calling window (8 AM-9 PM their time)")
+        return {**plan, "action": "note", "kind": "hours", "why": f"we call {window}", "window": window,
+                "note": f"📅 The lead asked for {calls.proposal_text(moment, lead_tz)} their time"
+                        f"{f' (“{words}”)' if words else ''}, which is {why}. Gemma offered {window} "
+                        "(their time) instead."}
+    if existing and abs((existing.start_at - moment).total_seconds()) < 60:
+        return None                                    # that time is already booked
+
+    agreed = pending is not None and abs((pending - moment).total_seconds()) < 60
+    part = str(when.get("part_of_day") or "").strip()
+    local = moment.astimezone(ZoneInfo(lead_tz))
+    am_pm_ok = bool(when.get("am_pm_said")) or calls.am_pm_obvious(local.hour, local.minute, org, lead_tz, local.date())
+    # "asap" (no time given) is only booked outright when an agent can call within ~45 minutes; a slot hours
+    # away (it's night: "9 AM") is suggested first, so the lead picks the time
+    clear = (how == "asap" and _asap_action(moment) == "book") or agreed or (
+        day_said and calls.in_calling_hours(moment, lead_tz, org) and (
+        (how == "exact" and am_pm_ok) or (how == "their_day" and bool(part))))
+    return {**plan, "action": "book" if clear else "confirm", "moment": moment, "how": how}
+
+
+def _mentions_call_time(text: str, moment, tz: str) -> bool:
+    """Does this reply state the call's day and time (e.g. "11 AM tomorrow" / "Mon at 2:30 pm")?"""
+    from zoneinfo import ZoneInfo
+    local = moment.astimezone(ZoneInfo(tz))
+    hour = local.hour % 12 or 12
+    ampm = "am" if local.hour < 12 else "pm"
+    low = (text or "").lower()
+    has_time = bool(re.search(rf"\b{hour}(:{local.minute:02d})?\s*{ampm[0]}\.?\s*m\b", low)) or (
+        local.hour == 12 and local.minute == 0 and "noon" in low)
+    today = timezone.now().astimezone(ZoneInfo(tz)).date()
+    day_words = [local.strftime("%A").lower(), local.strftime("%a").lower()]
+    if local.date() == today:
+        day_words += ["today", "tonight"]
+    elif local.date() == today + timedelta(days=1):
+        day_words.append("tomorrow")
+    return has_time and any(re.search(rf"\b{w}\b", low) for w in day_words)
+
+
+def _call_reply(client, config, conversation, chat_messages, plan, booked: bool) -> str:
+    """Gemma's words for the call step: confirm the booked time, or check an unclear time with the lead."""
+    from scheduling.calls import proposal_text
+    proposal = proposal_text(plan["moment"], plan["lead_tz"])
+    states_it = lambda t: _mentions_call_time(t, plan["moment"], plan["lead_tz"])      # noqa: E731
+    if booked:
+        instruction = (f"The call is now booked for {proposal} (their own time). Confirm it in one short, friendly "
+                       "sentence that says the day and the time with AM or PM. Don't ask anything else.")
+        accept = lambda t: "?" not in t and states_it(t)                                # noqa: E731
+        fallback = f"Perfect, you're all set for a call at {proposal}. Talk soon!"
+    elif plan.get("how") == "asap":
+        # They want a call but gave no time and nobody can call right now: suggest the earliest time, let them pick
+        instruction = (f"They want a call but didn't say when, and the earliest an agent can call is {proposal} (their "
+                       f"own time). In one short, friendly sentence, suggest that time and invite them to pick another "
+                       f"(for example: \"Great! Would {proposal} work for a quick call, or is there a better time for "
+                       "you?\"). Say the day and the time with AM or PM. Don't say it's booked.")
+        sounds_booked = re.compile(r"\b(will call|will reach|reach out|all set|booked|scheduled|set up|lined up)\b", re.I)
+        accept = lambda t: "?" in t and states_it(t) and not sounds_booked.search(t)    # noqa: E731
+        fallback = f"Great! Would {proposal} work for a quick call, or is there a better time for you?"
+    else:
+        instruction = (f"Before booking the call, check the time with them: ask in one short, friendly sentence if "
+                       f"{proposal} works for them (for example: \"Just to confirm, is {proposal} good for you?\"). "
+                       "Say the day and the time with AM or PM. Don't say it's booked yet and don't ask anything else.")
+        sounds_booked = re.compile(r"\b(will call|will reach|reach out|all set|booked|scheduled|set up|lined up)\b", re.I)
+        accept = lambda t: "?" in t and states_it(t) and not sounds_booked.search(t)    # noqa: E731
+        fallback = f"Just to confirm, is {proposal} good for you?"
+    return _gemma_rewrite(client, config, conversation, chat_messages, instruction, accept) or fallback
+
+
+# A reply that tells the lead a call was booked / changed (only allowed when code actually booked it)
+_CLAIMS_BOOKING_RE = re.compile(
+    r"\b(updated|booked|scheduled|rescheduled|moved|changed|all set|got you down|have you down|put you down|"
+    r"set (it |you |that |the call )?(up|for)|will call you|will reach out|we'll call|we will call|i'll have|"
+    r"talk (then|soon)|see you then|confirmed)\b",
+    re.I,
+)
+
+
+def _call_ask_reply(client, config, conversation, chat_messages, plan) -> str:
+    """When the time they asked for can't be booked (already passed, too far off, too vague), Gemma says so
+    kindly and asks for another day and time; it must never claim anything was booked or changed."""
+    from scheduling.calls import proposal_text
+    existing = plan.get("existing")
+    still = proposal_text(existing.start_at, plan["lead_tz"]) if existing else ""
+    keep = f" Their call is still booked for {still}; mention that." if still else ""
+    if plan.get("kind") == "vague":
+        instruction = ("They want a call but haven't given a specific day and time. Ask, in one short friendly "
+                       f"sentence, which day and time works best.{keep} Don't say anything was booked or changed.")
+        fallback = (f"No problem! Your call is still set for {still}. " if still else "No problem! ") + \
+            "What day and time works best for you?"
+    elif plan.get("kind") == "hours":
+        window = plan.get("window") or "8 AM-9 PM"
+        instruction = (f"The time they asked for ({plan.get('words') or 'that time'}) is outside when our agents can call "
+                       f"them ({window}, in their own time), so it was NOT booked.{keep} Kindly say when we can call "
+                       "(write it as \"your time\", since you're talking to them) and ask "
+                       "what time in that window works. One or two short sentences ending with a question. Don't say "
+                       "anything was booked, updated or changed.")
+        fallback = (f"Our agents can call you {window} (your time). " + (f"Your call is still set for {still}. " if still else "") +
+                    "What time in that window works for you?")
+    else:
+        why = "has already passed" if plan.get("kind") == "past" else "is too far away for us to book"
+        instruction = (f"The day/time they asked for ({plan.get('words') or 'that time'}) {why}, so it was NOT "
+                       f"booked. Kindly point that out and ask what other day and time works.{keep} One or two short "
+                       "sentences ending with a question. Don't say anything was booked, updated or changed.")
+        fallback = (f"Looks like that date {why}. " + (f"Your call is still set for {still}. " if still else "") +
+                    "What other day and time works for you?")
+    accept = lambda t: "?" in t and not _CLAIMS_BOOKING_RE.search(t)                    # noqa: E731
+    return _gemma_rewrite(client, config, conversation, chat_messages, instruction, accept) or fallback
+
+
+def _call_cancel_reply(client, config, conversation, chat_messages, plan) -> str:
+    """The lead asked to cancel their call and code cancelled it: Gemma confirms, in its own words."""
+    from scheduling.calls import proposal_text
+    was = proposal_text(plan["existing"].start_at, plan["lead_tz"])
+    instruction = (f"They asked to cancel their call (it was booked for {was}), and it is now cancelled. Confirm that "
+                   "in one short, friendly sentence and say they can text anytime if they want to set up a new time. "
+                   "Don't ask anything else and don't try to change their mind.")
+    accept = lambda t: bool(re.search(r"cancel", t, re.I)) and "?" not in t            # noqa: E731
+    return (_gemma_rewrite(client, config, conversation, chat_messages, instruction, accept)
+            or f"No problem, your call for {was} is cancelled. Just text us anytime if you'd like to set up a new time.")
+
+
+_CLAIMS_CANCEL_RE = re.compile(r"\b(cancel+ed|called\s+(it|that|the\s+call)?\s*off|removed\s+(the|your)\s+call)\b", re.I)
+
+
+def _no_false_cancel_reply(client, config, conversation, chat_messages) -> str:
+    """Gemma claimed a cancellation code didn't make: say what's really true (still booked / passed to the agent)."""
+    from scheduling.calls import upcoming_call, lead_timezone, proposal_text
+    booked = upcoming_call(conversation=conversation)
+    still = proposal_text(booked.start_at, lead_timezone(conversation.contact, conversation.organization)) if booked else ""
+    fact = (f"Their call is still booked for {still}; it was NOT cancelled." if still else
+            "There is no booked call to cancel.")
+    instruction = (f"{fact} Reply in one short, friendly sentence: say you've passed their message to their agent"
+                   f"{' and mention the booked time' if still else ''}. Never say anything was cancelled.")
+    accept = lambda t: not _CLAIMS_CANCEL_RE.search(t)                                     # noqa: E731
+    return (_gemma_rewrite(client, config, conversation, chat_messages, instruction, accept)
+            or (f"Got it, I've passed that to your agent. Your call is still set for {still} for now." if still
+                else "Got it, I've passed that to your agent."))
+
+
+def _apply_call_plan(conversation, plan):
+    """Book / move the planned call on the assigned agent's calendar (or leave the note). Returns the event or None."""
+    from scheduling import calls
+    from scheduling.models import CalendarEvent
+
+    if not plan:
+        return None
+    if plan["action"] == "note":
+        calls.post_chat_note(conversation, plan["note"])
+        return None
+    if plan["action"] == "cancel":
+        event = plan["existing"]
+        summary = calls.booking_summary(event, plan["lead_tz"])
+        event.status = CalendarEvent.Status.CANCELLED
+        event.notes = (f"{event.notes}\n" if event.notes else "") + f"Cancelled by the lead over SMS: “{plan['words']}”."
+        event.save(update_fields=["status", "notes", "updated_at"])
+        conversation.handoff_reason = "Call cancelled by the lead"
+        conversation.save(update_fields=["handoff_reason"])
+        calls.post_chat_note(conversation, f"📅 Call cancelled: the lead asked to cancel (“{plan['words']}”). "
+                                           f"It was {summary}.")
+        calls.notify_call(event, "cancelled")
+        return None
+    if plan["action"] != "book":
+        return None
+
+    contact, org = conversation.contact, conversation.organization
+    moment, how, lead_tz, words = plan["moment"], plan["how"], plan["lead_tz"], plan["words"]
+    existing = calls.upcoming_call(conversation=conversation)
+    conversation.refresh_from_db(fields=["assigned_to"])
+    caller = conversation.assigned_to if (conversation.assigned_to_id and conversation.assigned_to.is_active) else None
+    caller = caller or (existing.user if existing else None)
+    notes = [f"They said: “{words}”." if words else ""]
+    if not caller:
+        caller = calls.fallback_caller(org)
+        if caller:
+            notes.append(f"Nobody was assigned to this lead, so the call went to {caller.first_name or caller.email}.")
+    if not caller:
+        return None
+    if how == "asap":
+        notes.append("They didn't give a time, so this is the next open slot: call as soon as you can.")
+    elif how == "their_day":
+        notes.append("They gave a day or part of the day; the exact time was picked for them.")
+    if not calls.can_call_at(moment, lead_tz, org):
+        notes.append(f"Note: this is outside your team's call hours ({calls.team_hours_text(org)}).")
+    notes.append(calls.lead_time_line(moment, lead_tz))
+    intro = "Moved by Gemma (the lead asked for a new time)." if existing else "Booked by Gemma from the SMS chat."
+    event, created = calls.book_call(
+        contact=contact, user=caller, start=moment, conversation=conversation, source=CalendarEvent.Source.AI,
+        notes=" ".join(n for n in [intro, *notes] if n), event=existing,
+        reminder_minutes=existing.reminder_minutes if existing else CalendarEvent.DEFAULT_REMINDER_MINUTES,
+    )
+    calls.refresh_handoff_reason(conversation, event, lead_tz)
+    calls.post_chat_note(conversation, f"📅 {'Call booked' if created else 'Call moved'} by Gemma: "
+                                       f"{calls.booking_summary(event, lead_tz)}.")
+    calls.notify_call(event, "booked" if created else "moved")
+    logger.info("Conversation %s: call %s for %s with %s", conversation.id, "booked" if created else "moved",
+                event.start_at.isoformat(), caller.email)
+    return event
+
+
 SHORTEN_SCHEMA = {
     "type": "object",
     "properties": {"reply": {"type": "string"}},
@@ -800,20 +1388,25 @@ def process_ai_job(job: AIJob) -> Optional[AIReply]:
         _fit_length(client, config, parsed_data)
         is_valid, content_err = validate_reply_content(parsed_data, config, campaign=conversation.last_campaign)
         if not is_valid:
-            reply_obj = _trigger_handoff(
-                conversation=conversation,
-                trigger_message=trigger_message,
-                job=job,
-                reason=f"Content safety check failed: {content_err}",
-                raw_output=raw_text,
-                parsed_output=parsed_data,
-                latency_ms=latency_ms,
-                model_name=model_name,
+            # Never leave the lead in silence ("can you guarantee my rate?" -> "We can't guarantee..." was blocked
+            # and nothing went out): Gemma writes it once more without the blocked topic; if that fails too, a safe
+            # holding reply goes out and an agent takes over.
+            logger.info("Reply blocked for conversation %s (%s): %r", conversation.id, content_err, parsed_data.get("reply"))
+            retry = _gemma_rewrite(
+                client, config, conversation, chat_messages,
+                "Your previous draft was blocked by a safety rule. Write the reply again: respond to what they said, "
+                "but never mention or promise guarantees, warranties, prices, dollar amounts or discounts, and never "
+                "give legal or medical advice. If they asked for a guarantee, a price or a discount, say kindly that a "
+                "licensed agent can go over their options with them.",
+                accept=lambda t: True,
             )
-            job.status = AIJob.Status.DONE
-            job.finished_at = timezone.now()
-            job.save(update_fields=["status", "finished_at"])
-            return reply_obj
+            if retry:
+                parsed_data["reply"] = retry
+            else:
+                parsed_data["reply"] = "Good question! A licensed agent will follow up with you on that shortly."
+                parsed_data["needs_human"] = True
+                parsed_data["handoff_reason"] = f"Content safety check failed: {content_err}"
+            parsed_data["final_reply"] = parsed_data["reply"]
 
         # Step 5: Save what Gemma understood: answers and its verdicts on plain-language rules/conditions
         raw_collected = parsed_data.get("collected", {})
@@ -850,6 +1443,9 @@ def process_ai_job(job: AIJob) -> Optional[AIReply]:
 
         reply_body = (parsed_data.get("reply") or "").strip()
 
+        # Did they just say YES to our call offer? (e.g. the campaign text "Can an agent call for 5 min…? Reply YES")
+        accepted_call = _accepted_call_offer(conversation, trigger_message)
+
         # Step 5b: Make sure the reply takes the right next step. Code decides WHAT comes next
         # (next question / call offer / not a fit); Gemma always writes the words.
         if not parsed_data.get("needs_human") and conversation.status != Conversation.Status.NEEDS_HUMAN:
@@ -866,7 +1462,16 @@ def process_ai_job(job: AIJob) -> Optional[AIReply]:
                 if valid_collected or new_checks or _is_call_offer(reply_body):
                     reply_body = _closing_reply(client, config, conversation, chat_messages)
                     parsed_data["final_reply"] = reply_body
+            elif accepted_call:
+                pass        # YES to our call offer: Step 5c books the call; qualification questions don't start here
             else:
+                if _is_generic_greeting_reply(reply_body) and _customer_asked(trigger_message, parsed_data.get("intent")):
+                    # "I'm an AI assistant helping the team... How can I help you today?": keep their answer, drop
+                    # only the filler question (otherwise the whole answer was replaced by the next question)
+                    stripped = _strip_generic_sentence(reply_body)
+                    if stripped and stripped != reply_body and not _is_generic_greeting_reply(stripped):
+                        reply_body = stripped
+                        parsed_data["final_reply"] = reply_body
                 off_track = _is_generic_greeting_reply(reply_body) or (
                     _is_call_offer(reply_body) and (fit_status == PENDING or next_q)
                 )
@@ -879,6 +1484,54 @@ def process_ai_job(job: AIJob) -> Optional[AIReply]:
                         client, config, conversation, chat_messages, next_q, fallback=reply_body
                     )
                     parsed_data["final_reply"] = reply_body
+
+        # Step 5c: A call the lead asked for. Code decides: book it, or first check an unclear time with the lead
+        # ("11" -> "Just to confirm, is 11 AM tomorrow (Sat, Nov 21) good for you?") and don't hand off until it's
+        # clear. The booking itself happens after the handoff has assigned an agent.
+        call_plan = None
+        try:
+            call_plan = _plan_call(client, conversation, trigger_message, parsed_data)
+            if call_plan is None and accepted_call and not _TIME_CUE_RE.search(trigger_message.body or ""):
+                call_plan = _next_slot_plan(conversation)       # a plain YES to our call offer
+        except Exception as exc:
+            logger.exception("Call planning failed for conversation %s: %s", conversation.id, exc)
+        if call_plan is None and accepted_call and not parsed_data.get("needs_human") \
+                and not _asks_call_time(reply_body):
+            # YES with a time we couldn't read: ask when, rather than a qualification question or a generic reply
+            reply_body = _call_time_question(client, config, conversation, chat_messages)
+            parsed_data["final_reply"] = reply_body
+        if call_plan and call_plan["action"] == "confirm":
+            reply_body = _call_reply(client, config, conversation, chat_messages, call_plan, booked=False)
+            parsed_data["final_reply"] = reply_body
+            parsed_data["call_proposal"] = call_plan["moment"].isoformat()
+            if conversation.status != Conversation.Status.NEEDS_HUMAN:
+                parsed_data["needs_human"] = False         # keep chatting until they confirm the time
+                parsed_data["handoff_reason"] = None
+        elif call_plan and call_plan["action"] == "note":
+            # Nothing gets booked (date already passed / too vague): the reply must not say it was, and should
+            # ask them for a day and time that works
+            if call_plan.get("kind") in ("past", "far", "hours") or _CLAIMS_BOOKING_RE.search(reply_body) \
+                    or "?" not in reply_body:
+                reply_body = _call_ask_reply(client, config, conversation, chat_messages, call_plan)
+                parsed_data["final_reply"] = reply_body
+        elif call_plan and call_plan["action"] == "cancel":
+            reply_body = _call_cancel_reply(client, config, conversation, chat_messages, call_plan)
+            parsed_data["final_reply"] = reply_body
+        if not (call_plan and call_plan["action"] == "cancel") and _CLAIMS_CANCEL_RE.search(reply_body or ""):
+            # Gemma says the call was cancelled, but code didn't cancel anything: never promise that
+            reply_body = _no_false_cancel_reply(client, config, conversation, chat_messages)
+            parsed_data["final_reply"] = reply_body
+        elif call_plan and call_plan["action"] == "book":
+            # The reply must confirm the booked day and time, not ask about it again. "Call me now" booked a few
+            # minutes out may just say "shortly", but a next open slot hours away (TODAY at night -> 9 AM) must be said.
+            calling_soon = call_plan["how"] == "asap" and call_plan["moment"] <= timezone.now() + timedelta(minutes=45)
+            if "?" in reply_body or not (calling_soon or _mentions_call_time(
+                    reply_body, call_plan["moment"], call_plan["lead_tz"])):
+                reply_body = _call_reply(client, config, conversation, chat_messages, call_plan, booked=True)
+                parsed_data["final_reply"] = reply_body
+            if not parsed_data.get("needs_human") and conversation.status != Conversation.Status.NEEDS_HUMAN:
+                parsed_data["needs_human"] = True          # hand off so an agent is assigned to make the call
+                parsed_data["handoff_reason"] = "Wants a call"
 
         # Step 6: Check if model determined needs_human
         if parsed_data.get("needs_human"):
@@ -930,6 +1583,11 @@ def process_ai_job(job: AIJob) -> Optional[AIReply]:
                 model_name=model_name,
                 sent_message=resulting_msg,
             )
+            # The lead asked for a call: book it on the (now assigned) agent's calendar
+            try:
+                _apply_call_plan(conversation, call_plan)
+            except Exception as exc:
+                logger.exception("Call booking failed for conversation %s: %s", conversation.id, exc)
             job.status = AIJob.Status.DONE
             job.finished_at = timezone.now()
             job.save(update_fields=["status", "finished_at"])
@@ -980,6 +1638,12 @@ def process_ai_job(job: AIJob) -> Optional[AIReply]:
                     final_status = AIReply.Status.FAILED
                     last_error = str(exc)
                     logger.exception("Failed to send auto AI message: %s", exc)
+
+        # A lead moving a booked call ("can we do 4pm instead?") moves it on the agent's calendar
+        try:
+            _apply_call_plan(conversation, call_plan)
+        except Exception as exc:
+            logger.exception("Call booking failed for conversation %s: %s", conversation.id, exc)
 
         job.status = AIJob.Status.DONE
         job.finished_at = timezone.now()

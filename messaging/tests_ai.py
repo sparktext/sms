@@ -272,9 +272,17 @@ class AIAssistantTests(TestCase):
             trigger_message=msg,
             status=AIJob.Status.PENDING,
         )
-        reply = process_ai_job(job)
-        self.assertEqual(reply.status, AIReply.Status.HANDED_OFF)
-        self.assertIn("price/discount topic", reply.skip_reason)
+        # The retry is blocked too -> a safe holding reply goes out and an agent takes over (never silence)
+        FakeAIClient.push_response({"reply": "It's $150 dollars.", "intent": "pricing", "collected": {},
+                                    "needs_human": False, "handoff_reason": None})
+        process_ai_job(job)
+        self.conv_a.refresh_from_db()
+        self.assertEqual(self.conv_a.status, Conversation.Status.NEEDS_HUMAN)
+        self.assertIn("price/discount topic", self.conv_a.handoff_reason)
+        sent = list(Message.objects.filter(conversation=self.conv_a, sender_type=Message.SenderType.AI)
+                    .values_list("body", flat=True))
+        self.assertFalse(any("$" in b for b in sent))
+        self.assertIn("A licensed agent will follow up with you on that shortly.", sent[-1])
 
         # 2. Never say phrase block
         self.conv_a.status = Conversation.Status.OPEN
@@ -286,14 +294,22 @@ class AIAssistantTests(TestCase):
             "needs_human": False,
             "handoff_reason": None,
         })
+        msg2 = Message.objects.create(conversation=self.conv_a, organization=self.org_a,
+                                      direction=Message.Direction.INBOUND, sender_type=Message.SenderType.CUSTOMER,
+                                      body="Will I be approved?", status=Message.Status.RECEIVED)
         job2 = AIJob.objects.create(
             conversation=self.conv_a,
-            trigger_message=msg,
+            trigger_message=msg2,
             status=AIJob.Status.PENDING,
         )
-        reply2 = process_ai_job(job2)
-        self.assertEqual(reply2.status, AIReply.Status.HANDED_OFF)
-        self.assertIn("never_say rules", reply2.skip_reason)
+        FakeAIClient.push_response({"reply": "Guaranteed approval, promise!", "intent": "answer", "collected": {},
+                                    "needs_human": False, "handoff_reason": None})
+        process_ai_job(job2)
+        self.conv_a.refresh_from_db()
+        self.assertEqual(self.conv_a.status, Conversation.Status.NEEDS_HUMAN)
+        self.assertIn("never_say rules", self.conv_a.handoff_reason)
+        self.assertFalse(Message.objects.filter(conversation=self.conv_a, sender_type=Message.SenderType.AI,
+                                                body__icontains="guaranteed").exists())
 
     def test_prompt_injection_safety(self):
         """Prompt injection text inside customer message does not bypass output rules or price bans."""
@@ -529,7 +545,7 @@ class AIAssistantTests(TestCase):
 
     def test_update_conversation_ai_mode_endpoint(self):
         """POST /inbox/<id>/ai-mode/ switches mode and records system audit note on takeover."""
-        self.client.login(username=self.user_a.email, password="password123")
+        self.client.force_login(self.user_a)
         res = self.client.post(
             f"/inbox/{self.conv_a.id}/ai-mode/",
             {"ai_mode": "off"},
@@ -601,7 +617,7 @@ class AIAssistantTests(TestCase):
 
     def test_human_send_triggers_automatic_ai_takeover(self):
         """When staff sends an outbound message via inbox, AI is automatically paused (ai_mode='off')."""
-        self.client.login(username=self.user_a.email, password="password123")
+        self.client.force_login(self.user_a)
         self.assertEqual(self.conv_a.ai_mode, Conversation.AIMode.DEFAULT)
 
         res = self.client.post(
@@ -1548,6 +1564,24 @@ class TimeRuleTests(TestCase):
         by_key = {"bought": parent, "pn": child}
         self.assertFalse(follow_up_active(child, {"bought": recent}, by_key, {"cond:pn": {"met": True, "answer": recent}}))
         self.assertTrue(follow_up_active(child, {"bought": "January 2020"}, by_key, {}))
+
+    def test_a_name_condition_is_decided_by_code_not_a_contradicting_verdict(self):
+        # Live: Gemma said {"met": true, "reason": "GEICO, not State Farm"} and the State-Farm-only question was asked
+        from messaging.ai.qualification import follow_up_active, evaluate_fit, is_name_list, NOT_FIT, PENDING
+        parent = {"key": "insurer"}
+        child = {"key": "bought", "parent": "insurer", "condition": {"op": "is", "values": ["State Farm"]}}
+        by_key = {"insurer": parent, "bought": child}
+        wrong = {"cond:bought": {"met": True, "answer": "GEICO", "reason": "GEICO, not State Farm."}}
+        self.assertFalse(follow_up_active(child, {"insurer": "GEICO"}, by_key, wrong))
+        self.assertTrue(follow_up_active(child, {"insurer": "State Farm"}, by_key, {}))
+        self.assertTrue(follow_up_active(child, {"insurer": "statefarm"}, by_key, {}))
+        self.assertTrue(is_name_list(["State Farm", "Allstate"]))
+        self.assertFalse(is_name_list(["less than 6 months"]))
+        self.assertFalse(is_name_list(["any other company"]))
+        rule = [{"key": "insurer", "required": True, "rule": "not_fit_if", "rule_values": ["Allstate"]}]
+        bogus = {"rule:insurer": {"result": "not_fit", "answer": "GEICO", "reason": "?"}}
+        self.assertNotEqual(evaluate_fit(rule, {"insurer": "GEICO"}, checks=bogus)[0], NOT_FIT)
+        self.assertEqual(evaluate_fit(rule, {"insurer": "Allstate"}, checks={})[0], NOT_FIT)
 
     def test_rewrite_keeps_real_question_and_drops_filler(self):
         from messaging.ai.pipeline import _strip_generic_sentence

@@ -180,6 +180,8 @@ class CampaignRecipient(models.Model):
     personalized_body = models.TextField(blank=True, default="")
     error_message = models.TextField(blank=True, default="")
     sent_at = models.DateTimeField(null=True, blank=True)
+    # When a batch claimed it for sending: a claim that never sent (crashed run) is released after a while
+    queued_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

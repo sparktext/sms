@@ -98,9 +98,9 @@ def broadcast_campaign_list_update(
                 "sent_count": campaign.sent_count,
                 "skipped_count": campaign.skipped_count,
                 "progress_percent": campaign.progress_percent,
-                "created_at_date": campaign.created_at.strftime("%b %d, %Y") if campaign.created_at else "",
-                "scheduled_at_date": campaign.scheduled_at.strftime("%b %d, %Y") if campaign.scheduled_at else "",
-                "scheduled_at_time": campaign.scheduled_at.strftime("%I:%M %p") if campaign.scheduled_at else "",
+                "created_at_date": _local(campaign, campaign.created_at, "%b %d, %Y"),
+                "scheduled_at_date": _local(campaign, campaign.scheduled_at, "%b %d, %Y"),
+                "scheduled_at_time": _local(campaign, campaign.scheduled_at, "%I:%M %p"),
                 "detail_url": f"/campaigns/{campaign.id}/",
                 "edit_url": f"/campaigns/{campaign.id}/edit/",
                 "clone_url": f"/campaigns/{campaign.id}/clone/",
@@ -155,3 +155,12 @@ async def async_broadcast_campaign_progress(
             exc_info=False,
         )
 
+
+def _local(campaign, moment, fmt: str) -> str:
+    """A campaign time in the workspace time zone (not the server's UTC)."""
+    if not moment:
+        return ""
+    from zoneinfo import ZoneInfo
+    from django.utils import timezone as dj_tz
+    from core.timezones import org_timezone
+    return dj_tz.localtime(moment, ZoneInfo(org_timezone(campaign.organization))).strftime(fmt)

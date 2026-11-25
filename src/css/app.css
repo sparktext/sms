@@ -4,6 +4,7 @@
 @source "../../campaigns/templates";
 @source "../../compliance/templates";
 @source "../../core/templates";
+@source "../../scheduling/templates";
 
 @theme {
   --font-sans: "Inter", system-ui, sans-serif;
