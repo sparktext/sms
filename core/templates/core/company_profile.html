@@ -51,6 +51,13 @@
       </svg>
       <span>Notification Sounds</span>
     </a>
+    <a
+      href="{% url 'slack_settings' %}"
+      class="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition whitespace-nowrap shrink-0"
+    >
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14"/></svg>
+      <span>Slack</span>
+    </a>
   </div>
 
   {% if not is_admin %}
@@ -288,6 +295,70 @@
             {% for value, label in call_time_choices %}{% if not forloop.first %}<option value="{{ value }}" {% if value == call_end %}selected{% endif %}>{{ label }}</option>{% endif %}{% endfor %}
           </select>
           <span class="text-[11px] text-gray-500">{{ workspace_tz_label }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Team call calendar -->
+    <div id="team-calendar" class="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-2xs scroll-mt-24">
+      <div class="p-5 border-b border-gray-100">
+        <h3 class="text-sm font-bold text-gray-900 flex items-center gap-2">
+          <svg class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+          <span>Team call calendar</span>
+        </h3>
+        <p class="text-xs text-gray-500 mt-0.5">How calls Gemma books with new leads reach your agents, and the days your office is closed.{% if not is_admin %} Only owners and admins can change these.{% endif %}</p>
+      </div>
+      <input type="hidden" name="team_calendar_present" value="1">
+      <div class="p-5 space-y-5 text-xs text-gray-700">
+        <label class="flex items-start gap-2.5 {% if is_admin %}cursor-pointer{% else %}opacity-70{% endif %}">
+          <input type="checkbox" name="call_pool_enabled" {% if org.call_pool_enabled %}checked{% endif %} {% if not is_admin %}disabled{% endif %}
+                 class="mt-0.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+          <span>
+            <span class="font-bold text-gray-900">Put a new lead's first call on the team calendar</span>
+            <span class="block text-[11px] text-gray-500 mt-0.5">Every available agent is told, and the first to claim the call gets the lead. Leads who already have an agent always go straight to that agent. When this is off, calls go to whoever the lead routing picks.</span>
+          </span>
+        </label>
+
+        <div>
+          <label for="call-claim-minutes" class="block font-bold text-gray-900 mb-1">If nobody claims a call</label>
+          <div class="flex flex-wrap items-center gap-2">
+            <span>assign it automatically</span>
+            <select id="call-claim-minutes" name="call_claim_minutes" {% if not is_admin %}disabled{% endif %}
+                    class="px-3 py-2 text-xs border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900 disabled:bg-gray-50 disabled:text-gray-500">
+              {% for m in claim_minute_choices %}<option value="{{ m }}" {% if m == call_claim_minutes %}selected{% endif %}>{% if m >= 60 %}{% widthratio m 60 1 %} hour{% if m > 60 %}s{% endif %}{% else %}{{ m }} minutes{% endif %}</option>{% endfor %}
+            </select>
+            <span>before the call, using your lead routing.</span>
+          </div>
+        </div>
+
+        <div>
+          <p class="font-bold text-gray-900 mb-1">Calls at the same time</p>
+          <p class="text-[11px] text-gray-500 mb-2">When this many calls are already booked for a time, Gemma suggests the next open time instead.</p>
+          <label class="flex items-center gap-2 mb-1.5 {% if is_admin %}cursor-pointer{% endif %}">
+            <input type="radio" name="slot_limit_mode" value="agents" {% if not slot_limit_custom %}checked{% endif %} {% if not is_admin %}disabled{% endif %} class="text-brand-600 focus:ring-brand-500">
+            <span>The number of agents available for leads <span class="text-gray-500">(right now: {{ available_agents }})</span></span>
+          </label>
+          <label class="flex flex-wrap items-center gap-2 {% if is_admin %}cursor-pointer{% endif %}">
+            <input type="radio" name="slot_limit_mode" value="custom" {% if slot_limit_custom %}checked{% endif %} {% if not is_admin %}disabled{% endif %} class="text-brand-600 focus:ring-brand-500">
+            <span>A set number:</span>
+            <input type="number" name="max_calls_per_slot" min="1" max="100" value="{{ max_calls_per_slot }}" {% if not is_admin %}disabled{% endif %}
+                   aria-label="Calls at the same time"
+                   class="w-20 px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 disabled:bg-gray-50">
+          </label>
+        </div>
+
+        <div>
+          <p class="font-bold text-gray-900 mb-1">Holidays your office is closed</p>
+          <p class="text-[11px] text-gray-500 mb-2">Gemma never offers or books a call on these days. To open on one of them just once, or close another day, use <a href="{% url 'scheduling:calendar' %}" class="font-semibold text-brand-600 hover:text-brand-700">Calendar → Closed days</a>.</p>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+            {% for h in holiday_rows %}
+            <label class="flex items-center gap-2 px-2.5 py-1.5 border border-gray-200 rounded-lg {% if is_admin %}cursor-pointer hover:bg-gray-50{% else %}opacity-70{% endif %}">
+              <input type="checkbox" name="closed_holidays" value="{{ h.key }}" {% if h.closed %}checked{% endif %} {% if not is_admin %}disabled{% endif %}
+                     class="rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+              <span class="flex-1 min-w-0"><span class="font-semibold text-gray-900">{{ h.name }}</span> <span class="text-[11px] text-gray-500">· next {{ h.next_text }}</span></span>
+            </label>
+            {% endfor %}
+          </div>
         </div>
       </div>
     </div>

@@ -153,7 +153,7 @@ def record_consent_view(request):
                 "event_id": event.id,
                 "phone": contact.phone,
                 "event_type": event.event_type,
-                "created_at": event.created_at.strftime("%b %d, %Y %H:%M"),
+                "created_at": timezone.localtime(event.created_at).strftime("%b %d, %Y %H:%M"),
             })
         return redirect("compliance:dashboard")
     except ValidationError as ve:

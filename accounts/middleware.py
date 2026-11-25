@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from django.conf import settings
 from django.contrib.auth import logout
+from django.http import JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 
@@ -30,16 +31,22 @@ class InactivityLogoutMiddleware:
             last_activity = request.session.get("last_activity")
             now = timezone.now().timestamp()
 
+            background = request.headers.get("X-Background-Poll") == "1"
             if last_activity is not None:
                 elapsed = now - last_activity
                 if elapsed > timeout:
                     logout(request)
+                    if background:
+                        return JsonResponse({"status": "error", "message": "Signed out after inactivity."},
+                                            status=401)
                     login_url = getattr(settings, "LOGIN_URL", "/accounts/login/")
                     return redirect(f"{login_url}?reason=inactivity")
 
-            # Refresh the timestamp on every request
-            request.session["last_activity"] = now
-            request.session.modified = True
+            # Refresh the timestamp on every request the person made. A page checking in the background (hot leads,
+            # calls to claim) isn't the person being active: an open tab must not keep them signed in forever.
+            if not background:
+                request.session["last_activity"] = now
+                request.session.modified = True
 
         return self.get_response(request)
 

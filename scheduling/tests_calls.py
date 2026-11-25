@@ -27,6 +27,8 @@ class Base(TestCase):
         FakeAIClient.reset()
         self.org = Organization.objects.create(name="Pacific Test", slug="pacific-test", timezone="America/Los_Angeles",
                                                call_days=[0, 1, 2, 3, 4, 5, 6],   # tests run on any weekday
+                                               call_pool_enabled=False,      # direct booking (TeamCallPoolTests: pool)
+                                               closed_holidays=[],           # date-proof (ClosedDayTests: holidays)
                                                call_start=time_cls(0, 0), call_end=time_cls(23, 59))  # only the
                                                # lead's legal 8 AM-9 PM limits calls unless a test sets team hours
         self.owner = User.objects.create_user(email="owner@calls.test", password="pw-123456789", organization=self.org,

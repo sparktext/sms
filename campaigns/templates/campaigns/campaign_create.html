@@ -452,13 +452,14 @@
           type="datetime-local"
           id="scheduled-at"
           name="scheduled_at"
-          data-utc="{% if is_edit %}{{ campaign_scheduled_iso }}{% endif %}"
+          value="{% if is_edit %}{{ campaign_scheduled_local }}{% endif %}"
+          data-min="{{ schedule_min_local }}"
           {% if not is_edit or campaign.status != 'scheduled' %}disabled{% endif %}
           oninput="updateScheduledIso()"
           class="px-3.5 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900 bg-white"
         />
         <input type="hidden" name="scheduled_at_iso" id="scheduled-at-iso" />
-        <p id="tz-notice" class="text-[11px] text-gray-400 mt-1">Times are scheduled in your local browser timezone.</p>
+        <p id="tz-notice" class="text-[11px] text-gray-400 mt-1">Times are in {{ workspace_tz_label }}, your agency's time zone.</p>
       </div>
     </div>
   </div>
@@ -841,15 +842,10 @@
     return (str || "").replace(/"/g, "&quot;");
   }
 
+  // The picked date & time are read by the server in the agency's time zone (not this computer's clock)
   function updateScheduledIso() {
-    const input = document.getElementById("scheduled-at");
     const isoInput = document.getElementById("scheduled-at-iso");
-    if (input && isoInput && input.value) {
-      const d = new Date(input.value);
-      if (!isNaN(d.getTime())) {
-        isoInput.value = d.toISOString();
-      }
-    }
+    if (isoInput) isoInput.value = "";
   }
 
   // Initialize on page load
@@ -876,15 +872,10 @@
 
     recalculateAudience();
 
-    // Date picker in the viewer's own time: "not before now" and a scheduled campaign's saved time (stored as UTC)
+    // Date picker in the agency's time zone: "not before now" (the saved time is already filled in by the server)
     const datePicker = document.getElementById("scheduled-at");
     if (datePicker) {
-      const local = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-      datePicker.min = local(new Date());
-      if (datePicker.dataset.utc) {
-        const saved = new Date(datePicker.dataset.utc);
-        if (!isNaN(saved.getTime())) datePicker.value = local(saved);
-      }
+      if (datePicker.dataset.min) datePicker.min = datePicker.dataset.min;
       updateScheduledIso();
     }
 
@@ -921,13 +912,6 @@
       }, 0);
     });
 
-    try {
-      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      const notice = document.getElementById("tz-notice");
-      if (notice && tz) {
-        notice.textContent = `Times are set in your local timezone (${tz}).`;
-      }
-    } catch(e) {}
   });
 </script>
 {% endblock %}

@@ -92,6 +92,15 @@
   .ev-kind-pill input:checked + span .ev-dot { background: #fff !important; }
   .ev-kind-pill input:focus-visible + span { outline: 2px solid #a5b4fc; outline-offset: 2px; }
   .cal-view-btn[aria-pressed="true"] { background: #fff; color: #111827; box-shadow: 0 1px 2px rgba(15,23,42,.1); }
+
+  /* Team calls nobody has claimed yet, and closed days */
+  #calendar .ev-unclaimed { background-image: repeating-linear-gradient(135deg, rgba(255,255,255,.28) 0 6px, transparent 6px 12px); }
+  #calendar .ev-unclaimed .ev-owner { font-weight: 700; }
+  #calendar .fc-bg-event { opacity: 1; }
+  #calendar .closed-day { background-image: repeating-linear-gradient(135deg, rgba(225,29,72,.10) 0 8px, transparent 8px 16px); }
+  #calendar .cd-label { font-size: 10.5px; font-weight: 700; padding: 3px 6px; color: #9f1239; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #calendar .reopened-day .cd-label { color: #166534; }
+  .claim-row.is-target { box-shadow: 0 0 0 2px #f59e0b; }
 </style>
 {% endblock %}
 
@@ -147,6 +156,12 @@
       </div>
       {% endif %}
 
+      {% if is_manager %}
+      <button type="button" id="cd-open" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold border border-gray-200 rounded-lg text-gray-700 hover:bg-gray-50 transition cursor-pointer">
+        <span aria-hidden="true">🗓️</span><span>Closed days</span>
+      </button>
+      {% endif %}
+
       <div class="inline-flex p-0.5 bg-gray-100 rounded-lg" id="cal-views" role="group" aria-label="Calendar view">
         <button type="button" data-view="timeGridDay" aria-pressed="false" class="cal-view-btn px-3 py-1 text-xs font-semibold text-gray-500 rounded-md transition cursor-pointer">Day</button>
         <button type="button" data-view="timeGridWeek" aria-pressed="false" class="cal-view-btn px-3 py-1 text-xs font-semibold text-gray-500 rounded-md transition cursor-pointer">Week</button>
@@ -186,6 +201,15 @@
         </div>
       </div>
     </div>
+  </div>
+
+  <!-- Team calls waiting for someone to claim them -->
+  <div id="claim-panel" class="hidden bg-amber-50/60 border border-amber-200 rounded-2xl shadow-2xs">
+    <div class="px-4 pt-3.5 pb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+      <h3 class="text-sm font-bold text-amber-950">📅 Calls to claim <span id="claim-count" class="ml-1 px-1.5 py-0.5 rounded-full bg-amber-200 text-amber-900 text-[11px]"></span></h3>
+      <p class="text-[11px] text-amber-900/80">Gemma booked these with new leads. The first agent to claim a call gets the lead; if nobody does, it's assigned automatically {{ claim_minutes }} minutes before the call.</p>
+    </div>
+    <ul id="claim-list" class="divide-y divide-amber-200/70 border-t border-amber-200/70"></ul>
   </div>
 
   <!-- Calendar -->
@@ -252,6 +276,7 @@
           <label for="ev-member" class="block text-xs font-bold text-gray-700 mb-1">Calendar</label>
           <select id="ev-member" class="w-full px-3 py-2 text-xs border border-gray-200 rounded-xl bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500">
             {% for m in team %}<option value="{{ m.key }}">{% if m.is_me %}My calendar{% else %}{{ m.name }} · {{ m.role }}{% endif %}</option>{% endfor %}
+            <option value="pool">Team call (unclaimed)</option>
           </select>
         </div>
         {% endif %}
@@ -280,6 +305,7 @@
           </div>
           <p id="ev-ai-badge" class="hidden mt-1.5 text-[11px] text-violet-700">✨ Booked by Gemma from the SMS chat</p>
         </div>
+        <p id="ev-pool-badge" class="hidden -mt-2 p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-900">📅 Team call: nobody has claimed it yet. Whoever claims it gets the lead.</p>
 
         <div>
           <label for="ev-notes" class="block text-xs font-bold text-gray-700 mb-1">Notes</label>
@@ -291,12 +317,49 @@
       <div class="px-5 py-3.5 bg-gray-50 border-t border-gray-100 flex items-center gap-2">
         <button type="button" id="ev-delete" class="hidden px-3 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer">Delete</button>
         <span class="flex-1"></span>
+        <button type="button" id="ev-claim" class="hidden px-4 py-2 text-xs font-semibold text-white bg-amber-500 hover:bg-amber-600 rounded-lg shadow-2xs cursor-pointer">Claim this call</button>
         <button type="button" data-close class="px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-lg cursor-pointer">Cancel</button>
         <button type="submit" id="ev-save" class="px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-lg shadow-2xs disabled:opacity-60 cursor-pointer">Save</button>
       </div>
     </form>
   </div>
 </div>
+
+{% if is_manager %}
+<!-- Closed days (owners/admins) -->
+<div id="cd-modal" class="fixed inset-0 z-50 hidden" role="dialog" aria-modal="true" aria-labelledby="cd-title">
+  <div class="absolute inset-0 bg-slate-900/40" data-cd-close></div>
+  <div class="relative mx-auto mt-[8vh] w-[calc(100%-2rem)] max-w-lg bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden">
+    <div class="px-5 pt-5 pb-3 flex items-start justify-between gap-3">
+      <div>
+        <h3 id="cd-title" class="text-base font-bold text-gray-900">Closed days</h3>
+        <p class="text-[11px] text-gray-500 mt-0.5">Gemma never offers or books a call on a closed day. Which federal holidays you close every year is set in <a href="{% url 'company_profile' %}#team-calendar" class="font-semibold text-brand-600 hover:text-brand-700">Settings → Company Profile</a>.</p>
+      </div>
+      <button type="button" data-cd-close aria-label="Close" class="p-1 -m-1 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 cursor-pointer">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="px-5 pb-5 space-y-4 max-h-[70vh] overflow-y-auto">
+      <div id="cd-error" role="alert" class="hidden p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs"></div>
+      <form id="cd-form" class="p-3 rounded-xl bg-gray-50 border border-gray-100 flex flex-wrap items-end gap-2" novalidate>
+        <div>
+          <label for="cd-date" class="block text-[11px] font-bold text-gray-700 mb-1">Close a day</label>
+          <input id="cd-date" type="date" required class="px-3 py-2 text-xs border border-gray-200 rounded-xl bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500">
+        </div>
+        <div class="flex-1 min-w-[10rem]">
+          <label for="cd-name" class="block text-[11px] font-bold text-gray-700 mb-1">Reason (optional)</label>
+          <input id="cd-name" type="text" maxlength="80" placeholder="e.g. Office party" class="w-full px-3 py-2 text-xs border border-gray-200 rounded-xl bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500">
+        </div>
+        <button type="submit" class="px-3.5 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-lg cursor-pointer">Close day</button>
+      </form>
+      <div>
+        <p class="text-xs font-bold text-gray-700 mb-1.5">Coming up (next 12 months)</p>
+        <ul id="cd-list" class="divide-y divide-gray-100 border border-gray-100 rounded-xl"></ul>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 <div id="cal-toast" role="status" aria-live="polite"
      class="fixed bottom-5 left-1/2 -translate-x-1/2 z-[60] hidden px-4 py-2.5 rounded-xl bg-slate-900 text-white text-xs font-medium shadow-lg"></div>
@@ -320,6 +383,7 @@
 
   // The editor and toast sit inside the scrolling main column; move them to <body> so they always cover the screen
   document.body.append($("ev-modal"), $("cal-toast"));
+  if ($("cd-modal")) document.body.append($("cd-modal"));
 
   // ── helpers ───────────────────────────────────────────────
   let toastTimer = null;
@@ -337,6 +401,7 @@
   const fmtInput = (dt) => dt.toFormat("yyyy-LL-dd'T'HH:mm");
   const updateUrl = (id) => cfg.urls.update.replace("/0/", "/" + id + "/");
   const deleteUrl = (id) => cfg.urls.delete.replace("/0/", "/" + id + "/");
+  const claimUrl = (id) => cfg.urls.claim.replace("/0/", "/" + id + "/");
 
   async function post(url, body) {
     const res = await fetch(url, {
@@ -365,6 +430,12 @@
 
   function renderEvent(arg) {
     const p = arg.event.extendedProps;
+    if (p.closed_day) {
+      const label = document.createElement("div");
+      label.className = "cd-label";
+      label.textContent = arg.event.title;
+      return { domNodes: [label] };
+    }
     const wrap = document.createElement("div");
     wrap.className = "ev-inner";
     const isList = arg.view.type.startsWith("list");
@@ -384,7 +455,7 @@
       kind.textContent = p.kind_label + (p.status !== "scheduled" ? " · " + p.status_label : "");
       wrap.appendChild(kind);
     }
-    if (member === "all" && p.owner_name) {
+    if ((member === "all" || p.unclaimed) && p.owner_name) {
       const owner = document.createElement("div");
       owner.className = "ev-owner";
       owner.textContent = p.owner_name;
@@ -458,6 +529,7 @@
     },
     eventClick: (info) => {
       info.jsEvent.preventDefault();
+      if (info.event.extendedProps.closed_day) return;
       openEditor({ event: info.event });
     },
     eventDrop: saveMove,
@@ -479,9 +551,10 @@
   function renderLegend() {
     const legend = $("cal-legend");
     legend.textContent = "";
-    const items = member === "all"
+    const items = (member === "all"
       ? cfg.team.map((m) => ({ color: m.color, label: m.is_me ? m.name + " (you)" : m.name }))
-      : cfg.kinds.map((k) => ({ color: k.color, label: k.label }));
+      : cfg.kinds.map((k) => ({ color: k.color, label: k.label })))
+      .concat([{ color: "#f59e0b", label: "Team call (unclaimed)" }, { color: "#fecaca", label: "Office closed" }]);
     items.forEach((it) => {
       const span = document.createElement("span");
       span.className = "inline-flex items-center gap-1.5";
@@ -576,7 +649,9 @@
     lastStart = s;
 
     const memberField = $("ev-member");
-    if (memberField) memberField.value = event ? p.owner : (member !== "all" ? member : cfg.me);
+    if (memberField) memberField.value = event ? (p.unclaimed ? "pool" : p.owner) : (member !== "all" ? member : cfg.me);
+    $("ev-pool-badge").classList.toggle("hidden", !(event && p.unclaimed));
+    $("ev-claim").classList.toggle("hidden", !(event && p.can_claim));
 
     $("ev-status-wrap").classList.toggle("hidden", !event);
     if (event) $("ev-status").value = p.status;
@@ -663,6 +738,139 @@
       saveBtn.disabled = false;
     }
   });
+
+  // ── team calls: claim ────────────────────────────────────
+  async function claim(id, btn) {
+    if (btn) btn.disabled = true;
+    try {
+      const data = await post(claimUrl(id));
+      toast(data.message || "The call is yours");
+      if (editing && String(editing.id) === String(id)) closeEditor();
+      calendar.refetchEvents();
+      loadUnclaimed();
+    } catch (err) {
+      toast(err.message, true);
+      loadUnclaimed();
+      calendar.refetchEvents();
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+  $("ev-claim").addEventListener("click", (e) => { if (editing) claim(editing.id, e.currentTarget); });
+
+  function claimRow(c) {
+    const li = document.createElement("li");
+    li.className = "claim-row px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 rounded-none" +
+      (String(c.id) === String(cfg.claimId) ? " is-target bg-amber-100/60" : "");
+    const info = document.createElement("div");
+    info.className = "min-w-0 flex-1";
+    const name = document.createElement("p");
+    name.className = "text-sm font-bold text-gray-900 truncate";
+    name.textContent = (c.contact_name || c.title) + " · " + c.when_text;
+    const sub = document.createElement("p");
+    sub.className = "text-[11px] text-gray-600 truncate";
+    sub.textContent = c.lead_time + " · assigned automatically " + c.assign_at_text + " if nobody claims it";
+    info.append(name, sub);
+    const actions = document.createElement("div");
+    actions.className = "flex items-center gap-2 shrink-0";
+    if (c.chat_url) {
+      const chat = document.createElement("a");
+      chat.href = c.chat_url;
+      chat.className = "px-2.5 py-1.5 text-xs font-semibold border border-amber-300 bg-white rounded-lg text-gray-700 hover:bg-amber-50";
+      chat.textContent = "Open chat";
+      actions.appendChild(chat);
+    }
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "px-3 py-1.5 text-xs font-semibold text-white bg-amber-500 hover:bg-amber-600 rounded-lg shadow-2xs cursor-pointer disabled:opacity-60";
+    btn.textContent = "Claim";
+    btn.addEventListener("click", () => claim(c.id, btn));
+    actions.appendChild(btn);
+    li.append(info, actions);
+    return li;
+  }
+
+  async function loadUnclaimed() {
+    try {
+      const res = await fetch(cfg.urls.unclaimed, { headers: { "X-Requested-With": "XMLHttpRequest", "X-Background-Poll": "1" } });
+      const data = await res.json();
+      const list = $("claim-list");
+      list.textContent = "";
+      (data.calls || []).forEach((c) => list.appendChild(claimRow(c)));
+      $("claim-count").textContent = String((data.calls || []).length);
+      $("claim-panel").classList.toggle("hidden", !(data.calls || []).length);
+      const target = list.querySelector(".is-target");
+      if (target && !loadUnclaimed.scrolled) { target.scrollIntoView({ block: "center" }); loadUnclaimed.scrolled = true; }
+    } catch (e) {}
+  }
+  loadUnclaimed();
+  setInterval(loadUnclaimed, 30000);
+
+  // ── closed days (owners/admins) ───────────────────────────
+  const cdModal = $("cd-modal");
+  if (cdModal) {
+    const cdError = (m) => { $("cd-error").textContent = m || ""; $("cd-error").classList.toggle("hidden", !m); };
+    function cdRow(d) {
+      const li = document.createElement("li");
+      li.className = "px-3 py-2.5 flex items-center gap-3 text-xs";
+      const dot = document.createElement("span");
+      dot.className = "w-2.5 h-2.5 rounded-full shrink-0 " + (d.closed ? "bg-rose-400" : "bg-emerald-400");
+      const text = document.createElement("div");
+      text.className = "min-w-0 flex-1";
+      const t1 = document.createElement("p");
+      t1.className = "font-semibold text-gray-900 truncate";
+      t1.textContent = d.label + " · " + d.name;
+      const t2 = document.createElement("p");
+      t2.className = "text-[11px] text-gray-500";
+      t2.textContent = d.kind === "holiday" ? "Federal holiday · closed" : (d.kind === "reopened" ? "Federal holiday · open this year" : "Closed by you");
+      text.append(t1, t2);
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "px-2.5 py-1 text-[11px] font-semibold border border-gray-200 rounded-lg text-gray-700 hover:bg-gray-50 cursor-pointer";
+      const action = d.kind === "reopened" ? "reset" : "open";
+      btn.textContent = d.kind === "reopened" ? "Close again" : (d.kind === "holiday" ? "Open this day" : "Remove");
+      btn.addEventListener("click", () => cdSave({ date: d.date, action }));
+      li.append(dot, text, btn);
+      return li;
+    }
+    function cdRender(days) {
+      const list = $("cd-list");
+      list.textContent = "";
+      if (!days.length) {
+        const li = document.createElement("li");
+        li.className = "px-3 py-3 text-xs text-gray-400";
+        li.textContent = "No closed days in the next 12 months.";
+        list.appendChild(li);
+      }
+      days.forEach((d) => list.appendChild(cdRow(d)));
+    }
+    async function cdSave(body) {
+      cdError("");
+      try {
+        const data = await post(cfg.urls.closedDays, body);
+        cdRender(data.days || []);
+        calendar.refetchEvents();
+        toast(body.action === "close" ? "Day closed" : "Saved");
+      } catch (err) { cdError(err.message); }
+    }
+    $("cd-open").addEventListener("click", async () => {
+      cdError("");
+      cdModal.classList.remove("hidden");
+      $("cd-date").min = zoneNow().toFormat("yyyy-LL-dd");
+      try {
+        const res = await fetch(cfg.urls.closedDays, { headers: { "X-Requested-With": "XMLHttpRequest" } });
+        cdRender((await res.json()).days || []);
+      } catch (e) { cdError("Couldn't load closed days. Please try again."); }
+    });
+    cdModal.querySelectorAll("[data-cd-close]").forEach((el) => el.addEventListener("click", () => cdModal.classList.add("hidden")));
+    $("cd-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      if (!$("cd-date").value) return cdError("Pick a date to close.");
+      cdSave({ date: $("cd-date").value, action: "close", name: $("cd-name").value.trim() });
+      $("cd-name").value = "";
+    });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") cdModal.classList.add("hidden"); });
+  }
 
   $("ev-delete").addEventListener("click", async () => {
     if (!editing || !confirm("Delete this event?")) return;

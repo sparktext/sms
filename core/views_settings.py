@@ -142,6 +142,33 @@ def company_profile(request):
                     return redirect("company_profile")
                 org.call_start, org.call_end = start, end
 
+        # Team call calendar: who gets calls, when unclaimed calls are assigned, calls at once, holidays
+        if request.POST.get("team_calendar_present"):
+            from scheduling.calls import CLAIM_MINUTE_CHOICES
+            from scheduling.holidays import HOLIDAY_NAMES, forget_closed_days
+            org.call_pool_enabled = request.POST.get("call_pool_enabled") == "on"
+            try:
+                minutes = int(request.POST.get("call_claim_minutes") or 30)
+            except ValueError:
+                minutes = 0
+            if minutes not in CLAIM_MINUTE_CHOICES:
+                messages.error(request, "Pick when unclaimed calls are assigned.")
+                return redirect("company_profile")
+            org.call_claim_minutes = minutes
+            if request.POST.get("slot_limit_mode") == "custom":
+                try:
+                    limit = int(request.POST.get("max_calls_per_slot") or 0)
+                except ValueError:
+                    limit = 0
+                if not 1 <= limit <= 100:
+                    messages.error(request, "Calls at the same time must be a number from 1 to 100.")
+                    return redirect("company_profile")
+                org.max_calls_per_slot = limit
+            else:
+                org.max_calls_per_slot = None
+            org.closed_holidays = [k for k in request.POST.getlist("closed_holidays") if k in HOLIDAY_NAMES]
+            forget_closed_days(org)
+
         org.name = name
         org.ein = ein
         org.website = website
@@ -173,8 +200,26 @@ def company_profile(request):
         "call_time_choices": _call_time_choices(),
         "call_start": _call_hours(org)[0].strftime("%H:%M"),
         "call_end": _call_hours(org)[1].strftime("%H:%M"),
+        **_team_calendar_context(org, workspace_tz),
     }
     return render(request, "core/company_profile.html", context)
+
+
+def _team_calendar_context(org, workspace_tz):
+    from scheduling.calls import CLAIM_MINUTE_CHOICES, call_team, claim_minutes
+    from scheduling.holidays import upcoming_holidays
+    team = call_team(org)
+    available = team.filter(is_available_for_leads=True).count()
+    today = timezone.now().astimezone(ZoneInfo(workspace_tz)).date()
+    return {
+        "claim_minute_choices": CLAIM_MINUTE_CHOICES,
+        "call_claim_minutes": claim_minutes(org),
+        "slot_limit_custom": bool(org.max_calls_per_slot),
+        "max_calls_per_slot": org.max_calls_per_slot or max(1, available or team.count()),
+        "available_agents": available,
+        "holiday_rows": [dict(h, next_text=f"{h['next']:%a, %b} {h['next'].day}, {h['next'].year}")
+                         for h in upcoming_holidays(org, today)],
+    }
 
 
 # =========================================================================
@@ -279,7 +324,7 @@ def team_invite_create(request):
                 "email": invite.email,
                 "role": invite.role,
                 "role_display": invite.get_role_display(),
-                "created_at": invite.created_at.strftime("%b %d, %Y"),
+                "created_at": timezone.localtime(invite.created_at).strftime("%b %d, %Y"),
                 "invite_url": invite_url,
             }
         }, status=201)
@@ -726,3 +771,58 @@ def notification_sound_settings(request):
         "current_tab": "sounds",
     }
     return render(request, "core/notification_sounds.html", context)
+
+
+# =========================================================================
+# SLACK (owners/admins): where alerts go, and which ones
+# =========================================================================
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def slack_settings(request):
+    from . import slack
+
+    org = request.user.organization
+    if not org:
+        messages.error(request, "No organization associated with this account.")
+        return redirect("messaging:dashboard")
+    is_admin = request.user.role in [User.Role.OWNER, User.Role.ADMIN]
+
+    if request.method == "POST":
+        if not is_admin:
+            messages.error(request, "Only Owners and Admins can change the Slack settings.")
+            return redirect("slack_settings")
+        action = request.POST.get("action", "save")
+        if action == "disconnect":
+            org.slack_webhook_url, org.slack_last_error, org.slack_last_ok_at = "", "", None
+            org.save(update_fields=["slack_webhook_url", "slack_last_error", "slack_last_ok_at"])
+            messages.success(request, "Slack is disconnected. No more alerts will be posted.")
+            return redirect("slack_settings")
+        if action == "test":
+            ok, error = slack.send_test(org)
+            if ok:
+                messages.success(request, "Test message sent. Check your Slack channel.")
+            else:
+                messages.error(request, f"The test message didn't go through. {error}")
+            return redirect("slack_settings")
+        url = request.POST.get("slack_webhook_url", "").strip()
+        if url:                                            # empty = keep the saved one (it's never shown in full)
+            if not slack.valid_webhook(url):
+                messages.error(request, "That isn't a Slack webhook URL. It should start with "
+                                        "https://hooks.slack.com/services/")
+                return redirect("slack_settings")
+            org.slack_webhook_url, org.slack_last_error, org.slack_last_ok_at = url, "", None
+        org.slack_events = [k for k in request.POST.getlist("slack_events") if k in slack.EVENT_KEYS]
+        org.save(update_fields=["slack_webhook_url", "slack_events", "slack_last_error", "slack_last_ok_at"])
+        messages.success(request, "Slack settings saved." + (" Send a test message to check it." if url else ""))
+        return redirect("slack_settings")
+
+    chosen = slack.chosen_events(org)
+    return render(request, "core/slack_settings.html", {
+        "org": org,
+        "is_admin": is_admin,
+        "current_tab": "slack",
+        "connected": bool(org.slack_webhook_url),
+        "masked_url": slack.masked(org.slack_webhook_url),
+        "events": [{"key": k, "label": label, "on": k in chosen} for k, label, _ in slack.EVENTS],
+    })

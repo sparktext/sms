@@ -643,6 +643,9 @@
         </div>
         {% endblock %}
 
+        <!-- Hot leads: "call me now" leads nobody has called yet (stays until someone clicks Call) -->
+        <div id="hot-lead-banner" class="hidden" role="alert" aria-live="assertive"></div>
+
         <!-- Global Flash Messages / Toasts -->
         {% if messages and not conversation %}
         <div id="flash-messages-container" class="space-y-2 mb-4">
@@ -987,6 +990,7 @@
         { title: "Compliance Ledger", subtitle: "TCPA/CTIA opt-in & opt-out logs", url: "{% url 'compliance:dashboard' %}", badge: "Page" },
         { title: "Phone Numbers & Routing", subtitle: "Manage 10DLC & sending lines", url: "{% url 'messaging:phone_numbers_settings' %}", badge: "Settings" },
         { title: "Team & Lead Routing", subtitle: "Staff roster, roles, live workload & lead distribution", url: "{% url 'team_members' %}", badge: "Settings" },
+        { title: "Slack", subtitle: "Post hot leads, calls to claim and hand-offs to your Slack channel", url: "{% url 'slack_settings' %}", badge: "Settings" },
         { title: "Notification Sounds", subtitle: "Select notification chime & custom audio", url: "{% url 'notification_sound_settings' %}", badge: "Settings" },
       ];
       let quickJumpSeq = 0;
@@ -1206,6 +1210,158 @@
       class="fixed bottom-5 right-5 z-[100] flex flex-col gap-2.5 max-w-sm w-full pointer-events-none"
       aria-live="polite"
     ></div>
+    <div id="hot-lead-cards" class="fixed top-4 right-4 z-[110] flex flex-col gap-3 w-[min(24rem,calc(100vw-2rem))] pointer-events-none"></div>
+    <style>
+      @keyframes hotRing { 0%,100% { transform: rotate(0) } 20% { transform: rotate(-14deg) } 40% { transform: rotate(12deg) } 60% { transform: rotate(-8deg) } 80% { transform: rotate(6deg) } }
+      .hot-ringing .hot-bell { display: inline-block; animation: hotRing .9s ease-in-out infinite; }
+      .hot-ringing { box-shadow: 0 0 0 3px rgba(244,63,94,.35), 0 20px 25px -5px rgba(15,23,42,.18); }
+    </style>
+    <script>
+      // "Call me now" hot leads: ring until this person clicks Call or Ignore; a red banner for the whole team
+      // until someone clicks Call. Every open tab checks every 10 s, and at once when the server says so.
+      (function () {
+        const HOT_URL = "{% url 'scheduling:hot_leads' %}";
+        const RING_EVERY_MS = 4000;          // a chime every few seconds...
+        const RING_FOR_MS = 120000;          // ...for 2 minutes per lead, then a quiet pulse (the banner stays)
+        let leads = [], serverOffset = 0, busy = {}, lastJson = "";
+        const banner = document.getElementById("hot-lead-banner");
+        const cards = document.getElementById("hot-lead-cards");
+        if (!banner || !cards) return;
+
+        const csrf = () => ((document.cookie.match(/(^|;)\s*csrftoken=([^;]+)/) || [])[2] || "");
+        // Each "call me now" rings for 2 minutes from when THIS ask first showed (a lead asking again later, on the
+        // same calendar entry, rings again). Shared by every open tab.
+        function firstSeen(l) {
+          const id = l.id + ":" + l.asked_at_ms + (l.escalated ? ":escalated" : "");
+          const key = "sparktext:hot:" + id;
+          try {
+            const v = parseInt(localStorage.getItem(key) || "0", 10);
+            if (v) return v;
+            localStorage.setItem(key, String(Date.now()));
+          } catch (e) {}
+          firstSeen.mem = firstSeen.mem || {};
+          return (firstSeen.mem[id] = firstSeen.mem[id] || Date.now());
+        }
+        const ringing = (l) => l.ring && Date.now() - firstSeen(l) < RING_FOR_MS;
+        const waited = (l) => {
+          const secs = Math.max(0, Math.floor((Date.now() + serverOffset - l.asked_at_ms) / 1000));
+          return Math.floor(secs / 60) + ":" + String(secs % 60).padStart(2, "0");
+        };
+        const clock = (l, before) => { const n = el("span", "", before + waited(l)); n.dataset.hotClock = l.id; n.dataset.before = before; return n; };
+        const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text) n.textContent = text; return n; };
+
+        async function post(url) {
+          const res = await fetch(url, { method: "POST", headers: { "X-CSRFToken": csrf(), "X-Requested-With": "XMLHttpRequest" } });
+          let data = {};
+          try { data = await res.json(); } catch (e) {}
+          if (!res.ok || data.status !== "success") throw new Error(data.message || "Something went wrong. Please try again.");
+          return data;
+        }
+        async function callLead(l, btn) {
+          if (busy[l.id]) return;
+          busy[l.id] = true;
+          if (btn) btn.disabled = true;
+          try {
+            const data = await post("/calls/hot/" + l.id + "/answer/");
+            leads = leads.filter((x) => x.id !== l.id);
+            render();
+            if (data.phone) { const a = document.createElement("a"); a.href = "tel:" + data.phone; a.click(); }
+            if (data.chat_url) setTimeout(() => { window.location.href = data.chat_url; }, 400);
+          } catch (err) {
+            if (window.showGlobalToast) window.showGlobalToast({ type: "needs_human", title: "Couldn't take the call", body: err.message });
+            refresh();
+          } finally { busy[l.id] = false; if (btn) btn.disabled = false; }
+        }
+        async function ignoreLead(l) {
+          try { await post("/calls/hot/" + l.id + "/ignore/"); } catch (e) {}
+          l.ring = false;
+          render();
+          refresh();
+        }
+
+        function render() {
+          // banner: every hot lead nobody has called yet
+          banner.textContent = "";
+          banner.className = leads.length ? "mb-4 rounded-2xl border border-rose-300 bg-gradient-to-r from-rose-50 to-orange-50 shadow-sm divide-y divide-rose-200" : "hidden";
+          leads.forEach((l) => {
+            const row = el("div", "px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4");
+            const text = el("div", "min-w-0 flex-1");
+            text.appendChild(el("p", "text-sm font-bold text-rose-900", "🔥 " + l.name + " wants a call right now"));
+            const sub = el("p", "text-[11px] text-rose-800/90", l.phone ? l.phone + " · " : "");
+            sub.appendChild(clock(l, "waiting "));
+            sub.appendChild(document.createTextNode(l.waiting_for ? " · waiting for " + l.waiting_for : " · nobody has taken it yet"));
+            text.appendChild(sub);
+            row.appendChild(text);
+            const actions = el("div", "flex items-center gap-2 shrink-0");
+            if (l.chat_url) { const a = el("a", "px-2.5 py-1.5 text-xs font-semibold border border-rose-300 bg-white rounded-lg text-rose-900 hover:bg-rose-50", "Open chat"); a.href = l.chat_url; actions.appendChild(a); }
+            if (l.can_call) { const b = el("button", "px-3 py-1.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-lg shadow-sm cursor-pointer disabled:opacity-60", "📞 Call"); b.type = "button"; b.addEventListener("click", () => callLead(l, b)); actions.appendChild(b); }
+            row.appendChild(actions);
+            banner.appendChild(row);
+          });
+          // ringing cards: only on the screens it rings for, until Call or Ignore
+          cards.textContent = "";
+          leads.filter((l) => l.ring).forEach((l) => {
+            const card = el("div", "hot-card pointer-events-auto rounded-2xl border border-rose-300 bg-white p-4 " + (ringing(l) ? "hot-ringing" : ""));
+            card.dataset.id = l.id;
+            const head = el("p", "text-sm font-extrabold text-rose-700");
+            head.append(el("span", "hot-bell", "📞"), document.createTextNode(
+              l.escalated ? " Still waiting: nobody has called" : " Hot lead: call now"));
+            card.appendChild(head);
+            card.appendChild(el("p", "mt-1 text-base font-bold text-gray-900", l.name));
+            const asked = el("p", "text-xs text-gray-600", l.phone ? l.phone + " · " : "");
+            asked.appendChild(clock(l, "asked "));
+            asked.appendChild(document.createTextNode(" ago"));
+            card.appendChild(asked);
+            const actions = el("div", "mt-3 flex items-center gap-2");
+            const callBtn = el("button", "flex-1 px-3 py-2 text-sm font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-sm cursor-pointer disabled:opacity-60", "📞 Call");
+            callBtn.type = "button";
+            callBtn.addEventListener("click", () => callLead(l, callBtn));
+            const ignoreBtn = el("button", "px-3 py-2 text-sm font-semibold text-gray-600 border border-gray-200 hover:bg-gray-50 rounded-xl cursor-pointer", "Ignore");
+            ignoreBtn.type = "button";
+            ignoreBtn.addEventListener("click", () => ignoreLead(l));
+            actions.append(callBtn, ignoreBtn);
+            card.appendChild(actions);
+            cards.appendChild(card);
+          });
+        }
+
+        async function refresh() {
+          try {
+            const res = await fetch(HOT_URL, { headers: { "X-Requested-With": "XMLHttpRequest", "X-Background-Poll": "1" } });
+            if (!res.ok) return;
+            const data = await res.json();
+            if (data.server_now_ms) serverOffset = data.server_now_ms - Date.now();
+            leads = data.leads || [];
+            const json = JSON.stringify(leads.map((l) => [l.id, l.asked_at_ms, l.ring, l.can_call, l.waiting_for, l.escalated]));
+            if (json !== lastJson) { lastJson = json; render(); }        // re-draw only when something changed
+          } catch (e) {}
+        }
+        window.refreshHotLeads = refresh;
+
+        // The clocks tick every second
+        setInterval(() => {
+          document.querySelectorAll("[data-hot-clock]").forEach((n) => {
+            const l = leads.find((x) => String(x.id) === n.dataset.hotClock);
+            if (l) n.textContent = n.dataset.before + waited(l);
+          });
+        }, 1000);
+
+        // The chime: every few seconds while a lead rings for this person, from ONE tab only (not a chorus)
+        setInterval(() => {
+          const ringingNow = leads.filter(ringing);
+          cards.querySelectorAll(".hot-card").forEach((c) => c.classList.toggle("hot-ringing", ringingNow.some((l) => String(l.id) === c.dataset.id)));
+          if (!ringingNow.length || typeof window.playGlobalNotificationChime !== "function") return;
+          try {
+            const last = parseInt(localStorage.getItem("sparktext:hot:lastChime") || "0", 10);
+            if (Date.now() - last < RING_EVERY_MS - 800) return;             // another tab just rang
+            localStorage.setItem("sparktext:hot:lastChime", String(Date.now()));
+          } catch (e) {}
+          window.playGlobalNotificationChime();
+        }, RING_EVERY_MS);
+        setInterval(refresh, 5000);                       // also works when the live connection is down
+        refresh();
+      })();
+    </script>
 
     {% if request.user.is_authenticated and request.user.organization %}
     {% include "scheduling/partials/schedule_call.html" %}
@@ -1507,7 +1663,7 @@
             const iconBg = isCall
               ? "bg-indigo-100 text-indigo-700 border-indigo-200"
               : (isLead ? "bg-emerald-100 text-emerald-800 border-emerald-200" : "bg-amber-100 text-amber-700 border-amber-200");
-            const icon = isCall ? (["booked", "moved", "cancelled"].includes(item.stage) ? "📅" : "📞") : (isLead ? "🎯" : "⚠️");
+            const icon = isCall ? (["booked", "moved", "cancelled", "pool", "assigned", "escalated"].includes(item.stage) ? "📅" : "📞") : (isLead ? "🎯" : "⚠️");
             const unreadDot = !item.read ? '<span class="w-2 h-2 rounded-full bg-amber-500 shrink-0"></span>' : '';
             const bgClass = !item.read ? 'bg-amber-50/40 hover:bg-amber-50/70' : 'bg-white hover:bg-gray-50';
             const timeAgo = formatNotifTimeAgo(item.timestamp);
@@ -1962,7 +2118,7 @@
             cardStyle = callNow
               ? "bg-gradient-to-r from-indigo-50/98 to-violet-50/98 border-indigo-300 text-indigo-950 ring-2 ring-indigo-400/40"
               : "bg-white/98 border-indigo-200 text-indigo-950";
-            icon = ["booked", "moved", "cancelled"].includes(toastData.stage) ? "📅" : "📞";
+            icon = ["booked", "moved", "cancelled", "pool", "assigned", "escalated"].includes(toastData.stage) ? "📅" : "📞";
             badgeClass = "bg-indigo-100 text-indigo-700 border-indigo-200";
             actionText = toastData.conversation_id ? "Open chat →" : "Open →";
             actionBtnClass = "px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] shadow-2xs";
@@ -2077,6 +2233,12 @@
                   if (activeLabel && data.notification_sound_display) {
                     activeLabel.textContent = data.notification_sound_display;
                   }
+                  return;
+                }
+
+                // "Call me now" hot leads changed (new one, someone took it, ignored...): re-check at once
+                if (data.event === "urgent_refresh") {
+                  if (typeof window.refreshHotLeads === "function") window.refreshHotLeads();
                   return;
                 }
 

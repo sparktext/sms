@@ -8,11 +8,27 @@ from django.utils import timezone
 logger = logging.getLogger(__name__)
 
 
-def format_chat_timestamp(dt=None) -> str:
+def _local(dt, org=None):
+    """In the agency's time zone when `org` is given (times pushed live to everyone in the workspace), otherwise
+    in the time zone of whoever is viewing (set per request by core.middleware.TimezoneMiddleware)."""
+    if org is not None:
+        from zoneinfo import ZoneInfo
+
+        from core.timezones import org_timezone
+        return dt.astimezone(ZoneInfo(org_timezone(org)))
+    return timezone.localtime(dt)
+
+
+def format_chat_timestamp(dt=None, org=None) -> str:
     """Format a message timestamp consistently with date and time (e.g. 'Nov 06, 05:18 PM')."""
     if not dt:
         dt = timezone.now()
-    return timezone.localtime(dt).strftime("%b %d, %I:%M %p")
+    return _local(dt, org).strftime("%b %d, %I:%M %p")
+
+
+def format_clock(dt, org=None) -> str:
+    """e.g. '05:18 PM' (same zone rules as format_chat_timestamp)."""
+    return _local(dt, org).strftime("%I:%M %p")
 
 
 def get_org_status_counts(org_or_id) -> dict:

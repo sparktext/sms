@@ -11,6 +11,7 @@ from contacts.models import Contact
 from core.models import Organization
 from messaging.models import Conversation, Message
 from messaging.services import send_message
+from messaging.utils import format_chat_timestamp
 
 from .models import Campaign, CampaignRecipient
 
@@ -415,7 +416,7 @@ def process_campaign_batch(campaign: Campaign, limit: int = 50) -> int:
             "id": recip.id,
             "status": recip.status,
             "status_display": recip.get_status_display(),
-            "sent_at": recip.sent_at.strftime("%b %d, %I:%M %p") if recip.sent_at else "",
+            "sent_at": format_chat_timestamp(recip.sent_at, org=campaign.organization) if recip.sent_at else "",
             "conversation_id": recip.message.conversation_id if recip.message else (conversation.id if conversation else None),
             "error_message": recip.error_message,
             "skip_reason": recip.skip_reason,
