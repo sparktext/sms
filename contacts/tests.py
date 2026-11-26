@@ -1162,10 +1162,13 @@ class ContactsViewAndTemplateTests(TestCase):
         # Consent lives behind the status badge by the name (no separate Consent Status box)
         self.assertNotIn("Consent Status", html[main_idx:])
         self.assertIn('onclick="openAuditHistoryModal()" title="View consent history"', html[main_idx:])
-        # Sticky right column: Conversation Summary on top, then the conversation + reply box
-        self.assertLess(html.index("Lead summary", main_idx), html.index("contact-conversation-card", main_idx))
-        self.assertIn("lg:col-start-2 lg:row-start-1 lg:sticky", html[main_idx:])
-        self.assertLess(html.index('id="contact-summary-card"'), html.index('id="contact-conversation-card"'))
+        # Left column: Lead summary on top, then Contact details; the sticky right column is only the conversation
+        self.assertLess(html.index("Lead summary", main_idx), html.index("Contact details", main_idx))
+        self.assertLess(html.index("Contact details", main_idx), html.index("contact-conversation-card", main_idx))
+        self.assertIn("2xl:col-start-2 2xl:row-start-1 2xl:sticky", html[main_idx:])
+        right_col = html.index("2xl:col-start-2 2xl:row-start-1 2xl:sticky", main_idx)
+        self.assertLess(html.index('id="contact-summary-card"'), right_col)
+        self.assertGreater(html.index('id="contact-conversation-card"'), right_col)
         self.assertIn("overflow-x-clip", html[main_idx - 300:main_idx + 300])
         # Non-standard custom stage is preserved in the dropdown
         self.assertRegex(html, r'<option[^>]*value="Intake"[^>]*selected')
@@ -1781,3 +1784,70 @@ class ListMemberSearchRuleTests(TestCase):
         self.assertEqual(self.names("+1 (530) 684-1631"), ["spark"])
         self.assertEqual(self.names("555011"), ["Arjun", "Maria"])
         self.assertEqual(self.names("arjun@"), ["Arjun"])
+
+
+class AssignRepBeforeFirstTextTests(TestCase):
+    """Assigned rep on the contact page works for a lead nobody has texted yet (no conversation)."""
+
+    def setUp(self):
+        from core.models import User
+        from messaging.models import PhoneNumber
+        self.org = Organization.objects.create(name="Rep Org", slug="rep-org")
+        self.owner = User.objects.create_user(email="owner@rep.test", password="pw-123456789", organization=self.org,
+                                              role=User.Role.OWNER)
+        self.agent = User.objects.create_user(email="bea@rep.test", password="pw-123456789", organization=self.org,
+                                              role=User.Role.AGENT, first_name="Bea")
+        PhoneNumber.objects.create(organization=self.org, e164="+14155550700", is_active=True)
+        self.main = PhoneNumber.objects.create(organization=self.org, e164="+14155550701", is_active=True, is_default=True)
+        self.lead = Contact.objects.create(organization=self.org, phone="+14155550702", first_name="Dan")
+        self.client.force_login(self.owner)
+
+    def test_the_dropdown_shows_and_picking_a_rep_starts_the_conversation_on_the_main_number(self):
+        html = self.client.get(f"/contacts/{self.lead.id}/").content.decode()
+        self.assertIn('id="contact-assign-select"', html)
+        self.assertIn(f"/contacts/{self.lead.id}/assign/", html)
+
+        r = self.client.post(f"/contacts/{self.lead.id}/assign/", {"assigned_to_id": self.agent.id},
+                             HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+        self.assertEqual((r.status_code, r.json()["status"], r.json()["assigned_to"]), (200, "success", "Bea"))
+        [conv] = self.lead.conversations.all()
+        self.assertEqual((conv.phone_number, conv.assigned_to, conv.messages.count()), (self.main, self.agent, 0))
+
+        # again (and unassigning) reuses that conversation; the page then shows the rep picked
+        self.client.post(f"/contacts/{self.lead.id}/assign/", {"assigned_to_id": ""}, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+        self.client.post(f"/contacts/{self.lead.id}/assign/", {"assigned_to_id": self.agent.id},
+                         HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+        self.assertEqual(self.lead.conversations.count(), 1)
+        self.assertRegex(self.client.get(f"/contacts/{self.lead.id}/").content.decode(),
+                         rf'<option value="{self.agent.id}"\s+selected>')
+
+    def test_no_phone_number_and_other_workspaces(self):
+        from core.models import User
+        from messaging.models import PhoneNumber
+        PhoneNumber.objects.filter(organization=self.org).update(is_active=False)
+        r = self.client.post(f"/contacts/{self.lead.id}/assign/", {"assigned_to_id": self.agent.id})
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("phone number", r.json()["message"])
+        self.assertFalse(self.lead.conversations.exists())
+
+        other = Organization.objects.create(name="Other Org", slug="other-org")
+        outsider = User.objects.create_user(email="x@other.test", password="pw-123456789", organization=other,
+                                            role=User.Role.OWNER)
+        self.client.force_login(outsider)
+        self.assertEqual(self.client.post(f"/contacts/{self.lead.id}/assign/", {"assigned_to_id": ""}).status_code, 404)
+
+    def test_the_contact_form_has_the_sticky_save_bar(self):
+        html = self.client.get(f"/contacts/{self.lead.id}/").content.decode()
+        form = html[html.index('id="editContactForm"'):html.index("</form>", html.index('id="editContactForm"'))]
+        for part in ('id="contactSaveBar"', 'id="contactUnsaved"', 'id="contactDiscard"', ">\n            Save Changes"):
+            self.assertIn(part, form)
+        self.assertIn("beforeunload", html)   # leaving with unsaved edits asks first
+
+    def test_laptops_and_phones_get_the_conversation_as_a_slide_in_panel(self):
+        html = self.client.get(f"/contacts/{self.lead.id}/").content.decode()
+        self.assertIn('id="contact-chat-open"', html)                     # the "Conversation" button (hidden on 2xl)
+        drawer = html[html.index('id="contact-chat-drawer"'):html.index('id="contact-conversation-card"')]
+        self.assertIn("fixed inset-y-0 right-0", drawer)                  # a panel below 1536px...
+        self.assertIn("2xl:sticky", drawer)                               # ...the pinned column on big monitors
+        self.assertIn('aria-label="Close conversation"', html)
+        self.assertIn("window.toggleContactChat", html)

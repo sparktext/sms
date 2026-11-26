@@ -6,7 +6,7 @@
 <span class="text-gray-300">/</span>
 <span class="font-semibold text-gray-800 truncate">Team Members &amp; Lead Routing</span>
 {% endblock %}
-{% block page_header_class %}max-w-5xl w-full mx-auto{% endblock %}
+{% block page_header_class %}max-w-5xl 2xl:max-w-none w-full mx-auto{% endblock %}
 {% block header_title %}Settings{% endblock %}
 {% block header_subtitle %}Manage team member access, roles, availability, and automated lead distribution{% endblock %}
 
@@ -15,9 +15,9 @@
 <button
   type="button"
   onclick="openInviteModal()"
-  class="inline-flex items-center gap-2 px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs cursor-pointer"
+  class="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs cursor-pointer"
 >
-  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
   </svg>
   <span>Invite Team Member</span>
@@ -26,10 +26,10 @@
 {% endblock %}
 
 {% block content %}
-<div class="max-w-5xl mx-auto space-y-6 pb-12">
+<div class="max-w-5xl 2xl:max-w-none mx-auto space-y-6 pb-12">
 
   <!-- Settings Sub-navigation Tabs -->
-  <div class="flex items-center gap-2 border-b border-gray-200 pb-3 overflow-x-auto">
+  <div class="flex flex-wrap items-center gap-2 border-b border-gray-200 pb-3">
     <a
       href="{% url 'company_profile' %}"
       class="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition whitespace-nowrap shrink-0"
@@ -87,7 +87,7 @@
   <!-- ============================================================ -->
   <!-- SECTION 1: LEAD DISTRIBUTION STRATEGY & GUARDRAILS           -->
   <!-- ============================================================ -->
-  <form method="post" action="{% url 'lead_routing_settings' %}" id="routingSettingsForm" class="space-y-5">
+  <form method="post" action="{% url 'lead_routing_settings' %}" id="routingSettingsForm" class="space-y-5 2xl:space-y-0 2xl:grid 2xl:grid-cols-2 2xl:gap-6 2xl:items-start">
     {% csrf_token %}
 
     <!-- Strategy Selection Card -->
@@ -265,7 +265,7 @@
     </div>
 
     <div class="overflow-x-auto">
-      <table class="w-full text-left border-collapse text-xs">
+      <table class="rtable w-full text-left border-collapse text-xs">
         <thead>
           <tr class="bg-gray-50/70 border-b border-gray-200 text-gray-500 uppercase tracking-wider text-[10px]">
             <th class="py-3 px-5 font-semibold">Member</th>
@@ -401,7 +401,7 @@
     </div>
 
     <div class="overflow-x-auto">
-      <table class="w-full text-left border-collapse text-xs">
+      <table class="rtable w-full text-left border-collapse text-xs">
         <thead>
           <tr class="bg-gray-50/70 border-b border-gray-200 text-gray-500 uppercase tracking-wider text-[10px]">
             <th class="py-3 px-5 font-semibold">Invited Email</th>

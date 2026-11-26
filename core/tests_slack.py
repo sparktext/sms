@@ -128,7 +128,8 @@ class SlackAlertsTests(TeamCallTestCase):
         self.say(conv, "call me now please", "Sure!")
         event = CalendarEvent.objects.get(conversation=conv)
         send_due_reminders(now=event.start_at + timedelta(minutes=10))
-        self.assertTrue(any(t.startswith("🔥 Still waiting: Maria Lopez") for t in self.titles()))
+        self.assertTrue(any(t == "🔥 Still waiting: nobody has reached Maria Lopez 10 minutes after they asked"
+                            for t in self.titles()), self.titles())
 
     def test_a_call_to_claim_posts_and_a_booked_call_too_when_chosen(self, _):
         self.book_tomorrow_10(self.conv("CA"))

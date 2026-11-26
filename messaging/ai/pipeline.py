@@ -482,15 +482,19 @@ def _wants_call_now(text: str) -> bool:
     return bool(_CALL_NOW_RE.search(text)) and not _NOT_NOW_RE.search(text)
 
 
-def _call_now_plan(conversation, org, lead_tz: str, text: str):
-    """They want a call right now: ring the team now, or (nobody can call now) suggest the next opening."""
+def _call_now_plan(conversation, org, lead_tz: str, text: str, message_id=None):
+    """They want a call right now: ring the team now, or (nobody can call now) suggest the next opening. Asking
+    again while a hot-lead call is open rings again (even after someone clicked Call: they weren't reached)."""
     from scheduling import calls
     now = timezone.now()
     existing = calls.upcoming_call(conversation=conversation)
-    plan = {"lead_tz": lead_tz, "words": text[:200], "existing": existing}
+    plan = {"lead_tz": lead_tz, "words": text[:200], "existing": existing, "message_id": message_id}
     if existing is not None and existing.urgent and existing.start_at >= now - calls.URGENT_ESCALATE:
-        # Already ringing (it started the moment their text arrived), or someone already took it: leave it be
-        return {**plan, "action": "book", "moment": existing.start_at, "how": "now", "urgent": True, "already": True}
+        # Already open: this text started it (the webhook rang the moment it arrived), or it's a repeat ask
+        new_text = message_id is not None and message_id != existing.last_ask_message_id
+        repeat = new_text or (message_id is not None and existing.asks >= 2)
+        return {**plan, "action": "book", "moment": existing.start_at, "how": "now", "urgent": True,
+                "already": True, "repeat": repeat, "register": new_text}
     ok, why = calls.can_call_now(org, lead_tz, now)
     if ok:
         return {**plan, "action": "book", "moment": now.replace(microsecond=0), "how": "now", "urgent": True}
@@ -532,10 +536,12 @@ def start_hot_lead(conversation, message):
         return None
     org = conversation.organization
     lead_tz = calls.lead_timezone(conversation.contact, org)
-    plan = _call_now_plan(conversation, org, lead_tz, (message.body or "").strip())
+    plan = _call_now_plan(conversation, org, lead_tz, (message.body or "").strip(), message.id)
     if plan.get("action") != "book":
         return None
     if plan.get("already"):
+        if plan.get("register"):
+            calls.register_repeat_ask(plan["existing"], message.id)
         return plan.get("existing")
     if not conversation.assigned_to_id and not plan.get("existing") and not calls.pool_enabled(org):
         try:
@@ -889,7 +895,7 @@ def _plan_call(client, conversation, trigger_message, parsed_data):
     if not _call_time_wanted(conversation, trigger_message, parsed_data, pending):
         return None
     if _wants_call_now(text):
-        return _call_now_plan(conversation, org, lead_tz, text)      # no time to read: they mean now
+        return _call_now_plan(conversation, org, lead_tz, text, trigger_message.id)   # no time to read: now
     if pending is not None and _AFFIRM_RE.match(text) and not (
             re.search(r"\d", text) or _DAY_CUE_RE.search(text) or _AM_PM_CUE_RE.search(text)):
         # A plain "yes" to the time we suggested: book exactly that (no need for the model to read anything)
@@ -1188,7 +1194,9 @@ def _apply_call_plan(conversation, plan):
     if plan["action"] != "book":
         return None
     if plan.get("already"):
-        return plan.get("existing")                    # a hot lead that's already ringing / taken: no changes
+        if plan.get("register"):                       # asked again (and the webhook didn't count it yet)
+            calls.register_repeat_ask(plan["existing"], plan.get("message_id"))
+        return plan.get("existing")
 
     contact, org = conversation.contact, conversation.organization
     moment, how, lead_tz, words = plan["moment"], plan["how"], plan["lead_tz"], plan["words"]
@@ -1228,7 +1236,8 @@ def _apply_call_plan(conversation, plan):
         now = timezone.now()
         CalendarEvent.objects.filter(pk=event.pk).update(
             urgent=True, answered_at=None, ignored_by=[], escalated_at=None, pooled_at=now if event.user_id is None
-            else event.pooled_at, reminder_sent_at=now, start_alert_sent_at=now)
+            else event.pooled_at, reminder_sent_at=now, start_alert_sent_at=now,
+            asks=1, last_asked_at=now, last_ask_message_id=plan.get("message_id"))
         event.refresh_from_db()
         conversation.handoff_reason = "🔥 Wants a call right now"
         conversation.save(update_fields=["handoff_reason"])
@@ -1821,7 +1830,14 @@ def process_ai_job(job: AIJob) -> AIReply | None:
             # The reply must confirm the booked day and time, not ask about it again. "Call me now" booked a few
             # minutes out may just say "shortly", but a next open slot hours away (TODAY at night -> 9 AM) must be said.
             calling_soon = call_plan["how"] == "asap" and call_plan["moment"] <= timezone.now() + timedelta(minutes=45)
-            if call_plan["how"] == "now":
+            if call_plan["how"] == "now" and call_plan.get("repeat"):
+                existing_call = call_plan.get("existing")
+                reply_body = ("Sorry for the wait! Our agent is trying to reach you now. Please keep your phone close."
+                              if existing_call is not None and existing_call.user_id else
+                              "Sorry for the wait! We've alerted our team again, and someone will call you as soon "
+                              "as possible.")
+                parsed_data["final_reply"] = reply_body
+            elif call_plan["how"] == "now":
                 if not _says_calling_soon(reply_body):
                     reply_body = "Great! An agent will call you in the next few minutes."
                     parsed_data["final_reply"] = reply_body

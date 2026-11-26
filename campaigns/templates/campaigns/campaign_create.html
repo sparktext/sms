@@ -6,7 +6,8 @@
 <span class="text-gray-300">/</span>
 <span class="font-semibold text-gray-800 truncate">{% if is_edit %}{{ campaign.name }}{% else %}New Campaign{% endif %}</span>
 {% endblock %}
-{% block page_header_class %}max-w-4xl{% endblock %}
+{% block page_header_class %}max-w-4xl 2xl:max-w-none{% endblock %}
+{% block main_overflow %}overflow-x-clip{% endblock %}
 
 {% block header_back %}
 <a
@@ -43,7 +44,9 @@
 {% endblock %}
 
 {% block content %}
-<form id="campaign-form" method="post" action="{% if is_edit %}{% url 'campaigns:edit' campaign.id %}{% else %}{% url 'campaigns:create' %}{% endif %}" class="max-w-4xl space-y-6">
+<!-- Big monitors: the form on the left, a pinned summary with a phone preview and the send buttons on the right -->
+<div class="2xl:grid 2xl:grid-cols-[minmax(0,1fr)_24rem] 2xl:gap-8 2xl:items-start">
+<form id="campaign-form" method="post" action="{% if is_edit %}{% url 'campaigns:edit' campaign.id %}{% else %}{% url 'campaigns:create' %}{% endif %}" class="max-w-4xl 2xl:max-w-none space-y-6">
   {% csrf_token %}
 
   <!-- CARD 1: Basic Campaign Info -->
@@ -115,7 +118,7 @@
       </label>
       
       {% if contact_lists %}
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 max-h-48 overflow-y-auto p-1 border border-gray-100 rounded-xl bg-gray-50/50">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-2.5 max-h-48 overflow-y-auto p-1 border border-gray-100 rounded-xl bg-gray-50/50">
         {% for lst in contact_lists %}
         <label class="list-checkbox-card flex items-center gap-2.5 p-2.5 rounded-xl border border-gray-200 bg-white hover:border-brand-300 hover:bg-brand-50/30 cursor-pointer transition">
           <input
@@ -275,8 +278,8 @@
       </div>
     </div>
 
-    <!-- Live Preview Card -->
-    <div class="p-3.5 rounded-xl bg-gray-50 border border-gray-200 space-y-1.5">
+    <!-- Live Preview Card (shown in the summary panel instead on big monitors) -->
+    <div class="p-3.5 rounded-xl bg-gray-50 border border-gray-200 space-y-1.5 2xl:hidden">
       <div class="text-[10px] font-bold uppercase tracking-wider text-gray-400 flex items-center justify-between">
         <span>Sample Recipient Preview (e.g. John Miller)</span>
         <span>📱 Mobile SMS</span>
@@ -496,6 +499,69 @@
   </div>
 
 </form>
+
+<aside id="campaign-summary" class="hidden 2xl:block 2xl:sticky 2xl:top-[84px]" aria-label="Campaign summary">
+  <div class="bg-white rounded-2xl border border-gray-200 shadow-2xs overflow-hidden">
+    <div class="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between gap-3">
+      <h3 class="text-sm font-bold text-gray-900">Summary</h3>
+      <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-600 border border-gray-200">{% if is_edit %}{{ campaign.get_status_display }}{% else %}New campaign{% endif %}</span>
+    </div>
+
+    <!-- What a lead sees -->
+    <div class="px-5 py-5 bg-slate-50/70 border-b border-gray-100">
+      <div class="mx-auto max-w-[16.5rem] rounded-[1.9rem] border-[7px] border-slate-900 bg-white shadow-lg overflow-hidden">
+        <div class="px-4 pt-3 pb-2.5 border-b border-gray-100 bg-gray-50/80 text-center">
+          <div class="w-9 h-9 mx-auto rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-xs font-bold">
+            {{ request.user.organization.name|default:"S"|slice:":1"|upper }}
+          </div>
+          <div id="sum-from" class="mt-1 text-[11px] font-semibold text-gray-700 font-mono truncate">&nbsp;</div>
+        </div>
+        <div class="px-3 py-4 min-h-[9rem] max-h-[20rem] overflow-y-auto">
+          <div id="sum-preview" class="max-w-[88%] rounded-2xl rounded-bl-md bg-gray-100 px-3 py-2 text-[12px] leading-relaxed text-gray-400 italic whitespace-pre-wrap break-words">Start typing your message to see it here.</div>
+          <div class="mt-1 ml-1 text-[10px] text-gray-400">Text message · sample lead John Miller</div>
+        </div>
+      </div>
+      <p id="sum-metrics" class="mt-3 text-center text-[11px] text-gray-500 font-mono">&nbsp;</p>
+    </div>
+
+    <dl class="px-5 py-4 space-y-2.5 text-xs">
+      <div class="flex items-start justify-between gap-4">
+        <dt class="text-gray-500 shrink-0">Campaign</dt>
+        <dd id="sum-name" class="font-semibold text-gray-900 text-right min-w-0 break-words">Untitled campaign</dd>
+      </div>
+      <div class="flex items-start justify-between gap-4">
+        <dt class="text-gray-500 shrink-0">Audience</dt>
+        <dd class="text-right min-w-0">
+          <span id="sum-audience" class="font-semibold text-gray-900">Calculating…</span>
+          <span id="sum-lists" class="block text-[11px] text-gray-400"></span>
+        </dd>
+      </div>
+      <div class="flex items-start justify-between gap-4">
+        <dt class="text-gray-500 shrink-0">Sends</dt>
+        <dd id="sum-when" class="font-semibold text-gray-900 text-right">Immediately</dd>
+      </div>
+      <div class="flex items-start justify-between gap-4">
+        <dt class="text-gray-500 shrink-0">AI replies</dt>
+        <dd id="sum-ai" class="font-semibold text-gray-900 text-right">Default playbook</dd>
+      </div>
+    </dl>
+
+    <div class="px-5 pb-5 flex flex-col gap-2">
+      <button type="submit" form="campaign-form" id="sum-launch-btn"
+              class="w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs cursor-pointer">
+        <span>{% if is_edit %}{% if campaign.status == 'scheduled' %}Save & Schedule{% else %}Save & Launch{% endif %}{% else %}Launch Campaign{% endif %}</span>
+        <span>→</span>
+      </button>
+      <button type="submit" form="campaign-form" name="save_draft" value="1" formnovalidate
+              class="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-semibold text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 rounded-xl transition shadow-2xs cursor-pointer"
+              title="Save campaign progress as a draft without broadcasting">
+        <span>💾</span>
+        <span>Save as Draft</span>
+      </button>
+    </div>
+  </div>
+</aside>
+</div>
 
 <!-- ================= MODAL: SEND TEST ================= -->
 <div id="testSendModal" class="fixed inset-0 z-50 hidden overflow-y-auto" role="dialog" aria-modal="true">
@@ -848,6 +914,49 @@
     if (isoInput) isoInput.value = "";
   }
 
+  // Summary panel (big monitors): mirrors the form, the audience count and the message preview
+  const AI_MODE_LABELS = { default: "Default playbook", custom: "Custom playbook", off: "Off · agents reply" };
+  function syncCampaignSummary() {
+    const form = document.getElementById("campaign-form");
+    const get = id => document.getElementById(id);
+    if (!form || !get("campaign-summary")) return;
+    const setText = (id, text) => { const el = get(id); if (el && el.textContent !== text) el.textContent = text; };
+
+    const name = (form.elements["name"]?.value || "").trim();
+    setText("sum-name", name || "Untitled campaign");
+    get("sum-name")?.classList.toggle("text-gray-400", !name);
+
+    const sender = form.elements["phone_number_id"];
+    const option = sender && sender.selectedOptions ? sender.selectedOptions[0] : null;
+    setText("sum-from", option ? option.textContent.replace(/\s*★.*$/, "").trim() : "No sending number");
+
+    const preview = get("preview-text"), bubble = get("sum-preview");
+    if (preview && bubble) {
+      const empty = preview.classList.contains("italic");
+      setText("sum-preview", empty ? "Start typing your message to see it here." : preview.textContent);
+      bubble.classList.toggle("italic", empty);
+      bubble.classList.toggle("text-gray-400", empty);
+      bubble.classList.toggle("text-gray-900", !empty);
+    }
+    setText("sum-metrics", get("char-counter")?.textContent || "");
+    setText("sum-audience", get("counter-summary")?.textContent || "");
+    const lists = [...form.querySelectorAll("input[name='lists']:checked")]
+      .map(cb => cb.closest("label")?.querySelector(".text-xs")?.textContent.trim()).filter(Boolean);
+    setText("sum-lists", lists.length ? lists.join(", ") : "All eligible contacts (no list picked)");
+
+    let when = "Immediately";
+    if (get("radio-scheduled")?.checked) {
+      const v = get("scheduled-at")?.value;
+      const d = v ? new Date(v) : null;
+      when = d && !isNaN(d) ? d.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "Scheduled · pick a time";
+    }
+    setText("sum-when", when);
+    setText("sum-ai", AI_MODE_LABELS[form.elements["ai_mode"]?.value] || "Default playbook");
+
+    const main = get("submit-campaign-btn"), side = get("sum-launch-btn");
+    if (main && side && side.innerHTML !== main.innerHTML) side.innerHTML = main.innerHTML;
+  }
+
   // Initialize on page load
   document.addEventListener("DOMContentLoaded", function() {
     {% if not is_edit %}
@@ -880,6 +989,16 @@
     }
 
     const form = document.getElementById("campaign-form");
+    if (form && document.getElementById("campaign-summary")) {
+      form.addEventListener("input", syncCampaignSummary);
+      form.addEventListener("change", syncCampaignSummary);
+      const watch = new MutationObserver(syncCampaignSummary);
+      ["counter-summary", "preview-text", "char-counter", "submit-campaign-btn"].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) watch.observe(el, { childList: true, characterData: true, subtree: true, attributes: true });
+      });
+      syncCampaignSummary();
+    }
     let launchConfirmed = false;
     form?.addEventListener("submit", function(e) {
       updateScheduledIso();

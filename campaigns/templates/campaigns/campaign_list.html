@@ -9,9 +9,9 @@
 {% block header_actions %}
 <a
   href="{% url 'campaigns:create' %}"
-  class="inline-flex items-center gap-2 px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs cursor-pointer"
+  class="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs cursor-pointer"
 >
-  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
   </svg>
   <span>Create Campaign</span>
@@ -22,7 +22,7 @@
 <div class="space-y-6">
 
   <!-- Top Section Tabs: Broadcasts vs Templates -->
-  <div class="flex items-center gap-2 border-b border-gray-200 pb-3 overflow-x-auto">
+  <div class="flex flex-wrap items-center gap-2 border-b border-gray-200 pb-3">
     <a
       href="{% url 'campaigns:list' %}"
       class="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-lg text-brand-700 bg-brand-50 border border-brand-200 whitespace-nowrap shrink-0"
@@ -97,7 +97,7 @@
     <div class="p-4 border-b border-gray-100 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-gray-50/50">
       
       <!-- Status Tabs -->
-      <div class="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
+      <div class="flex flex-wrap items-center gap-1 pb-1 sm:pb-0">
         <a
           href="{% url 'campaigns:list' %}{% if q %}?q={{ q }}{% endif %}"
           class="px-3 py-1.5 rounded-xl text-xs font-semibold transition whitespace-nowrap {% if not status_filter %}bg-slate-900 text-white shadow-2xs{% else %}bg-white text-gray-600 hover:text-gray-900 border border-gray-200{% endif %}"
@@ -132,7 +132,7 @@
 
     <!-- Campaigns Table -->
     <div class="overflow-x-auto">
-      <table class="w-full text-left text-xs">
+      <table class="rtable w-full text-left text-xs">
         <thead class="bg-gray-50/70 border-b border-gray-100 text-gray-500 font-semibold uppercase tracking-wider text-[10px]">
           <tr>
             <th class="py-3 px-4">Campaign</th>

@@ -4,6 +4,11 @@ import re
 from django.db.models import Q, Sum
 
 
+def test_mode(request):
+    from core.testmode import time_limits_off
+    return {"time_limits_off": time_limits_off()}
+
+
 def unread_inbox_count(request):
     """
     Supplies total unread conversations count for the current user's organization

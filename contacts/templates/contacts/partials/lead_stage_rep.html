@@ -1,0 +1,37 @@
+{# Lead stage + assigned rep (contact page). Works before the first text too: picking a rep then starts the #}
+{# conversation on the main business number. Context: conv_summary, standard_stages, active_conv, org_members #}
+<div class="grid grid-cols-2 gap-2">
+  <div class="min-w-0">
+    <div class="flex items-center justify-between mb-1">
+      <label for="contact-stage-select" class="text-[11px] font-medium text-gray-500">Stage</label>
+      <span id="contact-stage-saved-pill" class="text-[10px] font-semibold text-emerald-600 hidden">Saved ✓</span>
+    </div>
+    <select id="contact-stage-select" onchange="updateContactLeadStage(this.value)" class="w-full text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-gray-200 bg-gray-50 hover:bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 cursor-pointer transition">
+      <option value="" {% if not conv_summary.stage %}selected{% endif %}>— Select Lead Stage —</option>
+      <option value="New Lead" {% if conv_summary.stage == "New Lead" %}selected{% endif %}>🟢 New Lead</option>
+      <option value="Contacted" {% if conv_summary.stage == "Contacted" %}selected{% endif %}>💬 Contacted</option>
+      <option value="Qualified" {% if conv_summary.stage == "Qualified" %}selected{% endif %}>⭐ Qualified</option>
+      <option value="Not Qualified" {% if conv_summary.stage == "Not Qualified" %}selected{% endif %}>🚫 Not Qualified</option>
+      <option value="Quote Sent" {% if conv_summary.stage == "Quote Sent" %}selected{% endif %}>📄 Quote Sent</option>
+      <option value="Won" {% if conv_summary.stage == "Won" %}selected{% endif %}>🏆 Closed Won</option>
+      <option value="Lost" {% if conv_summary.stage == "Lost" %}selected{% endif %}>❌ Closed Lost</option>
+      {% if conv_summary.stage and conv_summary.stage not in standard_stages %}
+      <option value="{{ conv_summary.stage }}" selected>{{ conv_summary.stage }}</option>
+      {% endif %}
+    </select>
+  </div>
+  <div class="min-w-0">
+    <div class="flex items-center justify-between mb-1">
+      <label for="contact-assign-select" class="text-[11px] font-medium text-gray-500">Assigned rep</label>
+      <span id="contact-assign-saved-pill" class="text-[10px] font-semibold text-emerald-600 hidden">Updated ✓</span>
+    </div>
+    <select id="contact-assign-select" onchange="updateContactAssignedRep(this.value)" class="w-full text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-gray-200 bg-gray-50 hover:bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 cursor-pointer transition">
+      <option value="" {% if not active_conv.assigned_to_id %}selected{% endif %}>Unassigned</option>
+      {% for member in org_members %}
+      <option value="{{ member.id }}" {% if active_conv.assigned_to_id == member.id %}selected{% endif %}>
+        👤 {{ member.first_name|default:member.email }}
+      </option>
+      {% endfor %}
+    </select>
+  </div>
+</div>

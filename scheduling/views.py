@@ -299,6 +299,9 @@ def calendar_page(request):
         "tz": tz,
         "tz_label": timezone_label(tz),
         "tz_short": timezone_short(tz),
+        # the toolbar shows "Los Angeles · PST" on big screens and just "PST" on laptops
+        "tz_city": timezone_short(tz).rpartition(" · ")[0],
+        "tz_code": timezone_short(tz).rpartition(" · ")[2],
         "workspace_tz": org_timezone(org),
         "workspace_tz_label": timezone_label(org_timezone(org)),
         "personal_tz": personal_timezone(request.user),

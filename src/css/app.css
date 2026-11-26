@@ -87,3 +87,195 @@
   }
 }
 
+
+/* Tables that don't fit their box (phones, tablets, narrow columns) turn each row into a labelled card.
+   The rtable script in base_app.html adds .is-stacked only when the table would otherwise overflow,
+   and copies each column heading into data-label. */
+.rtable.is-stacked thead {
+  display: none;
+}
+.rtable.is-stacked,
+.rtable.is-stacked > tbody {
+  display: block;
+  width: 100%;
+}
+.rtable.is-stacked > tbody > tr {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 0.75rem 1rem;
+}
+.rtable.is-stacked > tbody > tr > td:not(.hidden) {
+  display: block;
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  padding: 0.3rem 0;
+  border: 0;
+  text-align: right;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.rtable.is-stacked > tbody > tr > td::after {
+  content: "";
+  display: block;
+  clear: both;
+}
+.rtable.is-stacked > tbody > tr > td[data-label]:not([data-label=""])::before {
+  content: attr(data-label);
+  float: left;
+  max-width: 45%;
+  margin-right: 1rem;
+  padding-top: 0.15rem;
+  text-align: left;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #9ca3af;
+}
+/* the first real column (name, campaign, …) is the card title */
+.rtable.is-stacked > tbody > tr > td.rt-title:not(.hidden) {
+  order: -1;
+  padding-right: 2.25rem;
+  text-align: left;
+}
+.rtable.is-stacked > tbody > tr > td.rt-title::before,
+.rtable.is-stacked > tbody > tr > td.rt-full::before {
+  display: none;
+}
+/* row checkboxes sit in the card's top-right corner */
+.rtable.is-stacked > tbody > tr > td.rt-check:not(.hidden) {
+  position: absolute;
+  top: 0.8rem;
+  right: 1rem;
+  width: auto;
+  padding: 0;
+}
+/* buttons and "empty list" rows use the full width */
+.rtable.is-stacked > tbody > tr > td.rt-actions:not(.hidden) {
+  padding-top: 0.6rem;
+  text-align: left;
+}
+.rtable.is-stacked > tbody > tr > td.rt-actions > * {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+.rtable.is-stacked > tbody > tr > td.rt-full:not(.hidden) {
+  display: block;
+  text-align: center;
+}
+
+/* Side menu: a thin dark scrollbar that only shows while the pointer is over the menu (no wide grey bar),
+   and tighter spacing on short screens (small laptops, zoomed-in browsers) so it rarely needs to scroll. */
+#sidebar .sidebar-top-wrap {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+#sidebar .sidebar-top-wrap:hover,
+#sidebar .sidebar-top-wrap:focus-within {
+  scrollbar-color: rgb(100 116 139 / 0.6) transparent;
+}
+#sidebar .sidebar-top-wrap::-webkit-scrollbar {
+  width: 6px;
+}
+#sidebar .sidebar-top-wrap::-webkit-scrollbar-track {
+  background: transparent;
+}
+#sidebar .sidebar-top-wrap::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  background: transparent;
+}
+#sidebar .sidebar-top-wrap:hover::-webkit-scrollbar-thumb {
+  background: rgb(100 116 139 / 0.6);
+}
+@media (max-height: 760px) {
+  #sidebar .sidebar-top-wrap {
+    gap: 0.875rem;
+    padding-top: 1rem;
+    padding-bottom: 1rem;
+  }
+  #sidebar .sidebar-nav-link {
+    padding-top: 0.45rem;
+    padding-bottom: 0.45rem;
+  }
+  #sidebar .sidebar-org-card {
+    padding-top: 0.45rem;
+    padding-bottom: 0.45rem;
+  }
+  #sidebar .sidebar-footer {
+    padding-top: 0.6rem;
+    padding-bottom: 0.6rem;
+  }
+}
+
+/* Grouped lead details (vehicles, drivers…) that are too narrow for side-by-side columns: one block per item
+   (its name as a heading, then each field and value). Cells are only reordered with `order` (--rt-order is set
+   in lead_group_table.html), so the editable inputs stay in the form exactly as they are. */
+.rtable[data-rt-layout="transpose"].is-stacked {
+  display: flex;
+  flex-direction: column;
+}
+.rtable[data-rt-layout="transpose"].is-stacked > thead,
+.rtable[data-rt-layout="transpose"].is-stacked > thead > tr,
+.rtable[data-rt-layout="transpose"].is-stacked > tbody,
+.rtable[data-rt-layout="transpose"].is-stacked > tbody > tr {
+  display: contents;
+}
+.rtable[data-rt-layout="transpose"].is-stacked > thead > tr > th:first-child,
+.rtable[data-rt-layout="transpose"].is-stacked > tbody > tr > th,
+.rtable[data-rt-layout="transpose"].is-stacked > tbody > tr > td[data-empty] {
+  display: none;
+}
+.rtable[data-rt-layout="transpose"].is-stacked > thead > tr > th {
+  order: var(--rt-order, 0);
+  position: static;
+  display: block;
+  min-width: 0;
+  margin-top: 0.25rem;
+  padding: 0.6rem 0.75rem;
+  background: #f8fafc;
+  border-top: 1px solid #e5e7eb;
+  border-bottom: 1px solid #f1f5f9;
+}
+.rtable[data-rt-layout="transpose"].is-stacked > tbody > tr > td:not([data-empty]) {
+  order: var(--rt-order, 0);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 0.1rem 0.75rem;
+  text-align: left;
+}
+.rtable[data-rt-layout="transpose"].is-stacked > tbody > tr > td[data-label]:not([data-label=""])::before {
+  float: none;
+  flex: 0 0 38%;
+  max-width: 38%;
+  margin: 0;
+  padding: 0;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #6b7280;
+}
+.rtable[data-rt-layout="transpose"].is-stacked > tbody > tr > td > * {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.rtable[data-rt-layout="transpose"].is-stacked > tbody > tr > td::after {
+  display: none;
+}
+.rtable[data-rt-layout="transpose"].is-stacked > tbody > tr[data-match] > td {
+  background: rgb(238 242 255 / 0.7);
+}
+
+/* Rows that scroll sideways without showing a scrollbar (quick-reply chips, chip pickers). Was used in templates
+   but never defined, so Windows showed a full grey scrollbar under the chips. */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}

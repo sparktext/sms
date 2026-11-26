@@ -321,9 +321,9 @@ class SettingsAndTeamTests(TestCase):
         # Inbox omits <main> page header and uses adapted viewport calc height
         inbox_html = self.client.get("/inbox/").content.decode("utf-8")
         self.assertNotIn("<!-- Page Header -->", inbox_html)
-        self.assertIn("sm:h-[calc(100vh-7rem)]", inbox_html)
+        self.assertIn("sm:h-[calc(100vh-108px)]", inbox_html)   # fills the screen inside the page padding
 
-        # Centered 5xl settings/AI pages align Page Header width with cards
+        # Centered 5xl settings/AI pages align Page Header width with cards (both go full width on big monitors)
         for aligned_url in (
             "/ai-assistant/",
             "/settings/profile/",
@@ -333,7 +333,7 @@ class SettingsAndTeamTests(TestCase):
             "/settings/sounds/",
         ):
             aligned_html = self.client.get(aligned_url).content.decode("utf-8")
-            self.assertIn("max-w-5xl w-full mx-auto", aligned_html[aligned_html.index("<main"):], aligned_url)
+            self.assertIn("max-w-5xl 2xl:max-w-none w-full mx-auto", aligned_html[aligned_html.index("<main"):], aligned_url)
             if "/settings/" in aligned_url:
                 self.assertRegex(aligned_html[aligned_html.index("<main"):], r"<h1[^>]*>\s*Settings\s*</h1>")
 

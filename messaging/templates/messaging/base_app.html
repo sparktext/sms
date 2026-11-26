@@ -21,9 +21,18 @@
     </style>
 
     <script>
-      if (localStorage.getItem("sparktext_sidebar_collapsed") === "true") {
-        document.documentElement.classList.add("sidebar-collapsed");
+      // Tablets (768-1023px) start with the side menu folded to icons so pages get the room; laptops and up
+      // remember the person's choice. Each size remembers its own setting.
+      function sidebarCollapseKey() {
+        return window.innerWidth >= 768 && window.innerWidth < 1024 ? "sparktext_sidebar_collapsed_tablet" : "sparktext_sidebar_collapsed";
       }
+      try {
+        const saved = localStorage.getItem(sidebarCollapseKey());
+        const tablet = sidebarCollapseKey().endsWith("_tablet");
+        if (tablet ? saved !== "false" : saved === "true") {
+          document.documentElement.classList.add("sidebar-collapsed");
+        }
+      } catch (e) { /* storage blocked: keep the default */ }
     </script>
 
     {% block extra_head %}{% endblock %}
@@ -622,11 +631,11 @@
         </div>
       </header>
 
-      <main class="p-3 sm:p-6 lg:p-8 space-y-6 {% block main_width %}max-w-7xl{% endblock %} w-full mx-auto {% block main_overflow %}overflow-x-hidden{% endblock %}">
+      <main class="p-3 sm:p-6 lg:p-8 space-y-6 {% block main_width %}max-w-[1920px]{% endblock %} w-full mx-auto {% block main_overflow %}overflow-x-hidden{% endblock %}">
         {% block page_header %}
         <!-- Page Header -->
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 {% block page_header_class %}{% endblock %}">
-          <div class="flex items-center gap-3 min-w-0">
+        <div class="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 {% block page_header_class %}{% endblock %}">
+          <div class="flex items-center gap-3 min-w-0 flex-1 basis-72">
             {% block header_back %}{% endblock %}
             <div class="min-w-0">
               <h1 class="text-xl sm:text-2xl font-bold text-gray-900 leading-tight">
@@ -637,11 +646,17 @@
               </p>
             </div>
           </div>
-          <div class="flex items-center flex-wrap gap-2.5 shrink-0">
+          <div class="flex items-center flex-wrap gap-2.5 max-w-full">
             {% block header_actions %}{% endblock %}
           </div>
         </div>
         {% endblock %}
+
+        {% if time_limits_off %}
+        <div class="mb-4 px-4 py-2.5 rounded-xl border-2 border-dashed border-amber-400 bg-amber-50 text-amber-900 text-xs font-semibold">
+          🧪 Test mode: all time limits are OFF (call hours, closed days, the 8 AM-9 PM calling window and campaign texting hours). Local only; remove TEST_IGNORE_TIME_LIMITS from .env to turn it off.
+        </div>
+        {% endif %}
 
         <!-- Hot leads: "call me now" leads nobody has called yet (stays until someone clicks Call) -->
         <div id="hot-lead-banner" class="hidden" role="alert" aria-live="assertive"></div>
@@ -701,7 +716,7 @@
 
       function toggleSidebarCollapse() {
         const isCollapsed = document.documentElement.classList.toggle("sidebar-collapsed");
-        localStorage.setItem("sparktext_sidebar_collapsed", isCollapsed ? "true" : "false");
+        try { localStorage.setItem(sidebarCollapseKey(), isCollapsed ? "true" : "false"); } catch (e) { /* not saved */ }
         syncSidebarCollapseAria();
       }
 
@@ -1210,11 +1225,16 @@
       class="fixed bottom-5 right-5 z-[100] flex flex-col gap-2.5 max-w-sm w-full pointer-events-none"
       aria-live="polite"
     ></div>
-    <div id="hot-lead-cards" class="fixed top-4 right-4 z-[110] flex flex-col gap-3 w-[min(24rem,calc(100vw-2rem))] pointer-events-none"></div>
+    <div id="hot-lead-cards" class="fixed top-[4.75rem] right-4 z-[110] flex flex-col gap-3 w-[min(23rem,calc(100vw-2rem))] pointer-events-none"></div>
     <style>
       @keyframes hotRing { 0%,100% { transform: rotate(0) } 20% { transform: rotate(-14deg) } 40% { transform: rotate(12deg) } 60% { transform: rotate(-8deg) } 80% { transform: rotate(6deg) } }
+      @keyframes hotGlow { 0%,100% { box-shadow: 0 0 0 0 rgba(244,63,94,.45), 0 18px 40px -12px rgba(15,23,42,.35) } 50% { box-shadow: 0 0 0 6px rgba(244,63,94,0), 0 18px 40px -12px rgba(15,23,42,.35) } }
+      @keyframes hotIn { from { opacity: 0; transform: translateY(-8px) scale(.98) } to { opacity: 1; transform: none } }
+      .hot-card { animation: hotIn .25s ease-out; box-shadow: 0 18px 40px -12px rgba(15,23,42,.35); }
+      .hot-card.hot-ringing { animation: hotIn .25s ease-out, hotGlow 1.6s ease-in-out infinite; }
       .hot-ringing .hot-bell { display: inline-block; animation: hotRing .9s ease-in-out infinite; }
-      .hot-ringing { box-shadow: 0 0 0 3px rgba(244,63,94,.35), 0 20px 25px -5px rgba(15,23,42,.18); }
+      .hot-card .hot-live { display: none; }
+      .hot-card.hot-ringing .hot-live { display: inline-flex; }
     </style>
     <script>
       // "Call me now" hot leads: ring until this person clicks Call or Ignore; a red banner for the whole team
@@ -1232,7 +1252,7 @@
         // Each "call me now" rings for 2 minutes from when THIS ask first showed (a lead asking again later, on the
         // same calendar entry, rings again). Shared by every open tab.
         function firstSeen(l) {
-          const id = l.id + ":" + l.asked_at_ms + (l.escalated ? ":escalated" : "");
+          const id = l.id + ":" + (l.ring_key || l.asked_at_ms) + (l.escalated ? ":escalated" : "");
           const key = "sparktext:hot:" + id;
           try {
             const v = parseInt(localStorage.getItem(key) || "0", 10);
@@ -1246,6 +1266,10 @@
         const waited = (l) => {
           const secs = Math.max(0, Math.floor((Date.now() + serverOffset - l.asked_at_ms) / 1000));
           return Math.floor(secs / 60) + ":" + String(secs % 60).padStart(2, "0");
+        };
+        const prettyPhone = (p) => {
+          const m = String(p || "").match(/^\+1(\d{3})(\d{3})(\d{4})$/);
+          return m ? "+1 (" + m[1] + ") " + m[2] + "-" + m[3] : String(p || "");
         };
         const clock = (l, before) => { const n = el("span", "", before + waited(l)); n.dataset.hotClock = l.id; n.dataset.before = before; return n; };
         const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text) n.textContent = text; return n; };
@@ -1272,6 +1296,33 @@
             refresh();
           } finally { busy[l.id] = false; if (btn) btn.disabled = false; }
         }
+        // Copy the lead's number (to dial from a phone or softphone). Copying isn't taking the call: only Call
+        // stops the ringing for everyone, so the button says so.
+        async function copyNumber(l, btn) {
+          let ok = false;
+          try { await navigator.clipboard.writeText(l.phone); ok = true; } catch (e) {
+            try {
+              const t = document.createElement("textarea");
+              t.value = l.phone; t.setAttribute("readonly", ""); t.style.position = "fixed"; t.style.opacity = "0";
+              document.body.appendChild(t); t.select(); ok = document.execCommand("copy"); t.remove();
+            } catch (e2) {}
+          }
+          const original = btn.innerHTML;
+          btn.textContent = ok ? "✓ Copied" : "Copy failed";
+          setTimeout(() => { btn.innerHTML = original; }, 2000);
+          if (ok && window.showGlobalToast) {
+            window.showGlobalToast({ type: "needs_human", title: "📋 " + l.phone + " copied",
+                                     body: "Click Call so your team knows you've got it." });
+          }
+        }
+        const copyButton = (l, cls) => {
+          const b = el("button", cls, "📋 Copy number");
+          b.type = "button";
+          b.title = "Copy " + l.phone;
+          b.addEventListener("click", () => copyNumber(l, b));
+          return b;
+        };
+
         async function ignoreLead(l) {
           try { await post("/calls/hot/" + l.id + "/ignore/"); } catch (e) {}
           l.ring = false;
@@ -1287,12 +1338,13 @@
             const row = el("div", "px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4");
             const text = el("div", "min-w-0 flex-1");
             text.appendChild(el("p", "text-sm font-bold text-rose-900", "🔥 " + l.name + " wants a call right now"));
-            const sub = el("p", "text-[11px] text-rose-800/90", l.phone ? l.phone + " · " : "");
+            const sub = el("p", "text-[11px] text-rose-800/90", l.phone ? prettyPhone(l.phone) + " · " : "");
             sub.appendChild(clock(l, "waiting "));
             sub.appendChild(document.createTextNode(l.waiting_for ? " · waiting for " + l.waiting_for : " · nobody has taken it yet"));
             text.appendChild(sub);
             row.appendChild(text);
             const actions = el("div", "flex items-center gap-2 shrink-0");
+            if (l.phone) actions.appendChild(copyButton(l, "px-2.5 py-1.5 text-xs font-semibold border border-rose-300 bg-white rounded-lg text-rose-900 hover:bg-rose-50 cursor-pointer"));
             if (l.chat_url) { const a = el("a", "px-2.5 py-1.5 text-xs font-semibold border border-rose-300 bg-white rounded-lg text-rose-900 hover:bg-rose-50", "Open chat"); a.href = l.chat_url; actions.appendChild(a); }
             if (l.can_call) { const b = el("button", "px-3 py-1.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-lg shadow-sm cursor-pointer disabled:opacity-60", "📞 Call"); b.type = "button"; b.addEventListener("click", () => callLead(l, b)); actions.appendChild(b); }
             row.appendChild(actions);
@@ -1301,26 +1353,64 @@
           // ringing cards: only on the screens it rings for, until Call or Ignore
           cards.textContent = "";
           leads.filter((l) => l.ring).forEach((l) => {
-            const card = el("div", "hot-card pointer-events-auto rounded-2xl border border-rose-300 bg-white p-4 " + (ringing(l) ? "hot-ringing" : ""));
+            const card = el("div", "hot-card pointer-events-auto overflow-hidden rounded-2xl bg-white border border-rose-200 " + (ringing(l) ? "hot-ringing" : ""));
             card.dataset.id = l.id;
-            const head = el("p", "text-sm font-extrabold text-rose-700");
-            head.append(el("span", "hot-bell", "📞"), document.createTextNode(
-              l.escalated ? " Still waiting: nobody has called" : " Hot lead: call now"));
+            card.setAttribute("role", "alertdialog");
+            card.setAttribute("aria-label", l.name + " wants a call right now");
+
+            // header strip: what this is, a live dot while ringing, and how long they've waited
+            const head = el("div", "flex items-center justify-between gap-2 px-4 py-2 text-white " +
+              (l.escalated ? "bg-gradient-to-r from-rose-800 to-rose-600" : "bg-gradient-to-r from-rose-600 to-orange-500"));
+            const what = el("span", "flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider");
+            const live = el("span", "hot-live relative h-2 w-2");
+            live.append(el("span", "absolute inline-flex h-full w-full rounded-full bg-white opacity-75 animate-ping"),
+                        el("span", "relative inline-flex h-2 w-2 rounded-full bg-white"));
+            what.append(live, el("span", "hot-bell", "🔥"),
+                        document.createTextNode(l.escalated ? "Still waiting · nobody has called"
+                          : (l.asks > 1 ? "Asked again · still waiting" : "Hot lead · wants a call now")));
+            const timer = el("span", "text-[11px] font-semibold tabular-nums opacity-90");
+            timer.appendChild(clock(l, ""));
+            head.append(what, timer);
             card.appendChild(head);
-            card.appendChild(el("p", "mt-1 text-base font-bold text-gray-900", l.name));
-            const asked = el("p", "text-xs text-gray-600", l.phone ? l.phone + " · " : "");
-            asked.appendChild(clock(l, "asked "));
-            asked.appendChild(document.createTextNode(" ago"));
-            card.appendChild(asked);
+
+            // who: initial, name, the number (with a copy icon right next to it)
+            const body = el("div", "p-4");
+            const who = el("div", "flex items-center gap-3");
+            who.appendChild(el("div", "w-11 h-11 shrink-0 rounded-full bg-rose-100 text-rose-700 text-base font-bold flex items-center justify-center",
+              (l.name || "#").trim().charAt(0).toUpperCase()));
+            const info = el("div", "min-w-0 flex-1");
+            info.appendChild(el("p", "text-base font-bold text-gray-900 truncate", l.name));
+            if (l.phone) {
+              const line = el("div", "flex items-center gap-1");
+              line.appendChild(el("span", "font-mono text-sm text-gray-700 tracking-tight", prettyPhone(l.phone)));
+              const copy = el("button", "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-semibold text-gray-500 hover:text-rose-700 hover:bg-rose-50 cursor-pointer");
+              copy.type = "button";
+              copy.title = "Copy " + l.phone;
+              copy.setAttribute("aria-label", "Copy number " + l.phone);
+              copy.innerHTML = '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2" stroke-width="2"/><path stroke-linecap="round" stroke-width="2" d="M5 15V6a2 2 0 012-2h9"/></svg><span>Copy</span>';
+              copy.addEventListener("click", () => copyNumber(l, copy));
+              line.appendChild(copy);
+              info.appendChild(line);
+            }
+            who.appendChild(info);
+            body.appendChild(who);
+            const note = el("p", "mt-2.5 text-[11px] text-gray-500",
+              l.waiting_for ? "Their agent: " + l.waiting_for : "First to click Call gets the lead.");
+            if (l.asks > 1) note.prepend(el("span", "mr-1.5 px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-700 font-bold", "Asked " + l.asks + "×"));
+            body.appendChild(note);
+
+            // actions
             const actions = el("div", "mt-3 flex items-center gap-2");
-            const callBtn = el("button", "flex-1 px-3 py-2 text-sm font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-sm cursor-pointer disabled:opacity-60", "📞 Call");
+            const callBtn = el("button", "flex-1 inline-flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-sm cursor-pointer disabled:opacity-60");
             callBtn.type = "button";
+            callBtn.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/></svg><span>Call now</span>';
             callBtn.addEventListener("click", () => callLead(l, callBtn));
-            const ignoreBtn = el("button", "px-3 py-2 text-sm font-semibold text-gray-600 border border-gray-200 hover:bg-gray-50 rounded-xl cursor-pointer", "Ignore");
+            const ignoreBtn = el("button", "px-3.5 py-2.5 text-sm font-semibold text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-xl cursor-pointer", "Ignore");
             ignoreBtn.type = "button";
             ignoreBtn.addEventListener("click", () => ignoreLead(l));
             actions.append(callBtn, ignoreBtn);
-            card.appendChild(actions);
+            body.appendChild(actions);
+            card.appendChild(body);
             cards.appendChild(card);
           });
         }
@@ -1332,7 +1422,7 @@
             const data = await res.json();
             if (data.server_now_ms) serverOffset = data.server_now_ms - Date.now();
             leads = data.leads || [];
-            const json = JSON.stringify(leads.map((l) => [l.id, l.asked_at_ms, l.ring, l.can_call, l.waiting_for, l.escalated]));
+            const json = JSON.stringify(leads.map((l) => [l.id, l.asked_at_ms, l.ring_key, l.asks, l.ring, l.can_call, l.waiting_for, l.escalated]));
             if (json !== lastJson) { lastJson = json; render(); }        // re-draw only when something changed
           } catch (e) {}
         }
@@ -2435,6 +2525,92 @@
           }
         } catch (err) { /* use the link */ }
       });
+    </script>
+    <script>
+      // Responsive tables: a table marked .rtable shows as a normal table while it fits its box and turns each
+      // row into a labelled card (.is-stacked, styled in app.css) when it would scroll sideways or get cramped.
+      // Rows added later (live search, paging, pushes) get their labels from the column headings automatically.
+      (function () {
+        const MIN_COL = 96;  // narrower than this per column and the table is too cramped to read
+        const widths = new WeakMap();
+        const sizes = typeof ResizeObserver === "function" ? new ResizeObserver(entries => {
+          entries.forEach(e => {
+            const w = Math.round(e.contentRect.width);
+            if (widths.get(e.target) === w) return;   // only width matters (stacking changes the height)
+            widths.set(e.target, w);
+            e.target.querySelectorAll(":scope > table.rtable").forEach(fit);
+          });
+        }) : null;
+
+        function headings(table) {
+          const out = [];
+          const row = table.tHead && table.tHead.rows[table.tHead.rows.length - 1];
+          if (!row) return out;
+          [...row.cells].forEach(th => {
+            const text = th.textContent.trim().replace(/\s+/g, " ");
+            for (let i = 0; i < (th.colSpan || 1); i++) out.push(text);
+            if (th.dataset.rt === "title") out.titleCol = out.length - 1;   // <th data-rt="title"> picks the card title
+          });
+          return out;
+        }
+
+        function label(table) {
+          if (table.dataset.rtLayout === "transpose") return false;   // labels come from the template (row names)
+          const names = headings(table);
+          let changed = false;
+          [...table.tBodies].forEach(body => [...body.rows].forEach(tr => {
+            if (tr.dataset.rt === String(names.length)) return;
+            let col = 0, titled = false;
+            [...tr.cells].forEach(td => {
+              const span = td.colSpan || 1;
+              const name = span >= names.length && names.length > 1 ? "" : (names[col] || "");
+              const isTitle = names.titleCol === undefined ? !titled && !!name : names.titleCol === col;
+              col += span;
+              td.classList.remove("rt-title", "rt-check", "rt-actions", "rt-full");
+              td.removeAttribute("data-label");
+              if (span > 1 && !name) { td.classList.add("rt-full"); return; }
+              if (td.querySelector("input[type=checkbox]") && !td.textContent.trim()) { td.classList.add("rt-check"); return; }
+              if ((!name || /^actions?$/i.test(name)) && td.querySelector("a, button, form")) { td.classList.add("rt-actions"); return; }
+              if (isTitle && !titled) { td.classList.add("rt-title"); titled = true; }
+              td.setAttribute("data-label", name);
+            });
+            tr.dataset.rt = String(names.length);
+            changed = true;
+          }));
+          return changed;
+        }
+
+        function fit(table) {
+          const box = table.parentElement;
+          if (!box || !box.clientWidth) return;
+          table.classList.remove("is-stacked");
+          const cols = headings(table).filter(Boolean).length;
+          const tooWide = table.offsetWidth > box.clientWidth + 1;
+          table.classList.toggle("is-stacked", tooWide || (cols > 2 && box.clientWidth < cols * MIN_COL));
+        }
+
+        function setup() {
+          document.querySelectorAll("table.rtable").forEach(table => {
+            const changed = label(table);
+            if (!table.dataset.rtWatched) {
+              table.dataset.rtWatched = "1";
+              if (sizes && table.parentElement) sizes.observe(table.parentElement);
+              fit(table);
+            } else if (changed) {
+              fit(table);   // new rows can make it wider
+            }
+          });
+        }
+
+        let queued = false;
+        new MutationObserver(() => {
+          if (queued) return;
+          queued = true;
+          requestAnimationFrame(() => { queued = false; setup(); });
+        }).observe(document.body, { childList: true, subtree: true });
+        setup();
+        window.addEventListener("load", setup);
+      })();
     </script>
   </body>
 </html>

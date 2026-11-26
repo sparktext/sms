@@ -10,8 +10,10 @@ from datetime import datetime, timedelta
 from datetime import time as time_cls
 from zoneinfo import ZoneInfo
 
+from django.db import models
 from django.utils import timezone
 
+from core.testmode import time_limits_off
 from core.timezones import org_timezone, timezone_label, user_timezone
 
 from . import holidays
@@ -158,13 +160,15 @@ def _team_zone(org):
 
 def legal_for_lead(moment, lead_tz: str) -> bool:
     """Inside 8 AM-9 PM where the lead is (TCPA quiet hours are outside it)."""
+    if time_limits_off():
+        return True
     local = moment.astimezone(ZoneInfo(lead_tz)).time()
     return CALLING_START <= local < CALLING_END
 
 
 def in_team_hours(moment, org) -> bool:
     """Inside the team's working hours (workspace time zone)."""
-    if org is None:
+    if org is None or time_limits_off():
         return True
     start, end = call_hours(org)
     local = moment.astimezone(_team_zone(org)).time()
@@ -191,7 +195,7 @@ def call_days(org) -> set:
 def is_call_day(moment, tz: str, org) -> bool:
     """A day the team works, judged on the team's own calendar (workspace time zone): one of the call days, and
     not a closed day (a holiday the office observes, or a date the owner closed)."""
-    if org is None:
+    if org is None or time_limits_off():
         return True
     day = moment.astimezone(_team_zone(org)).date()
     return day.weekday() in call_days(org) and not holidays.is_closed(org, day)
@@ -199,7 +203,7 @@ def is_call_day(moment, tz: str, org) -> bool:
 
 def closed_reason_at(moment, org):
     """Why the office is closed then ("Thanksgiving"), or None (the team's own date)."""
-    if org is None:
+    if org is None or time_limits_off():
         return None
     return holidays.closed_reason(org, moment.astimezone(_team_zone(org)).date())
 
@@ -217,6 +221,8 @@ def can_call_at(moment, tz: str, org) -> bool:
 def lead_window(org, lead_tz: str, day):
     """When we can call on `day` (a date where the lead is): (start, end) times in the lead's zone, or None.
     The team's working hours, moved into the lead's zone, cut to 8 AM-9 PM their time."""
+    if time_limits_off():
+        return time_cls(0, 0), time_cls(23, 59)          # local test mode: any time of any day
     zone = ZoneInfo(lead_tz)
     lo = datetime.combine(day, CALLING_START, tzinfo=zone)
     hi = datetime.combine(day, CALLING_END, tzinfo=zone)
@@ -906,6 +912,8 @@ def hot_lead_for(event, viewer, now=None) -> dict:
         "chat_url": f"/inbox/{event.conversation_id}/" if event.conversation_id else "",
         "waiting_seconds": max(0, int((now - event.start_at).total_seconds())),
         "asked_at_ms": int(event.start_at.timestamp() * 1000),       # a hot lead's call starts when they asked
+        "ring_key": int((event.last_asked_at or event.start_at).timestamp() * 1000),   # a new ask rings again
+        "asks": max(1, event.asks or 0),
         "ring": viewer.id in targets,
         "can_call": mine,
         "escalated": escalated,
@@ -956,9 +964,36 @@ def ignore_call(event, user, now=None) -> None:
     refresh_urgent(event.organization)
 
 
+ESCALATE_ON_ASK = 3          # the third "call me now" alerts owners/admins at once
+
+
+def register_repeat_ask(event, message_id, now=None) -> None:
+    """They asked for a call right now AGAIN: whoever clicked Call (or the whole team) rings again, the banner
+    returns, and the third ask alerts owners and admins straight away."""
+    now = now or timezone.now()
+    updated = CalendarEvent.objects.filter(pk=event.pk).exclude(last_ask_message_id=message_id).update(
+        asks=models.F("asks") + 1, last_asked_at=now, last_ask_message_id=message_id,
+        answered_at=None, ignored_by=[], updated_at=now)
+    if not updated:
+        return                                          # this text was already counted
+    event.refresh_from_db()
+    who = "the team" if event.user_id is None else (event.user.first_name or event.user.email)
+    nth = {2: "2nd", 3: "3rd"}.get(event.asks, f"{event.asks}th")
+    if event.conversation_id:
+        post_chat_note(event.conversation, f"🔥 They asked again for a call right now ({nth} time). "
+                                           f"Ringing {who} again.")
+    from core import slack
+    slack.notify(event.organization, "hot_lead",
+                 f"🔥 {contact_name(event.contact) if event.contact_id else event.title} asked AGAIN for a call "
+                 f"right now ({nth} time)", [event.contact.phone if event.contact_id else ""],
+                 event_url(event), "Open the chat")
+    if event.asks >= ESCALATE_ON_ASK and event.escalated_at is None:
+        _escalate(event, now)
+    refresh_urgent(event.organization)
+
+
 def escalate_hot_leads(now=None) -> int:
     """Owners/admins hear about a hot lead nobody has called 10 minutes after it asked. Returns how many."""
-    from core.models import User
     now = now or timezone.now()
     due = (CalendarEvent.objects.filter(urgent=True, answered_at__isnull=True, escalated_at__isnull=True,
                                         status=CalendarEvent.Status.SCHEDULED, start_at__lte=now - URGENT_ESCALATE,
@@ -966,30 +1001,36 @@ def escalate_hot_leads(now=None) -> int:
            .select_related("organization", "contact", "user"))
     told = 0
     for event in due:
-        if not CalendarEvent.objects.filter(pk=event.pk, escalated_at__isnull=True).update(escalated_at=now):
-            continue
-        from messaging.ws_broadcast import broadcast_user_event
-        bosses = User.objects.filter(organization=event.organization, is_active=True,
-                                     role__in=[User.Role.OWNER, User.Role.ADMIN])
-        for boss in bosses:
-            try:
-                broadcast_user_event(boss.id, {"event": "call_reminder",
-                                               "reminder": call_notification(event, "escalated", now, recipient=boss)})
-            except Exception as exc:
-                logger.warning("Couldn't escalate hot lead %s to %s: %s", event.id, boss.id, exc)
-        boss_ids = {b.id for b in bosses}
-        CalendarEvent.objects.filter(pk=event.pk).update(
-            ignored_by=[i for i in (event.ignored_by or []) if i not in boss_ids])
-        if event.conversation_id:
-            post_chat_note(event.conversation, "🔥 Nobody has called this hot lead 10 minutes after they asked. "
-                                               "Owners and admins were alerted.")
-        from core import slack
-        slack.notify(event.organization, "hot_lead_waiting",
-                     f"🔥 Still waiting: {contact_name(event.contact) if event.contact_id else event.title} asked for "
-                     "a call 10 minutes ago and nobody has called",
-                     [event.contact.phone if event.contact_id else "",
-                      f"Waiting for {caller_name(event)}" if event.user_id else "Nobody has taken it yet"],
-                     event_url(event), "Open the chat")
-        refresh_urgent(event.organization)
-        told += 1
+        if _escalate(event, now):
+            told += 1
     return told
+
+
+def _escalate(event, now) -> bool:
+    """Tell owners/admins a hot lead is still waiting (once per call): 10 minutes after they asked, or on their third
+    ask. They ring again even if they clicked Ignore earlier. False if it was already done."""
+    from core import slack
+    from messaging.ws_broadcast import broadcast_user_event
+    if not CalendarEvent.objects.filter(pk=event.pk, escalated_at__isnull=True).update(escalated_at=now):
+        return False
+    event.escalated_at = now
+    bosses = _bosses(event.organization)
+    for boss in bosses:
+        try:
+            broadcast_user_event(boss.id, {"event": "call_reminder",
+                                           "reminder": call_notification(event, "escalated", now, recipient=boss)})
+        except Exception as exc:
+            logger.warning("Couldn't escalate hot lead %s to %s: %s", event.id, boss.id, exc)
+    boss_ids = {b.id for b in bosses}
+    CalendarEvent.objects.filter(pk=event.pk).update(ignored_by=[i for i in (event.ignored_by or []) if i not in boss_ids])
+    why = (f"after asking {event.asks} times" if (event.asks or 0) >= ESCALATE_ON_ASK
+           else "10 minutes after they asked")
+    who = contact_name(event.contact) if event.contact_id else event.title
+    if event.conversation_id:
+        post_chat_note(event.conversation, f"🔥 Nobody has reached this hot lead {why}. Owners and admins were alerted.")
+    slack.notify(event.organization, "hot_lead_waiting", f"🔥 Still waiting: nobody has reached {who} {why}",
+                 [event.contact.phone if event.contact_id else "",
+                  f"Waiting for {caller_name(event)}" if event.user_id else "Nobody has taken it yet"],
+                 event_url(event), "Open the chat")
+    refresh_urgent(event.organization)
+    return True

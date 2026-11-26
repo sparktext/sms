@@ -142,6 +142,9 @@ def _call_hours_line(conversation) -> str:
     """When our agents can call THIS lead, in the lead's own time, from Settings > Team call hours. It is the only
     source for call times: the knowledge base's office hours can differ, and code never books outside these."""
     try:
+        from core.testmode import time_limits_off
+        if time_limits_off():
+            return "our agents can call this customer at any time (test mode)."
         from scheduling import calls
         org = conversation.organization
         lead_tz = calls.lead_timezone(conversation.contact, org)
@@ -403,9 +406,11 @@ ADDITIONAL HANDOFF CRITERIA:
         today = f"{local_today:%A, %B} {local_today.day}, {local_today.year}"
         calendar_line = "- Coming days: " + ", ".join(
             f"{d:%a %b} {d.day}" for d in (local_today + _td(days=i) for i in range(1, 15))) + "\n"
+        from core.testmode import time_limits_off
         from scheduling.holidays import closed_days_between
-        closed = [c for c in closed_days_between(conversation.organization, local_today, local_today + _td(days=21))
-                  if c["closed"]]
+        closed = [] if time_limits_off() else [
+            c for c in closed_days_between(conversation.organization, local_today, local_today + _td(days=21))
+            if c["closed"]]
         if closed:
             calendar_line += ("- Office closed (no calls these days): " + ", ".join(
                 f"{c['date']:%a %b} {c['date'].day} ({c['name']})" for c in closed) + "\n")
@@ -560,11 +565,12 @@ LEAD DETAILS (everything we already know about this customer from their lead for
                 "- Keep 'needs_human': true so the conversation stays in the agent review queue.\n"
             )
         else:
-            # Check if we have already asked the customer if they want to speak with a sales agent
+            # Check if we have already asked the customer if they want to speak with a sales agent.
+            # The settings sandbox uses an unsaved conversation with no history (reading it would crash).
             last_ai_msg = conversation.messages.filter(
                 direction=Message.Direction.OUTBOUND,
                 sender_type=Message.SenderType.AI,
-            ).order_by("-created_at").first()
+            ).order_by("-created_at").first() if conversation.pk else None
 
             has_offered_sales_agent = False
             if last_ai_msg and last_ai_msg.body:
