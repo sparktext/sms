@@ -8,7 +8,6 @@
 <span class="font-semibold text-gray-800 truncate">{% if contact.first_name or contact.last_name %}{{ contact.first_name }} {{ contact.last_name }}{% else %}{{ contact.phone }}{% endif %}</span>
 {% endblock %}
 
-{% block main_width %}max-w-[1760px]{% endblock %}
 {% block main_overflow %}overflow-x-clip{% endblock %}
 
 {% block page_header %}
@@ -28,6 +27,16 @@
     </a>
 
     <div class="flex items-center flex-wrap gap-2.5">
+      <button type="button" id="contact-chat-open" onclick="toggleContactChat(true)"
+              aria-controls="contact-chat-drawer" aria-expanded="false"
+              class="2xl:hidden relative inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-xl transition shadow-2xs cursor-pointer whitespace-nowrap shrink-0">
+        <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z"/>
+        </svg>
+        <span>Conversation</span>
+        <span id="contact-chat-open-count" class="px-1.5 py-0.5 rounded-md bg-white text-[10px] font-bold text-brand-700 border border-brand-200">{{ total_msg_count|default:0 }}</span>
+        <span id="contact-chat-new-dot" class="hidden absolute -top-1 -right-1 w-3 h-3 rounded-full bg-rose-500 ring-2 ring-white" title="New message"></span>
+      </button>
       <a
         href="{% url 'messaging:contact_message' contact.id %}"
         class="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs whitespace-nowrap shrink-0"
@@ -88,21 +97,109 @@
 {% block content %}
 {% csrf_token %}
 
-<div id="contactSplit" class="relative grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_var(--contact-right-w)] lg:[--contact-right-w:360px] xl:[--contact-right-w:400px] 2xl:[--contact-right-w:460px] gap-6 items-start">
+<div id="contactSplit" class="relative grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_var(--contact-right-w)] 2xl:[--contact-right-w:520px] min-[112.5rem]:[--contact-right-w:600px] gap-6 items-start">
 
   <!-- Drag handle between the two columns (lg+). Drag to resize, double-click to reset, arrow keys work too. -->
   <div id="contactSplitHandle" role="separator" aria-orientation="vertical" tabindex="0"
        aria-label="Resize panels: drag, or use the arrow keys. Double-click to reset."
        title="Drag to resize · double-click to reset"
        style="right: var(--contact-right-w)"
-       class="hidden lg:block absolute top-0 bottom-0 w-6 z-20 cursor-col-resize select-none touch-none group/split focus:outline-none">
+       class="hidden 2xl:block absolute top-0 bottom-0 w-6 z-20 cursor-col-resize select-none touch-none group/split focus:outline-none">
     <div class="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-transparent transition-colors group-hover/split:bg-brand-300 group-data-[dragging]/split:bg-brand-500"></div>
     <div class="sticky top-[45vh] mx-auto w-1.5 h-14 rounded-full bg-gray-300 transition-colors group-hover/split:bg-brand-500 group-focus-visible/split:bg-brand-500 group-data-[dragging]/split:bg-brand-600"></div>
   </div>
 
 
-  <!-- ================= LEFT COLUMN: CONTACT DETAILS FORM + LEAD DETAILS ================= -->
-  <div class="@container bg-white border border-gray-200 rounded-2xl p-5 shadow-xs order-1 lg:order-none lg:col-start-1 lg:row-start-1 min-w-0">
+  <!-- ================= LEFT COLUMN: LEAD SUMMARY, THEN CONTACT DETAILS FORM + LEAD DETAILS ================= -->
+  <div class="flex flex-col gap-6 2xl:col-start-1 2xl:row-start-1 min-w-0">
+    <!-- ===================================================================== -->
+    <!-- CONVERSATION SUMMARY CARD                                             -->
+    <!-- ===================================================================== -->
+    <div id="contact-summary-card" class="@container bg-white border border-gray-200 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3">
+      <div class="flex items-center justify-between gap-2">
+        <h3 class="text-sm font-bold text-gray-900">Lead summary</h3>
+        {% if active_conv and conv_summary.total > 0 %}
+        <button type="button" id="btn-generate-ai-summary" onclick="generateContactAiSummary()"
+                class="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition cursor-pointer shrink-0"
+                title="Generate a concise AI executive summary of this conversation">
+          <span>✨</span>
+          <span id="ai-summary-btn-text">AI Summary</span>
+        </button>
+        {% endif %}
+      </div>
+
+      <!-- On-Demand Gemma AI Executive Summary Box -->
+      <div id="contact-ai-summary-box" class="hidden p-3.5 rounded-xl bg-gradient-to-br from-indigo-50/90 to-purple-50/70 border border-indigo-200 space-y-1.5">
+        <div class="flex items-center justify-between">
+          <span class="text-[11px] font-bold text-indigo-900 flex items-center gap-1.5">
+            <span>🤖</span>
+            <span id="ai-summary-header">Gemma AI Summary</span>
+          </span>
+          <button type="button" onclick="generateContactAiSummary()" class="text-[10px] font-semibold text-indigo-600 hover:underline cursor-pointer">
+            ↻ Refresh
+          </button>
+        </div>
+        <div id="contact-ai-summary-text" class="text-xs text-indigo-950 whitespace-pre-wrap leading-relaxed"></div>
+      </div>
+
+      {% if active_conv and conv_summary.total > 0 %}
+        <!-- Wide column: what needs attention + what the AI collected | stage, rep and activity -->
+        <div class="grid grid-cols-1 @3xl:grid-cols-2 gap-3 @3xl:gap-5 items-start">
+          {% if active_conv.handoff_reason or conv_summary.qualification_items %}
+          <div class="space-y-3 min-w-0">
+            <!-- Handoff Reason Highlight -->
+            {% if active_conv.handoff_reason %}
+            <div class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-950 text-xs space-y-1">
+              <div class="font-bold text-[11px] flex items-center gap-1 text-amber-800">
+                <span>⚠️</span> Needs Human Attention
+              </div>
+              <p class="text-[11px] text-amber-900 leading-relaxed">{{ active_conv.handoff_reason }}</p>
+            </div>
+            {% endif %}
+
+            <!-- AI Collected Qualification Answers (Top Priority) -->
+            {% if conv_summary.qualification_items %}
+            <div class="space-y-2">
+              <div class="text-[11px] font-bold uppercase tracking-wider text-brand-700 flex items-center justify-between">
+                <span class="flex items-center gap-1"><span>🎯</span> Collected Details</span>
+                <span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">✓ Qualified Data</span>
+              </div>
+              <div class="bg-slate-50/90 border border-brand-200/70 rounded-xl p-3 space-y-1.5 text-xs shadow-2xs">
+                {% for item in conv_summary.qualification_items %}
+                <div class="flex items-center justify-between gap-2 border-b last:border-b-0 border-slate-200/70 pb-1 last:pb-0">
+                  <span class="text-gray-500 text-[11px]">{{ item.label }}:</span>
+                  <span class="font-semibold text-gray-900 text-right">{{ item.value }}</span>
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+            {% endif %}
+          </div>
+          {% endif %}
+          <div class="space-y-3 min-w-0">
+            {% include "contacts/partials/lead_stage_rep.html" %}
+            <div class="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-gray-500">
+              <span title="AI Assistant mode">{% if active_conv.ai_mode == 'off' %}🛑 Human takeover{% elif active_conv.ai_mode == 'suggest' %}✨ AI suggests{% elif active_conv.ai_mode == 'auto' %}🤖 AI auto-reply{% else %}⚙️ AI: business default{% endif %}</span>
+              <span class="text-gray-300">·</span>
+              <span title="Last inbound message">Last reply {% if active_conv.last_inbound_at %}<span class="font-medium text-gray-700">{{ active_conv.last_inbound_at|date:"M d, h:i A" }}</span>{% else %}none yet{% endif %}</span>
+              {% if active_conv.last_campaign %}
+              <span class="text-gray-300">·</span>
+              <a href="{% url 'campaigns:detail' active_conv.last_campaign.id %}" class="font-medium text-brand-700 hover:underline truncate max-w-full" title="Campaign">📢 {{ active_conv.last_campaign.name }}</a>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      {% else %}
+        <div class="grid grid-cols-1 @3xl:grid-cols-2 gap-3 @3xl:gap-5 items-start">
+          <div class="space-y-3 min-w-0">
+            {% include "contacts/partials/lead_stage_rep.html" %}
+            <p class="text-[11px] text-gray-500">No messages yet. Start the conversation from the box on the right{% if not active_conv %}, or pick a rep to hand this lead to someone{% endif %}.</p>
+          </div>
+        </div>
+      {% endif %}
+    </div>
+
+  <div class="@container bg-white border border-gray-200 rounded-2xl p-5 shadow-xs min-w-0">
       <div class="flex items-center justify-between gap-3 pb-3 mb-4 border-b border-gray-100">
         <h3 class="text-sm font-bold text-gray-900">Contact details</h3>
       </div>
@@ -193,151 +290,100 @@
         {% include "contacts/partials/lead_editor.html" %}
         {% endif %}
 
-        <div class="pt-4 border-t border-gray-100 flex items-center justify-end">
+        <!-- Save bar: sits at the end of the form; once anything changes it follows you down the screen -->
+        <div id="contactSaveBar" class="-mx-5 -mb-5 px-5 py-3 border-t border-gray-100 bg-white rounded-b-2xl flex flex-wrap items-center justify-end gap-x-2 gap-y-2">
+          <span id="contactUnsaved" class="hidden mr-auto inline-flex items-center gap-2 text-xs font-semibold text-amber-700" aria-live="polite">
+            <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+            <span id="contactUnsavedText"></span>
+          </span>
+          <button type="button" id="contactDiscard" class="hidden px-4 py-2 text-xs font-semibold text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-xl transition cursor-pointer">
+            Discard
+          </button>
           <button type="submit" class="px-5 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-xs cursor-pointer">
             Save Changes
           </button>
         </div>
       </form>
+      <script>
+        // Sticky save bar: counts what changed in this form (against the values the page loaded with). Once anything
+        // has, the bar sticks to the bottom of the screen with the count, Discard and Save, and leaving asks first.
+        (function () {
+          const form = document.getElementById("editContactForm");
+          const bar = document.getElementById("contactSaveBar");
+          if (!form || !bar) return;
+          const pill = document.getElementById("contactUnsaved");
+          const text = document.getElementById("contactUnsavedText");
+          const discard = document.getElementById("contactDiscard");
+          const STICKY = ["sticky", "bottom-0", "z-20", "shadow-[0_-10px_24px_-14px_rgba(15,23,42,0.35)]"];
+          let submitting = false;
+
+          function changedCount() {
+            let n = 0;
+            for (const el of form.elements) {
+              if (!el.name || el.disabled || ["hidden", "submit", "button", "reset"].includes(el.type)) continue;
+              if (el.type === "checkbox" || el.type === "radio") {
+                if (el.checked !== el.defaultChecked) n += 1;
+              } else if (el.tagName === "SELECT") {
+                if ([...el.options].some((o) => o.selected !== o.defaultSelected)) n += 1;
+              } else if ((el.value || "").trim() !== (el.defaultValue || "").trim()) {
+                n += 1;
+              }
+            }
+            return n;
+          }
+
+          function refresh() {
+            const n = changedCount();
+            const label = n + (n === 1 ? " unsaved change" : " unsaved changes");
+            if (text.textContent !== label) text.textContent = label;   // (the observer below would loop on a rewrite)
+            pill.classList.toggle("hidden", !n);
+            discard.classList.toggle("hidden", !n);
+            STICKY.forEach((c) => bar.classList.toggle(c, n > 0));
+            return n;
+          }
+
+          form.addEventListener("input", refresh);
+          form.addEventListener("change", refresh);
+          new MutationObserver(refresh).observe(form, { childList: true, subtree: true });   // e.g. a list created here
+
+          discard.addEventListener("click", () => {
+            form.reset();
+            // let the lead details re-check their highlights and search filter
+            const lead = form.querySelector("input[data-original]");
+            if (lead) lead.dispatchEvent(new Event("input", { bubbles: true }));
+            const search = document.getElementById("leadSearch");
+            if (search) search.dispatchEvent(new Event("input", { bubbles: true }));
+            refresh();
+          });
+
+          form.addEventListener("submit", () => { submitting = true; });
+          window.addEventListener("beforeunload", (e) => {
+            if (submitting || !changedCount()) return;
+            e.preventDefault();
+            e.returnValue = "";
+          });
+          refresh();
+        })();
+      </script>
+  </div>
   </div>
 
-  <!-- ================= RIGHT COLUMN (sticky): CONVERSATION SUMMARY + CONVERSATION & REPLY ================= -->
-  <div class="flex flex-col gap-4 order-2 lg:order-none lg:col-start-2 lg:row-start-1 lg:sticky lg:top-[84px] lg:h-[calc(100vh-108px)]">
-
-    <!-- ===================================================================== -->
-    <!-- CONVERSATION SUMMARY CARD                                             -->
-    <!-- ===================================================================== -->
-    <div id="contact-summary-card" class="bg-white border border-gray-200 rounded-2xl p-4 shadow-xs space-y-3 shrink-0 lg:max-h-[45%] lg:overflow-y-auto">
-      <div class="flex items-center justify-between gap-2">
-        <h3 class="text-sm font-bold text-gray-900">Lead summary</h3>
-        {% if active_conv and conv_summary.total > 0 %}
-        <button type="button" id="btn-generate-ai-summary" onclick="generateContactAiSummary()"
-                class="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition cursor-pointer shrink-0"
-                title="Generate a concise AI executive summary of this conversation">
-          <span>✨</span>
-          <span id="ai-summary-btn-text">AI Summary</span>
-        </button>
-        {% endif %}
-      </div>
-
-      <!-- On-Demand Gemma AI Executive Summary Box -->
-      <div id="contact-ai-summary-box" class="hidden p-3.5 rounded-xl bg-gradient-to-br from-indigo-50/90 to-purple-50/70 border border-indigo-200 space-y-1.5">
-        <div class="flex items-center justify-between">
-          <span class="text-[11px] font-bold text-indigo-900 flex items-center gap-1.5">
-            <span>🤖</span>
-            <span id="ai-summary-header">Gemma AI Summary</span>
-          </span>
-          <button type="button" onclick="generateContactAiSummary()" class="text-[10px] font-semibold text-indigo-600 hover:underline cursor-pointer">
-            ↻ Refresh
-          </button>
-        </div>
-        <div id="contact-ai-summary-text" class="text-xs text-indigo-950 whitespace-pre-wrap leading-relaxed"></div>
-      </div>
-
-      {% if active_conv and conv_summary.total > 0 %}
-        <!-- AI Collected Qualification Answers (Top Priority) -->
-        {% if conv_summary.qualification_items %}
-        <div class="space-y-2">
-          <div class="text-[11px] font-bold uppercase tracking-wider text-brand-700 flex items-center justify-between">
-            <span class="flex items-center gap-1"><span>🎯</span> Collected Details</span>
-            <span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">✓ Qualified Data</span>
-          </div>
-          <div class="bg-slate-50/90 border border-brand-200/70 rounded-xl p-3 space-y-1.5 text-xs shadow-2xs">
-            {% for item in conv_summary.qualification_items %}
-            <div class="flex items-center justify-between gap-2 border-b last:border-b-0 border-slate-200/70 pb-1 last:pb-0">
-              <span class="text-gray-500 text-[11px]">{{ item.label }}:</span>
-              <span class="font-semibold text-gray-900 text-right">{{ item.value }}</span>
-            </div>
-            {% endfor %}
-          </div>
-        </div>
-        {% endif %}
-
-        <!-- Handoff Reason Highlight -->
-        {% if active_conv.handoff_reason %}
-        <div class="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-950 text-xs space-y-1">
-          <div class="font-bold text-[11px] flex items-center gap-1 text-amber-800">
-            <span>⚠️</span> Needs Human Attention
-          </div>
-          <p class="text-[11px] text-amber-900 leading-relaxed">{{ active_conv.handoff_reason }}</p>
-        </div>
-        {% endif %}
-
-        <div class="grid grid-cols-2 gap-2">
-          <div class="min-w-0">
-            <div class="flex items-center justify-between mb-1">
-              <label for="contact-stage-select" class="text-[11px] font-medium text-gray-500">Stage</label>
-              <span id="contact-stage-saved-pill" class="text-[10px] font-semibold text-emerald-600 hidden">Saved ✓</span>
-            </div>
-            <select id="contact-stage-select" onchange="updateContactLeadStage(this.value)" class="w-full text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-gray-200 bg-gray-50 hover:bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 cursor-pointer transition">
-              <option value="" {% if not conv_summary.stage %}selected{% endif %}>— Select Lead Stage —</option>
-              <option value="New Lead" {% if conv_summary.stage == "New Lead" %}selected{% endif %}>🟢 New Lead</option>
-              <option value="Contacted" {% if conv_summary.stage == "Contacted" %}selected{% endif %}>💬 Contacted</option>
-              <option value="Qualified" {% if conv_summary.stage == "Qualified" %}selected{% endif %}>⭐ Qualified</option>
-              <option value="Not Qualified" {% if conv_summary.stage == "Not Qualified" %}selected{% endif %}>🚫 Not Qualified</option>
-              <option value="Quote Sent" {% if conv_summary.stage == "Quote Sent" %}selected{% endif %}>📄 Quote Sent</option>
-              <option value="Won" {% if conv_summary.stage == "Won" %}selected{% endif %}>🏆 Closed Won</option>
-              <option value="Lost" {% if conv_summary.stage == "Lost" %}selected{% endif %}>❌ Closed Lost</option>
-              {% if conv_summary.stage and conv_summary.stage not in standard_stages %}
-              <option value="{{ conv_summary.stage }}" selected>{{ conv_summary.stage }}</option>
-              {% endif %}
-            </select>
-          </div>
-          <div class="min-w-0">
-            <div class="flex items-center justify-between mb-1">
-              <label for="contact-assign-select" class="text-[11px] font-medium text-gray-500">Assigned rep</label>
-              <span id="contact-assign-saved-pill" class="text-[10px] font-semibold text-emerald-600 hidden">Updated ✓</span>
-            </div>
-            <select id="contact-assign-select" onchange="updateContactAssignedRep(this.value)" class="w-full text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-gray-200 bg-gray-50 hover:bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 cursor-pointer transition">
-              <option value="" {% if not active_conv.assigned_to %}selected{% endif %}>Unassigned</option>
-              {% for member in org_members %}
-              <option value="{{ member.id }}" {% if active_conv.assigned_to_id == member.id %}selected{% endif %}>
-                👤 {{ member.first_name|default:member.email }}
-              </option>
-              {% endfor %}
-            </select>
-          </div>
-        </div>
-        <div class="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-gray-500">
-          <span title="AI Assistant mode">{% if active_conv.ai_mode == 'off' %}🛑 Human takeover{% elif active_conv.ai_mode == 'suggest' %}✨ AI suggests{% elif active_conv.ai_mode == 'auto' %}🤖 AI auto-reply{% else %}⚙️ AI: business default{% endif %}</span>
-          <span class="text-gray-300">·</span>
-          <span title="Last inbound message">Last reply {% if active_conv.last_inbound_at %}<span class="font-medium text-gray-700">{{ active_conv.last_inbound_at|date:"M d, h:i A" }}</span>{% else %}none yet{% endif %}</span>
-          {% if active_conv.last_campaign %}
-          <span class="text-gray-300">·</span>
-          <a href="{% url 'campaigns:detail' active_conv.last_campaign.id %}" class="font-medium text-brand-700 hover:underline truncate max-w-full" title="Campaign">📢 {{ active_conv.last_campaign.name }}</a>
-          {% endif %}
-        </div>
-      {% else %}
-        <div class="min-w-0">
-            <div class="flex items-center justify-between mb-1">
-              <label for="contact-stage-select" class="text-[11px] font-medium text-gray-500">Stage</label>
-              <span id="contact-stage-saved-pill" class="text-[10px] font-semibold text-emerald-600 hidden">Saved ✓</span>
-            </div>
-            <select id="contact-stage-select" onchange="updateContactLeadStage(this.value)" class="w-full text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-gray-200 bg-gray-50 hover:bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 cursor-pointer transition">
-              <option value="" {% if not conv_summary.stage %}selected{% endif %}>— Select Lead Stage —</option>
-              <option value="New Lead" {% if conv_summary.stage == "New Lead" %}selected{% endif %}>🟢 New Lead</option>
-              <option value="Contacted" {% if conv_summary.stage == "Contacted" %}selected{% endif %}>💬 Contacted</option>
-              <option value="Qualified" {% if conv_summary.stage == "Qualified" %}selected{% endif %}>⭐ Qualified</option>
-              <option value="Not Qualified" {% if conv_summary.stage == "Not Qualified" %}selected{% endif %}>🚫 Not Qualified</option>
-              <option value="Quote Sent" {% if conv_summary.stage == "Quote Sent" %}selected{% endif %}>📄 Quote Sent</option>
-              <option value="Won" {% if conv_summary.stage == "Won" %}selected{% endif %}>🏆 Closed Won</option>
-              <option value="Lost" {% if conv_summary.stage == "Lost" %}selected{% endif %}>❌ Closed Lost</option>
-              {% if conv_summary.stage and conv_summary.stage not in standard_stages %}
-              <option value="{{ conv_summary.stage }}" selected>{{ conv_summary.stage }}</option>
-              {% endif %}
-            </select>
-          </div>
-        <p class="text-[11px] text-gray-500">No messages yet. Start the conversation below.</p>
-      {% endif %}
-    </div>
+  <!-- ================= CONVERSATION & REPLY =================
+       Big monitors (2xl+): the pinned right column, full height.
+       Laptops, tablets, phones: a panel that slides in from the right ("Conversation" button; full screen on phones). -->
+  <div id="contact-chat-backdrop" class="hidden 2xl:hidden fixed inset-0 z-[39] bg-slate-900/40" onclick="toggleContactChat(false)"></div>
+  <div id="contact-chat-drawer" role="dialog" aria-label="Conversation"
+       class="fixed inset-y-0 right-0 z-40 w-full sm:w-[28rem] max-w-full flex flex-col bg-white shadow-2xl translate-x-full invisible transition-transform duration-200 ease-out
+              2xl:translate-x-0 2xl:visible 2xl:transition-none 2xl:shadow-none 2xl:bg-transparent 2xl:z-auto 2xl:w-auto 2xl:max-w-none
+              2xl:inset-auto 2xl:col-start-2 2xl:row-start-1 2xl:sticky 2xl:top-[84px] 2xl:h-[calc(100vh-108px)]">
 
   <!-- ===================================================================== -->
-  <!-- CONVERSATION HISTORY & INLINE REPLY (fills the rest of the right column) -->
+  <!-- CONVERSATION HISTORY & INLINE REPLY (fills the whole right column) -->
   <!-- ===================================================================== -->
-  <div id="contact-conversation-card" class="bg-white border border-gray-200 rounded-2xl shadow-xs overflow-hidden flex flex-col lg:flex-1 lg:min-h-0">
+  <div id="contact-conversation-card" class="bg-white overflow-hidden flex flex-col flex-1 min-h-0 2xl:border 2xl:border-gray-200 2xl:rounded-2xl 2xl:shadow-xs">
       <!-- Card Header -->
       <div class="px-4 py-2.5 border-b border-gray-100 flex flex-wrap items-center justify-between gap-2 bg-white shrink-0">
-        <div class="flex items-center gap-2 min-w-0">
+        <div class="flex items-center gap-2 flex-1 min-w-[15rem]">
           <h3 class="text-sm font-bold text-gray-900">Conversation</h3>
           <span id="contact-msg-count-pill" class="text-[11px] font-medium text-gray-400 whitespace-nowrap">{{ total_msg_count|default:0 }} message{{ total_msg_count|default:0|pluralize }}</span>
           {% if active_conv %}
@@ -346,9 +392,13 @@
             <span id="contact-ws-text">Connecting</span>
           </span>
           {% endif %}
+          <button type="button" onclick="toggleContactChat(false)" title="Close" aria-label="Close conversation"
+                  class="2xl:hidden ml-auto -mr-1 p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition cursor-pointer shrink-0">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
         </div>
         {% if active_conv %}
-        <div class="flex items-center gap-1.5">
+        <div class="flex flex-wrap items-center gap-1.5 max-w-full">
             <select
               id="contact-conv-status-select"
               onchange="updateContactConvStatus(this.value)"
@@ -387,7 +437,7 @@
       {% endif %}
 
       <!-- Scrollable Messages Thread -->
-      <div id="contact-chat-window" class="max-h-[460px] min-h-[220px] lg:max-h-none lg:min-h-0 lg:flex-1 overflow-y-auto p-4 space-y-3 bg-[#f8fafc]/90">
+      <div id="contact-chat-window" class="flex-1 min-h-0 overflow-y-auto p-4 space-y-3 bg-[#f8fafc]/90">
         {% if chat_messages %}
           {% if has_older_messages %}
           <div id="contact-older-messages-banner" class="w-full flex justify-center py-1.5 select-none">
@@ -435,7 +485,7 @@
                 {% endif %}">
                 <p class="whitespace-pre-wrap break-words">{{ msg.body }}</p>
               </div>
-              <div class="flex items-center gap-1.5 text-[10px] text-gray-400 mt-1 px-1">
+              <div class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] text-gray-400 mt-1 px-1 *:whitespace-nowrap">
                 <span>{{ msg.created_at|date:"M d, h:i A" }}</span>
                 {% if msg.direction == 'outbound' %}
                   <span>·</span>
@@ -567,7 +617,7 @@
   if (!grid || !handle) return;
   const KEY = "contactRightPanelWidth";
   const MIN_RIGHT = 300, MIN_LEFT = 440, GAP = 24, STEP = 24;
-  const wide = () => window.matchMedia("(min-width: 1024px)").matches;
+  const wide = () => window.matchMedia("(min-width: 1536px)").matches;
   const current = () => parseFloat(getComputedStyle(grid).getPropertyValue("--contact-right-w")) || 360;
   const clamp = (w) => {
     const max = Math.max(MIN_RIGHT, grid.clientWidth - GAP - MIN_LEFT);
@@ -899,7 +949,7 @@
           <div class="max-w-md sm:max-w-lg rounded-2xl px-4 py-2.5 text-xs sm:text-sm shadow-2xs leading-relaxed ${bubbleClass}">
             <p class="whitespace-pre-wrap break-words">${escHtml(m.body)}</p>
           </div>
-          <div class="flex items-center gap-1.5 text-[10px] text-gray-400 mt-1 px-1">${metaHtml}</div>
+          <div class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] text-gray-400 mt-1 px-1 *:whitespace-nowrap">${metaHtml}</div>
         `;
       }
       return wrapper;
@@ -908,6 +958,7 @@
     function appendMessageBubble(m) {
       if (!chatWindow || !m || !m.id) return;
       if (document.getElementById(`contact-msg-${m.id}`)) return;
+      if (typeof window.noteContactChatActivity === 'function') window.noteContactChatActivity(m);
 
       const emptyPlaceholder = document.getElementById('contact-empty-chat');
       if (emptyPlaceholder) emptyPlaceholder.remove();
@@ -1315,10 +1366,16 @@
     };
 
     window.updateContactAssignedRep = async function(userId) {
-      if (!activeConvId) return;
-      const { resp, data } = await postFormAction(`/inbox/${activeConvId}/assign/`, {
+      // No conversation yet (never texted): the contact endpoint starts one on the main number, then assigns it
+      const url = activeConvId ? `/inbox/${activeConvId}/assign/` : "{% url 'contacts:assign_rep' contact.id %}";
+      const { resp, data } = await postFormAction(url, {
         assigned_to_id: userId || '',
       });
+      if (!(resp.ok && data && data.status === 'success')) {
+        const msg = (data && data.message) || "Couldn't change the rep. Please try again.";
+        if (typeof window.showAppToast === 'function') window.showAppToast(msg, 'error'); else alert(msg);
+        return;
+      }
       if (resp.ok && data.status === 'success') {
         const badge = document.getElementById('contact-assigned-badge');
         const badgeName = document.getElementById('contact-assigned-badge-name');
@@ -1369,6 +1426,57 @@
       bootContactChat();
     }
   })();
+</script>
+<script>
+// Conversation panel (below 1536px): slides in from the right; Esc, the X or the dark backdrop close it.
+(function () {
+  const drawer = document.getElementById('contact-chat-drawer');
+  const backdrop = document.getElementById('contact-chat-backdrop');
+  const openBtn = document.getElementById('contact-chat-open');
+  const dot = document.getElementById('contact-chat-new-dot');
+  const count = document.getElementById('contact-chat-open-count');
+  if (!drawer) return;
+  const sideBySide = () => window.matchMedia('(min-width: 1536px)').matches;
+  const scroller = drawer.closest('.overflow-y-auto');
+  const isOpen = () => !drawer.classList.contains('invisible') && !drawer.classList.contains('translate-x-full');
+  let hideTimer = null;
+
+  window.toggleContactChat = function (open) {
+    const show = typeof open === 'boolean' ? open : !isOpen();
+    clearTimeout(hideTimer);
+    if (show) {
+      drawer.classList.remove('invisible');                                         // show it, then slide it in
+      void drawer.offsetWidth;                                                      // (start the slide from off-screen)
+      drawer.classList.remove('translate-x-full');
+    } else {
+      drawer.classList.add('translate-x-full');                                     // slide out, then hide it
+      hideTimer = setTimeout(() => { if (!isOpen()) drawer.classList.add('invisible'); }, 220);
+    }
+    if (backdrop) backdrop.classList.toggle('hidden', !show);
+    if (openBtn) openBtn.setAttribute('aria-expanded', show ? 'true' : 'false');
+    if (scroller) scroller.style.overflowY = show && !sideBySide() ? 'hidden' : '';   // the page behind stays put
+    if (show) {
+      if (dot) dot.classList.add('hidden');
+      const win = document.getElementById('contact-chat-window');
+      if (win) win.scrollTop = win.scrollHeight;
+      const box = drawer.querySelector('#contact-reply-form textarea');
+      if (box && !sideBySide()) setTimeout(() => box.focus({ preventScroll: true }), 220);
+    }
+  };
+
+  // a message arriving while the panel is closed puts a dot on the button
+  window.noteContactChatActivity = function (m) {
+    if (count && m && !String(m.id).startsWith('temp')) count.textContent = String((parseInt(count.textContent, 10) || 0) + 1);
+    if (dot && !sideBySide() && !isOpen() && m && m.direction === 'inbound') dot.classList.remove('hidden');
+  };
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && isOpen() && !sideBySide()) window.toggleContactChat(false);
+  });
+  // growing the window to two columns: drop the overlay state
+  window.matchMedia('(min-width: 1536px)').addEventListener('change', (e) => { if (e.matches && isOpen()) window.toggleContactChat(false); });
+  if (location.hash === '#conversation') window.toggleContactChat(true);
+})();
 </script>
 {% endblock %}
 

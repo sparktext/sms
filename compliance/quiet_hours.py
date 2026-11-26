@@ -240,6 +240,9 @@ def allowed_in_zone(moment: datetime, zone: str, rule_: StateRule) -> bool:
 
 
 def allowed_for(where: LeadLocation, moment: datetime) -> bool:
+    from core.testmode import time_limits_off
+    if time_limits_off():
+        return True                                    # local test mode (never in production)
     if where.source == "unknown":
         return all(allowed_in_zone(moment, z, UNKNOWN_RULE) for z in where.zones)
     local_day = moment.astimezone(ZoneInfo(where.zones[0])).date()

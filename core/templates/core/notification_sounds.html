@@ -6,15 +6,15 @@
 <span class="text-gray-300">/</span>
 <span class="font-semibold text-gray-800 truncate">Notification Sounds</span>
 {% endblock %}
-{% block page_header_class %}max-w-5xl w-full mx-auto{% endblock %}
+{% block page_header_class %}max-w-5xl 2xl:max-w-none w-full mx-auto{% endblock %}
 {% block header_title %}Settings{% endblock %}
 {% block header_subtitle %}Choose the notification chime and audio alerts played across your agency when leads need attention{% endblock %}
 
 {% block content %}
-<div class="max-w-5xl mx-auto space-y-6 pb-16">
+<div class="max-w-5xl 2xl:max-w-none mx-auto space-y-6 pb-16">
 
   <!-- Settings Sub-navigation Tabs -->
-  <div class="flex items-center gap-2 border-b border-gray-200 pb-3 overflow-x-auto">
+  <div class="flex flex-wrap items-center gap-2 border-b border-gray-200 pb-3">
     <a
       href="{% url 'company_profile' %}"
       class="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition whitespace-nowrap shrink-0"
@@ -123,7 +123,7 @@
   {% endif %}
 
   <!-- Settings Form -->
-  <form id="notification-sound-form" method="post" enctype="multipart/form-data" action="{% url 'notification_sound_settings' %}" class="space-y-6">
+  <form id="notification-sound-form" method="post" enctype="multipart/form-data" action="{% url 'notification_sound_settings' %}" class="space-y-6 2xl:space-y-0 2xl:grid 2xl:grid-cols-2 2xl:gap-6 2xl:items-start">
     {% csrf_token %}
 
     <!-- Section 1: Curated Preset Sounds -->
@@ -307,7 +307,7 @@
 
     <!-- Action Bar -->
     {% if is_admin %}
-    <div class="flex items-center justify-end gap-3 pt-2">
+    <div class="flex items-center justify-end gap-3 pt-2 2xl:col-span-2">
       <button
         type="submit"
         id="btn-save-sounds"

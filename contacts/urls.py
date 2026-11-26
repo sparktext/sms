@@ -15,6 +15,7 @@ urlpatterns = [
     path("contacts/<int:contact_id>/delete/", views.delete_contact, name="delete"),
     path("contacts/<int:contact_id>/send/", views.send_contact_message, name="send_message"),
     path("contacts/<int:contact_id>/summary/", views.summarize_contact_conversation, name="summarize_conversation"),
+    path("contacts/<int:contact_id>/assign/", views.assign_contact_rep, name="assign_rep"),
 
     # CSV Import
     path("contacts/import/preview/", views.import_preview, name="import_preview"),

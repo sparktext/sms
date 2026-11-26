@@ -6,15 +6,15 @@
 <span class="text-gray-300">/</span>
 <span class="font-semibold text-gray-800 truncate">Company Profile</span>
 {% endblock %}
-{% block page_header_class %}max-w-5xl w-full mx-auto{% endblock %}
+{% block page_header_class %}max-w-5xl 2xl:max-w-none w-full mx-auto{% endblock %}
 {% block header_title %}Settings{% endblock %}
 {% block header_subtitle %}Manage your legal business entity, physical address, and notification contacts{% endblock %}
 
 {% block content %}
-<div class="max-w-5xl mx-auto space-y-6 pb-12">
+<div class="max-w-5xl 2xl:max-w-none mx-auto space-y-6 pb-12">
 
   <!-- Settings Sub-navigation Tabs -->
-  <div class="flex items-center gap-2 border-b border-gray-200 pb-3 overflow-x-auto">
+  <div class="flex flex-wrap items-center gap-2 border-b border-gray-200 pb-3">
     <a
       href="{% url 'company_profile' %}"
       class="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-lg text-brand-700 bg-brand-50 border border-brand-200 whitespace-nowrap shrink-0"
@@ -70,9 +70,11 @@
   {% endif %}
 
   <!-- Main Profile Form -->
-  <form method="post" action="{% url 'company_profile' %}" class="space-y-6">
+  <form method="post" action="{% url 'company_profile' %}" class="space-y-6 2xl:space-y-0 2xl:grid 2xl:grid-cols-2 2xl:gap-6 2xl:items-start">
     {% csrf_token %}
 
+    <!-- Business details -->
+    <div class="space-y-6 min-w-0">
     <!-- Entity & Brand Info -->
     <div class="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-2xs">
       <div class="p-5 border-b border-gray-100">
@@ -235,6 +237,49 @@
       </div>
     </div>
 
+    <!-- Carrier Registration Trust Status (10DLC) -->
+    <div class="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-2xs">
+      <div class="p-5 border-b border-gray-100 flex items-center justify-between">
+        <div>
+          <h3 class="text-sm font-bold text-gray-900 flex items-center gap-2">
+            <svg class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.14 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/>
+            </svg>
+            <span>Carrier 10DLC Trust Status</span>
+          </h3>
+          <p class="text-xs text-gray-500 mt-0.5">The Campaign Registry (TCR) brand and messaging campaign IDs.</p>
+        </div>
+        <a href="{% url 'compliance:dashboard' %}" class="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-800">
+          <span>Open Compliance</span>
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+          </svg>
+        </a>
+      </div>
+
+      <div class="p-5 grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+        <div class="p-3 bg-gray-50 rounded-xl border border-gray-100">
+          <span class="text-gray-400 block text-[11px] mb-1">Registration Status</span>
+          <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider {% if org.registration_status == 'approved' %}bg-emerald-50 text-emerald-700 border border-emerald-200{% elif org.registration_status == 'in_review' %}bg-amber-50 text-amber-700 border border-amber-200{% else %}bg-gray-100 text-gray-600{% endif %}">
+            {{ org.get_registration_status_display }}
+          </span>
+        </div>
+
+        <div class="p-3 bg-gray-50 rounded-xl border border-gray-100">
+          <span class="text-gray-400 block text-[11px] mb-1">TCR Brand SID</span>
+          <span class="font-mono text-gray-700 font-medium">{{ org.brand_sid|default:"Pending submission" }}</span>
+        </div>
+
+        <div class="p-3 bg-gray-50 rounded-xl border border-gray-100">
+          <span class="text-gray-400 block text-[11px] mb-1">10DLC Campaign SID</span>
+          <span class="font-mono text-gray-700 font-medium">{{ org.campaign_sid|default:"Pending submission" }}</span>
+        </div>
+      </div>
+    </div>
+    </div>
+
+    <!-- Calling setup -->
+    <div class="space-y-6 min-w-0">
     <!-- Time zone -->
     <div id="timezone" class="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-2xs scroll-mt-24">
       <div class="p-5 border-b border-gray-100">
@@ -362,49 +407,10 @@
         </div>
       </div>
     </div>
-
-    <!-- Carrier Registration Trust Status (10DLC) -->
-    <div class="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-2xs">
-      <div class="p-5 border-b border-gray-100 flex items-center justify-between">
-        <div>
-          <h3 class="text-sm font-bold text-gray-900 flex items-center gap-2">
-            <svg class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.14 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/>
-            </svg>
-            <span>Carrier 10DLC Trust Status</span>
-          </h3>
-          <p class="text-xs text-gray-500 mt-0.5">The Campaign Registry (TCR) brand and messaging campaign IDs.</p>
-        </div>
-        <a href="{% url 'compliance:dashboard' %}" class="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-800">
-          <span>Open Compliance</span>
-          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-          </svg>
-        </a>
-      </div>
-
-      <div class="p-5 grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
-        <div class="p-3 bg-gray-50 rounded-xl border border-gray-100">
-          <span class="text-gray-400 block text-[11px] mb-1">Registration Status</span>
-          <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider {% if org.registration_status == 'approved' %}bg-emerald-50 text-emerald-700 border border-emerald-200{% elif org.registration_status == 'in_review' %}bg-amber-50 text-amber-700 border border-amber-200{% else %}bg-gray-100 text-gray-600{% endif %}">
-            {{ org.get_registration_status_display }}
-          </span>
-        </div>
-
-        <div class="p-3 bg-gray-50 rounded-xl border border-gray-100">
-          <span class="text-gray-400 block text-[11px] mb-1">TCR Brand SID</span>
-          <span class="font-mono text-gray-700 font-medium">{{ org.brand_sid|default:"Pending submission" }}</span>
-        </div>
-
-        <div class="p-3 bg-gray-50 rounded-xl border border-gray-100">
-          <span class="text-gray-400 block text-[11px] mb-1">10DLC Campaign SID</span>
-          <span class="font-mono text-gray-700 font-medium">{{ org.campaign_sid|default:"Pending submission" }}</span>
-        </div>
-      </div>
     </div>
 
     {% if is_admin %}
-    <div class="flex items-center justify-end gap-3 pt-2">
+    <div class="flex items-center justify-end gap-3 pt-2 2xl:col-span-2">
       <button
         type="submit"
         class="px-5 py-2.5 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-2xs cursor-pointer flex items-center gap-2"

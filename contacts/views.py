@@ -736,6 +736,33 @@ def send_contact_message(request, contact_id):
 
 @login_required
 @require_POST
+def assign_contact_rep(request, contact_id):
+    """Assigned rep from the contact page. A contact who has never texted has no conversation yet, so start it on
+    the main business number (what "Message Contact" does) and assign that; their first text then goes to the rep."""
+    from django.db.models import F
+
+    from messaging.models import Conversation, PhoneNumber
+    from messaging.views import update_conversation_assigned_to
+
+    org = request.user.organization
+    if not org:
+        return JsonResponse({"status": "error", "message": "Your account isn't linked to a workspace."}, status=403)
+    contact = get_object_or_404(Contact, id=contact_id, organization=org)
+    conversation = contact.conversations.order_by(F("last_message_at").desc(nulls_last=True), "-id").first()
+    if conversation is None:
+        phone_number = PhoneNumber.objects.filter(organization=org, is_active=True).order_by("-is_default", "id").first()
+        if phone_number is None:
+            return JsonResponse({"status": "error", "message": "Add an active phone number first (Settings → Phone Numbers)."},
+                                status=400)
+        conversation, _ = Conversation.objects.get_or_create(
+            organization=org, contact=contact, phone_number=phone_number,
+            defaults={"status": Conversation.Status.OPEN},
+        )
+    return update_conversation_assigned_to(request, conversation.id)
+
+
+@login_required
+@require_POST
 def summarize_contact_conversation(request, contact_id):
     """
     Generates a concise AI summary of the contact's SMS conversation history using Gemma.

@@ -3,11 +3,7 @@
 {% block title %}Dashboard · SparkText{% endblock %}
 {% block header_title %}Welcome, {{ request.user.first_name|default:request.user.email }}{% endblock %}
 {% block header_subtitle %}
-  {% if is_agent %}
-    Live customer inquiries and urgent takeovers.
-  {% else %}
-    Real-time messaging, lead routing, and team performance overview.
-  {% endif %}
+  
 {% endblock %}
 
 {% block header_actions %}
@@ -16,10 +12,6 @@
       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
       <span>Open Inbox</span>
     </a>
-    <span class="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 rounded-xl border border-emerald-200/80">
-      <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-      Live
-    </span>
   {% else %}
     <!-- Admin & Owner Quick Actions -->
     <a href="{% url 'messaging:inbox' %}" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 shadow-2xs transition">
@@ -30,12 +22,10 @@
       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
       <span>Team &amp; Routing</span>
     </a>
-    <span class="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 rounded-xl border border-emerald-200/80">
-      <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-      Live
-    </span>
   {% endif %}
 {% endblock %}
+
+{# Wide screens (27-32" monitors) use the space instead of a narrow centred strip #}
 
 {% block content %}
 <div class="space-y-6 pb-12">
@@ -49,18 +39,18 @@
           {{ percent }}%
         </div>
         <div class="min-w-0">
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
             <h2 class="text-xs font-bold text-gray-900 uppercase tracking-wider">Finish setting up SparkText</h2>
             <span class="text-[11px] text-gray-500 font-medium">({{ steps_done }} of {{ steps_total }} completed)</span>
           </div>
           {% if next_step %}
-            <p class="text-xs text-gray-600 mt-0.5 truncate">
+            <p class="text-xs text-gray-600 mt-0.5 line-clamp-2 sm:line-clamp-none sm:truncate">
               <span class="font-medium text-gray-900">Next:</span> {{ next_step.title }} — <span class="text-gray-500">{{ next_step.desc }}</span>
             </p>
           {% endif %}
         </div>
       </div>
-      <div class="flex items-center gap-2 shrink-0">
+      <div class="flex flex-wrap items-center gap-2 shrink-0">
         {% if next_step.url %}
           <a href="{{ next_step.url }}" class="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-brand-600 hover:bg-brand-700 text-white transition shadow-2xs">
             <span>Continue Setup</span>
@@ -100,7 +90,7 @@
   <!-- ============================================================ -->
   <!-- 4 MINIMALIST METRIC CARDS                                    -->
   <!-- ============================================================ -->
-  <section class="grid grid-cols-2 lg:grid-cols-4 gap-4" aria-label="Metrics">
+  <section class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4" aria-label="Metrics">
     {% if is_agent %}
       <!-- Agent Metric 1: Needs Human -->
       <a
@@ -259,14 +249,15 @@
   </section>
 
   <!-- ============================================================ -->
-  <!-- MAIN 2-COLUMN SECTION                                        -->
+  <!-- MAIN SECTION: phone 1 column · laptop queue + side column ·    -->
+  <!-- big monitors queue + 2 side columns                            -->
   <!-- ============================================================ -->
-  <div class="grid lg:grid-cols-3 gap-6 items-start">
+  <div class="grid grid-cols-1 lg:grid-cols-3 2xl:grid-cols-4 gap-5 sm:gap-6 items-start">
 
-    <!-- Column 1 (2 cols): Priority Attention Queue -->
-    <section class="lg:col-span-2 space-y-4">
-      <div class="bg-white border border-gray-200/90 rounded-2xl shadow-2xs overflow-hidden">
-        <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-4">
+    <!-- Priority Attention Queue -->
+    <section class="lg:col-span-2 min-w-0 space-y-4">
+      <div class="@container bg-white border border-gray-200/90 rounded-2xl shadow-2xs overflow-hidden">
+        <div class="px-4 sm:px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-4">
           <div class="flex items-center gap-2.5">
             <h2 class="text-sm font-bold text-gray-900 tracking-tight">Priority Takeover Queue</h2>
             <span
@@ -288,7 +279,7 @@
         <div id="urgent-queue-container" class="divide-y divide-gray-100">
           {% if urgent_conversations %}
             {% for conv in urgent_conversations %}
-                <div class="p-4 sm:p-5 hover:bg-slate-50/70 transition flex flex-col sm:flex-row sm:items-center justify-between gap-4 group">
+                <div class="min-w-0 p-4 sm:p-5 hover:bg-slate-50/70 transition flex flex-col @xl:flex-row @xl:items-center justify-between gap-3 @xl:gap-4 group">
                   <div class="flex items-start gap-3.5 min-w-0 flex-1">
                     <div class="w-10 h-10 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center shrink-0 border border-slate-200/80">
                       {% if conv.contact.first_name %}{{ conv.contact.first_name|slice:":1"|upper }}{% elif conv.contact.last_name %}{{ conv.contact.last_name|slice:":1"|upper }}{% else %}#FF{% endif %}
@@ -338,7 +329,7 @@
                   </div>
 
                   <!-- Action button -->
-                  <div class="flex items-center gap-2.5 shrink-0 sm:self-center">
+                  <div class="flex items-center justify-between @xl:justify-start gap-2.5 shrink-0 pl-[3.375rem] @xl:pl-0 @xl:self-center">
                     <span class="text-[11px] text-gray-400 font-mono">
                       {{ conv.last_message_at|timesince }} ago
                     </span>
@@ -381,10 +372,11 @@
       </div>
     </section>
 
-    <!-- Column 2 (1 col): Recent Conversations & Fast Navigation -->
-    <aside class="space-y-5">
+    <!-- Side: recent chats | team & shortcuts. One column (under the queue on phones and tablets, next to it on
+         laptops); two columns on big monitors -->
+    <aside class="min-w-0 lg:col-span-1 2xl:col-span-2 grid grid-cols-1 2xl:grid-cols-2 gap-5 items-start">
       <!-- Recent Conversations Card -->
-      <div class="bg-white border border-gray-200/90 rounded-2xl p-4 sm:p-5 shadow-2xs">
+      <div class="min-w-0 bg-white border border-gray-200/90 rounded-2xl p-4 sm:p-5 shadow-2xs">
         <div class="flex items-center justify-between pb-3 border-b border-gray-100">
           <div>
             <h3 class="text-xs font-bold text-gray-900 uppercase tracking-wider">
@@ -446,13 +438,14 @@
           {% endif %}
       </div>
 
+      <div class="min-w-0 space-y-5">
       {% if not is_agent %}
         <!-- Admin / Owner Team Lead Routing Snapshot -->
         <div class="bg-white border border-gray-200/90 rounded-2xl p-4 sm:p-5 shadow-2xs space-y-3">
           <div class="flex items-center justify-between pb-2 border-b border-gray-100">
             <div>
               <h3 class="text-xs font-bold text-gray-900 uppercase tracking-wider">Team Availability</h3>
-              <p class="text-[11px] text-gray-500">Live lead distribution status</p>
+              <p class="text-[11px] text-gray-500">Who's taking leads right now</p>
             </div>
             <a href="{% url 'team_members' %}" class="text-xs font-semibold text-brand-600 hover:text-brand-800 transition">
               Manage →
@@ -533,6 +526,7 @@
             <span>→</span>
           </a>
         </div>
+      </div>
       </div>
     </aside>
 
@@ -711,7 +705,7 @@
       }
 
       html += `
-        <div class="p-4 sm:p-5 hover:bg-slate-50/70 transition flex flex-col sm:flex-row sm:items-center justify-between gap-4 group">
+        <div class="min-w-0 p-4 sm:p-5 hover:bg-slate-50/70 transition flex flex-col @xl:flex-row @xl:items-center justify-between gap-3 @xl:gap-4 group">
           <div class="flex items-start gap-3.5 min-w-0 flex-1">
             <div class="w-10 h-10 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center shrink-0 border border-slate-200/80">
               ${initial}
@@ -726,7 +720,7 @@
               <p class="text-xs text-gray-600 mt-1 line-clamp-1">"${c.last_message || "Awaiting response..."}"</p>
             </div>
           </div>
-          <div class="flex items-center gap-2.5 shrink-0 sm:self-center">
+          <div class="flex items-center justify-between @xl:justify-start gap-2.5 shrink-0 pl-[3.375rem] @xl:pl-0 @xl:self-center">
             <span class="text-[11px] text-gray-400 font-mono">${c.last_message_time || "just now"}</span>
             ${actionBtn}
           </div>

@@ -3,31 +3,31 @@
 {% block title %}Contacts · SparkText{% endblock %}
 
 {% block header_title %}Contacts{% endblock %}
-{% block header_subtitle %}Manage subscriber phone numbers, opt-in consent status, and customer properties{% endblock %}
+{% block header_subtitle %}{% endblock %}
 
 {% block header_actions %}
-<button type="button" onclick="openApiModal()" class="inline-flex items-center gap-2 px-3 py-2 text-xs sm:text-sm font-semibold text-brand-700 bg-brand-50 border border-brand-200 rounded-xl hover:bg-brand-100 hover:text-brand-900 transition shadow-xs cursor-pointer whitespace-nowrap shrink-0">
-  <svg class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+<button type="button" onclick="openApiModal()" class="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-brand-700 bg-brand-50 border border-brand-200 rounded-xl hover:bg-brand-100 hover:text-brand-900 transition shadow-xs cursor-pointer whitespace-nowrap shrink-0">
+  <svg class="w-3.5 h-3.5 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
   </svg>
   <span class="hidden sm:inline">API / Webhook</span>
   <span class="sm:hidden">API</span>
 </button>
-<button type="button" onclick="openCsvModal()" class="inline-flex items-center gap-2 px-3 py-2 text-xs sm:text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 hover:text-gray-900 transition shadow-xs cursor-pointer whitespace-nowrap shrink-0">
-  <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+<button type="button" onclick="openCsvModal()" class="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 hover:text-gray-900 transition shadow-xs cursor-pointer whitespace-nowrap shrink-0">
+  <svg class="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
   </svg>
   <span class="hidden sm:inline">Import CSV / Excel</span>
   <span class="sm:hidden">Import</span>
 </button>
-<a id="exportContactsLink" href="{% url 'contacts:export_contacts' %}{% if request.GET.urlencode %}?{{ request.GET.urlencode }}{% endif %}" class="inline-flex items-center gap-2 px-3 py-2 text-xs sm:text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 hover:text-gray-900 transition shadow-xs cursor-pointer whitespace-nowrap shrink-0 hidden sm:inline-flex" title="Export current list to CSV">
-  <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+<a id="exportContactsLink" href="{% url 'contacts:export_contacts' %}{% if request.GET.urlencode %}?{{ request.GET.urlencode }}{% endif %}" class="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 hover:text-gray-900 transition shadow-xs cursor-pointer whitespace-nowrap shrink-0 hidden sm:inline-flex" title="Export current list to CSV">
+  <svg class="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
   </svg>
   Export CSV
 </a>
-<button type="button" onclick="openAddContactModal()" class="inline-flex items-center gap-2 px-3 py-2 text-xs sm:text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-sm shadow-brand-600/30 cursor-pointer whitespace-nowrap shrink-0">
-  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+<button type="button" onclick="openAddContactModal()" class="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition shadow-sm shadow-brand-600/30 cursor-pointer whitespace-nowrap shrink-0">
+  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
   </svg>
   <span class="hidden sm:inline">Add Contact</span>
@@ -39,7 +39,7 @@
 {% csrf_token %}
 
 <!-- Sub-navigation Tabs -->
-<div class="flex items-center gap-2 border-b border-gray-200 pb-3 mb-6 overflow-x-auto">
+<div class="flex flex-wrap items-center gap-2 border-b border-gray-200 pb-3 mb-6">
   <a href="{% url 'contacts:list' %}" class="px-3.5 py-1.5 text-xs font-semibold text-brand-700 bg-brand-50 rounded-lg border border-brand-200 whitespace-nowrap shrink-0">
     All Contacts ({{ status_counts.all }})
   </a>
@@ -49,12 +49,6 @@
   <a href="{% url 'contacts:fields' %}" class="px-3.5 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-900 rounded-lg hover:bg-gray-100 transition whitespace-nowrap shrink-0">
     Custom Fields ({{ contact_fields|length }})
   </a>
-  <button type="button" onclick="openApiModal()" class="px-3.5 py-1.5 text-xs font-semibold text-gray-500 hover:text-gray-900 rounded-lg hover:bg-gray-100 transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0">
-    <svg class="w-3.5 h-3.5 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-    </svg>
-    API & Webhooks
-  </button>
 </div>
 
 <!-- KPI / Status Pills -->
@@ -468,7 +462,7 @@
             <p class="text-xs text-gray-500 mb-3">Map each column from your CSV file to a contact field. Exactly one <strong>Phone</strong> column is required.</p>
             
             <div class="max-h-64 overflow-y-auto border border-gray-200 rounded-xl">
-              <table class="w-full text-left text-xs border-collapse">
+              <table class="rtable w-full text-left text-xs border-collapse">
                 <thead class="bg-gray-50 sticky top-0 border-b border-gray-200">
                   <tr>
                     <th class="py-2.5 px-3 font-semibold text-gray-600">CSV Header</th>
@@ -572,7 +566,7 @@
           <div id="csvErrorsSection" class="hidden">
             <h5 class="text-xs font-bold text-gray-700 mb-2">Errors Encountered</h5>
             <div class="max-h-40 overflow-y-auto border border-rose-200 rounded-xl bg-rose-50/50 p-2 text-xs">
-              <table class="w-full text-left">
+              <table class="rtable w-full text-left">
                 <thead>
                   <tr class="text-rose-800 font-semibold border-b border-rose-200/60 pb-1">
                     <th class="p-1">Row</th>

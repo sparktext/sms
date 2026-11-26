@@ -64,6 +64,10 @@ class CalendarEvent(models.Model):
     answered_at = models.DateTimeField(null=True, blank=True, help_text="When someone clicked Call")
     ignored_by = models.JSONField(default=list, blank=True, help_text="Ids of team members who clicked Ignore")
     escalated_at = models.DateTimeField(null=True, blank=True, help_text="When owners/admins were told it's waiting")
+    asks = models.PositiveSmallIntegerField(default=0, help_text="How many times they asked for a call right now")
+    last_asked_at = models.DateTimeField(null=True, blank=True, help_text="When they last asked (rings again)")
+    last_ask_message_id = models.BigIntegerField(null=True, blank=True,
+                                                 help_text="The text that last asked (so one text counts once)")
     reminder_sent_at = models.DateTimeField(null=True, blank=True)
     start_alert_sent_at = models.DateTimeField(null=True, blank=True)
     created_by = models.ForeignKey(

@@ -135,7 +135,7 @@ class HotLeadTests(TeamCallTestCase):
         send_due_reminders(now=event.start_at + timedelta(minutes=10))
         told = {uid for uid, p in self.sent if p.get("reminder", {}).get("stage") == "escalated"}
         self.assertEqual(told, {self.owner.id, admin.id})
-        self.assertIn("Nobody has called this hot lead", self.call_notes_any(conv))
+        self.assertIn("Nobody has reached this hot lead 10 minutes after they asked", self.call_notes_any(conv))
         self.sent.clear()
         send_due_reminders(now=event.start_at + timedelta(minutes=12))
         self.assertFalse([p for _, p in self.sent if p.get("reminder", {}).get("stage") == "escalated"])
@@ -185,6 +185,7 @@ class HotLeadTests(TeamCallTestCase):
         self.client.force_login(self.agent)
         html = self.client.get("/calendar/").content.decode()
         self.assertIn('id="hot-lead-banner"', html)
+        self.assertIn("📋 Copy number", html)                          # copy the lead's number to dial it
         self.assertIn("urgent_refresh", html)
 
     # ---- after 10 minutes nobody called: owners and admins ring too (works without the live connection)
@@ -228,6 +229,58 @@ class HotLeadTests(TeamCallTestCase):
         self.assertIn("Hot lead still waiting", html)              # in the bell's starting list
         self.client.force_login(self.agent)                        # agents aren't escalated to
         self.assertNotIn("Hot lead still waiting", self.client.get("/calendar/").content.decode())
+
+    # ---- asking again: they weren't reached, so it rings again
+    def test_asking_again_after_someone_clicked_call_rings_them_again(self, _):
+        conv = self.conv("CA")
+        self.now_call(conv, "call me now")
+        event = CalendarEvent.objects.get(conversation=conv)
+        calls.answer_call(event, self.agent2)
+        self.assertEqual(self.hot(self.agent2), [])                        # taken: nothing ringing
+        reply = self.say(conv, "call me now", "I've notified our team!")   # ...but they're still waiting
+        event.refresh_from_db()
+        self.assertEqual((event.asks, event.user, event.answered_at), (2, self.agent2, None))
+        [lead] = self.hot(self.agent2)
+        self.assertEqual((lead["ring"], lead["asks"]), (True, 2))           # Bea's screen rings again
+        self.assertNotEqual(lead["ring_key"], lead["asked_at_ms"])         # a fresh 2-minute ring
+        self.assertEqual(reply, "Sorry for the wait! Our agent is trying to reach you now. Please keep your phone close.")
+        self.assertIn("They asked again for a call right now (2nd time). Ringing Bea again.", self.call_notes_any(conv))
+        self.assertEqual(CalendarEvent.objects.filter(conversation=conv).count(), 1)
+
+    def test_asking_again_while_nobody_took_it_rings_everyone_again(self, _):
+        conv = self.conv("CA")
+        self.now_call(conv, "call me now")
+        event = CalendarEvent.objects.get(conversation=conv)
+        calls.ignore_call(event, self.agent)                               # Aaron ignored it
+        reply = self.say(conv, "hello?? call me now", "On it!")
+        self.assertTrue(self.hot(self.agent)[0]["ring"])                   # rings for Aaron again
+        self.assertIn("alerted our team again", reply)
+
+    def test_the_third_ask_alerts_owners_at_once(self, _):
+        conv = self.conv("CA")
+        self.now_call(conv, "call me now")
+        self.say(conv, "call me now", "Ok!")
+        event = CalendarEvent.objects.get(conversation=conv)
+        self.assertIsNone(event.escalated_at)
+        self.sent.clear()
+        self.say(conv, "CALL ME NOW", "Ok!")
+        event.refresh_from_db()
+        self.assertEqual(event.asks, 3)
+        self.assertIsNotNone(event.escalated_at)                           # not waiting for the 10 minutes
+        self.assertIn(self.owner.id, {uid for uid, p in self.sent if p.get("reminder", {}).get("stage") == "escalated"})
+        self.assertIn("Nobody has reached this hot lead after asking 3 times", self.call_notes_any(conv))
+
+    def test_one_text_counts_once_even_though_it_is_handled_twice(self, _):
+        conv = self.conv("CA")
+        self.inbound(conv, "call me now", "SM_once_1")                     # rings on arrival...
+        self.run_pending_job(conv)                                         # ...then Gemma's reply
+        self.assertEqual(CalendarEvent.objects.get(conversation=conv).asks, 1)
+        self.inbound(conv, "call me now please", "SM_once_2")
+        self.run_pending_job(conv)
+        event = CalendarEvent.objects.get(conversation=conv)
+        self.assertEqual(event.asks, 2)
+        reply = Message.objects.filter(conversation=conv, sender_type=Message.SenderType.AI).last().body
+        self.assertIn("Sorry for the wait", reply)
 
     # ---- ringing starts the moment the text arrives (before the AI reply)
     def inbound(self, conv, body, sid):

@@ -165,6 +165,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'messaging.context_processors.unread_inbox_count',
+                'messaging.context_processors.test_mode',
             ],
         },
     },
@@ -175,6 +176,9 @@ ASGI_APPLICATION = 'sparktext.asgi.application'
 
 # True under `manage.py test` AND under pytest (pytest-django imports pytest before loading settings).
 TESTING = "test" in sys.argv[1:2] or "pytest" in sys.modules
+# Local test mode (core/testmode.py): TEST_IGNORE_TIME_LIMITS=1 turns off call hours, closed days, the legal calling
+# window and campaign texting hours. Only with DEBUG=True and never under tests: it can't be on in production.
+TEST_IGNORE_TIME_LIMITS = bool(DEBUG) and not TESTING and env.bool("TEST_IGNORE_TIME_LIMITS", default=False)
 if TESTING:
     CHANNEL_LAYERS = {
         "default": {

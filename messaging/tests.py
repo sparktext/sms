@@ -1157,6 +1157,31 @@ class MessagingTests(TestCase):
         self.assertFalse(bdata["validation_ok"])
         self.assertTrue(bdata["needs_human"])
 
+    def test_ai_sandbox_works_with_no_qualification_questions(self):
+        """With no questions left to ask, the prompt checks the chat history; the sandbox's practice chat has none
+        (it is never saved), which used to crash the request and show "Network error" on the settings page."""
+        from unittest.mock import patch
+
+        from messaging.ai.base import AIResponse
+
+        self.client.force_login(self.user_a)
+        fake_client = MagicMock()
+        fake_client.model = "mock-gemma"
+        fake_client.generate.return_value = AIResponse(
+            text='{"reply": "Sure! Someone from our team will call you in a few minutes.", "intent": "call_request", '
+                 '"collected": {}, "needs_human": false, "handoff_reason": null}',
+            input_tokens=30, output_tokens=15, latency_ms=50,
+        )
+        msg_before, conv_before = Message.objects.count(), Conversation.objects.count()
+        with patch("messaging.ai.pipeline.get_ai_client", return_value=fake_client):
+            for text in ("call me right now", "What are your hours?"):
+                res = self.client.post("/ai-assistant/test/", {"test_message": text, "qualification_questions_json": "[]",
+                                                               "max_reply_chars": "160"},
+                                       HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+                self.assertEqual(res.status_code, 200, text)
+                self.assertEqual(res.json()["status"], "ok", text)
+        self.assertEqual((Message.objects.count(), Conversation.objects.count()), (msg_before, conv_before))
+
     def test_inbound_sms_notification_toast_only_for_needs_human(self):
         """Inbound SMS broadcasts toast ONLY when conversation is needs_human, otherwise silent."""
         with patch("messaging.ws_broadcast.broadcast_inbox_event") as mock_broadcast:

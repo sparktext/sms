@@ -11,14 +11,15 @@
 {% endblock %}
 
 {% block page_header %}{% endblock %}
+{% block main_width %}max-w-none{% endblock %}
 
 {% block content %}
-<div class="h-[calc(100vh-6rem)] sm:h-[calc(100vh-7rem)] -my-2 -mx-3 sm:-mx-6 lg:-mx-8 bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden flex flex-col md:flex-row">
+<div class="h-[calc(100vh-6rem)] sm:h-[calc(100vh-108px)] lg:h-[calc(100vh-92px)] -my-2 -mx-3 sm:m-0 lg:-my-4 bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden flex flex-col lg:flex-row">
 
   <!-- ============================================================ -->
   <!-- LEFT PANE: CONTACTS & CONVERSATIONS LIST (WhatsApp style)    -->
   <!-- ============================================================ -->
-  <div class="w-full md:w-80 lg:w-96 border-r border-gray-200 flex flex-col shrink-0 bg-white {% if conversation %}hidden md:flex{% else %}flex{% endif %} h-full">
+  <div id="inbox-list-pane" class="w-full lg:w-80 2xl:w-96 border-r border-gray-200 flex-col shrink-0 bg-white {% if conversation %}hidden{% else %}flex{% endif %} lg:flex h-full">
     
     <!-- Top Left Header & Filter Tabs -->
     <div class="p-3.5 border-b border-gray-100 bg-gray-50/70 shrink-0 space-y-2.5">
@@ -72,14 +73,14 @@
       </div>
 
       <!-- Main Status Tabs (Clean 3-column equal grid, instant AJAX switching, no page reload) -->
-      <div class="grid grid-cols-3 gap-1 pt-0.5 select-none" id="inbox-status-tabs">
-        <button type="button" onclick="switchStatusTab('open')" id="tab-btn-open" class="text-center py-1.5 px-1 rounded-lg text-[11px] font-semibold transition whitespace-nowrap cursor-pointer {% if status_filter == 'open' %}bg-slate-900 text-white shadow-2xs{% else %}bg-white border border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-100{% endif %}">
+      <div class="flex gap-1 pt-0.5 select-none" id="inbox-status-tabs">
+        <button type="button" onclick="switchStatusTab('open')" id="tab-btn-open" class="flex-auto min-w-0 truncate text-center py-1.5 px-2 rounded-lg text-[11px] font-semibold transition cursor-pointer {% if status_filter == 'open' %}bg-slate-900 text-white shadow-2xs{% else %}bg-white border border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-100{% endif %}">
           Open (<span id="tab-count-open">{{ counts.open }}</span>)
         </button>
-        <button type="button" onclick="switchStatusTab('needs_human')" id="tab-btn-needs_human" class="text-center py-1.5 px-1 rounded-lg text-[11px] font-semibold transition truncate cursor-pointer {% if status_filter == 'needs_human' %}bg-amber-600 text-white shadow-2xs{% else %}bg-white border border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-100{% endif %}" title="Needs Human Attention ({{ counts.needs_human }})">
+        <button type="button" onclick="switchStatusTab('needs_human')" id="tab-btn-needs_human" class="flex-auto min-w-0 truncate text-center py-1.5 px-2 rounded-lg text-[11px] font-semibold transition cursor-pointer {% if status_filter == 'needs_human' %}bg-amber-600 text-white shadow-2xs{% else %}bg-white border border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-100{% endif %}" title="Needs Human Attention ({{ counts.needs_human }})">
           Needs Human (<span id="tab-count-needs_human">{{ counts.needs_human }}</span>)
         </button>
-        <button type="button" onclick="switchStatusTab('closed')" id="tab-btn-closed" class="text-center py-1.5 px-1 rounded-lg text-[11px] font-semibold transition whitespace-nowrap cursor-pointer {% if status_filter == 'closed' %}bg-slate-900 text-white shadow-2xs{% else %}bg-white border border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-100{% endif %}">
+        <button type="button" onclick="switchStatusTab('closed')" id="tab-btn-closed" class="flex-auto min-w-0 truncate text-center py-1.5 px-2 rounded-lg text-[11px] font-semibold transition cursor-pointer {% if status_filter == 'closed' %}bg-slate-900 text-white shadow-2xs{% else %}bg-white border border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-100{% endif %}">
           Closed (<span id="tab-count-closed">{{ counts.closed }}</span>)
         </button>
       </div>
@@ -654,6 +655,13 @@
     }
   });
 
+  // The message box starts one line tall and grows with the text (up to its max height)
+  function growComposer(textarea) {
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    textarea.style.height = textarea.scrollHeight + 2 + "px";
+  }
+
   // AI Suggestion Draft Actions
   function applyAIDraftToComposer() {
     const draftText = document.getElementById("ai-draft-text")?.textContent || "";
@@ -845,12 +853,12 @@
       if (!btn) return;
       if (s === newStatus) {
         if (s === "needs_human") {
-          btn.className = "text-center py-1.5 px-1 rounded-lg text-[11px] font-semibold transition truncate cursor-pointer bg-amber-600 text-white shadow-2xs";
+          btn.className = "flex-auto min-w-0 truncate text-center py-1.5 px-2 rounded-lg text-[11px] font-semibold transition cursor-pointer bg-amber-600 text-white shadow-2xs";
         } else {
-          btn.className = "text-center py-1.5 px-1 rounded-lg text-[11px] font-semibold transition whitespace-nowrap cursor-pointer bg-slate-900 text-white shadow-2xs";
+          btn.className = "flex-auto min-w-0 truncate text-center py-1.5 px-2 rounded-lg text-[11px] font-semibold transition cursor-pointer bg-slate-900 text-white shadow-2xs";
         }
       } else {
-        btn.className = "text-center py-1.5 px-1 rounded-lg text-[11px] font-semibold transition whitespace-nowrap cursor-pointer bg-white border border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-100";
+        btn.className = "flex-auto min-w-0 truncate text-center py-1.5 px-2 rounded-lg text-[11px] font-semibold transition cursor-pointer bg-white border border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-100";
       }
     });
 
@@ -1383,7 +1391,7 @@
     const toggleBtn = document.getElementById("btn-toggle-dossier");
     if (!panel) return;
 
-    const isMobile = window.innerWidth < 768; // md breakpoint
+    const isMobile = window.innerWidth < 1280; // below xl the panel is a slide-over
 
     if (isOpen) {
       panel.style.setProperty("display", "flex", "important");
@@ -1420,7 +1428,7 @@
     if (panel) {
       const saved = localStorage.getItem("sparktext_dossier");
       // Keep closed by default unless explicitly opened by user
-      const shouldBeOpen = saved === "open";
+      const shouldBeOpen = saved === "open" && window.innerWidth >= 1280;  // never cover the chat on its own
       updateDossierUI(shouldBeOpen);
     }
     renderSnippets();
@@ -1618,16 +1626,25 @@
   }
 
   // --- MOBILE BACK BUTTON HANDLER ---
+  function showInboxListPane(showList) {
+    const list = document.getElementById("inbox-list-pane");
+    if (list) {
+      list.classList.toggle("hidden", !showList);
+      list.classList.toggle("flex", showList);
+    }
+    const container = document.getElementById("inbox-chat-pane-container");
+    const middlePane = container ? container.querySelector(".flex-1") : null;
+    if (middlePane) {
+      middlePane.classList.toggle("hidden", showList);
+      middlePane.classList.toggle("flex", !showList);
+    }
+  }
+
   function handleMobileBack(event) {
-    if (window.innerWidth < 768) {
+    if (window.innerWidth < 1024) {
       event.preventDefault();
-      const container = document.getElementById("inbox-chat-pane-container");
-      if (container) {
-        const middlePane = container.querySelector(".flex-1");
-        if (middlePane) {
-          middlePane.classList.add("hidden");
-        }
-      }
+      showInboxListPane(true);
+      updateDossierUI(false);
       syncInboxBreadcrumb("");
       window.history.pushState({}, "", "{% url 'messaging:inbox' %}");
     }
@@ -2393,6 +2410,7 @@
 
     if (textarea && charCounter) {
       textarea.addEventListener("input", function() {
+        growComposer(this);
         const len = this.value.length;
         let segments = 1;
         if (len > 160) {
@@ -2441,6 +2459,7 @@
 
         // Clear input immediately and render optimistic sending bubble
         textarea.value = "";
+        growComposer(textarea);
         if (charCounter) charCounter.textContent = "0 / 160 characters · 1 segment";
         explicitlyMarkedUnreadConvId = null;
 
@@ -2524,7 +2543,7 @@
     renderSnippets();
 
     const savedDossier = localStorage.getItem("sparktext_dossier");
-    updateDossierUI(savedDossier === "open");
+    updateDossierUI(savedDossier === "open" && window.innerWidth >= 1280);
 
     if (convId) {
       initChatWebSocket(convId);
@@ -2587,6 +2606,7 @@
         container.innerHTML = html;
         container.style.opacity = "1";
       }
+      showInboxListPane(false);
       initChatPane(numId);
     })
     .catch(err => {
@@ -2634,6 +2654,8 @@
 
     if (targetConvId && parseInt(targetConvId, 10) !== currentConvId) {
       selectConversation(targetConvId, window.location.href, false);
+    } else if (!targetConvId && window.innerWidth < 1024) {
+      showInboxListPane(true);  // back to the list on phones and tablets
     }
   });
 
